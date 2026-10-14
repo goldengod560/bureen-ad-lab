@@ -1,6 +1,6 @@
 -- Bureen Ad Lab: database setup
 -- Paste this whole file into Supabase > SQL Editor > New query, then press Run.
--- Safe to run once on a new, empty project.
+-- Safe to run again: it won't duplicate anything.
 
 create extension if not exists "pgcrypto";
 
@@ -142,6 +142,12 @@ begin
   end loop;
 end $$;
 
+-- API access: only signed-in users can touch the tables. The public (anon) key gets nothing.
+-- Needed because "Automatically expose new tables" is turned off for this project.
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on all tables in schema public to authenticated;
+revoke all on all tables in schema public from anon;
+
 -- Private storage for ad images and videos
 insert into storage.buckets (id, name, public, file_size_limit)
 values ('ad-media', 'ad-media', false, 52428800)
@@ -153,10 +159,12 @@ create policy "signed in media access" on storage.objects
   using (bucket_id = 'ad-media') with check (bucket_id = 'ad-media');
 
 -- Starting products (rules and costs get filled in by the app)
-insert into products (name, kind, sort) values
+insert into products (name, kind, sort)
+select * from (values
   ('Crew Neck', 'crew', 1),
   ('V-Neck', 'vneck', 2),
   ('Long Sleeve', 'long', 3),
   ('Thermal', 'thermal', 4),
   ('Tank Top', 'tank', 5)
-on conflict do nothing;
+) as v(name, kind, sort)
+where not exists (select 1 from products);
