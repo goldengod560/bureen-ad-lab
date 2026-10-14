@@ -15,6 +15,7 @@ export const DEFAULT_RULES = {
   stage2Min: 5, stage2Max: 7,
   raiseStep: 20,
   weekendLock: true,
+  benchTarget: 2,
 };
 
 export const DEFAULT_ECON = {
@@ -30,14 +31,22 @@ export const DEFAULT_ECON = {
 };
 
 export const STAGES = [
-  { key: 'idea', label: 'Ideas', hint: 'Briefs, remixes, recycled' },
-  { key: 'review', label: 'Review', hint: 'Check before launch' },
-  { key: 'ready', label: 'Ready', hint: 'Waiting for a slot' },
+  { key: 'untested', label: 'Untested', hint: 'Ideas and ready to launch' },
   { key: 'testing', label: 'Testing', hint: 'Live in Meta' },
-  { key: 'results', label: 'Results', hint: 'Filed by your rules' },
-  { key: 'main', label: 'Main', hint: 'Stage 2 and production' },
-  { key: 'winner', label: 'Winners', hint: 'Proven in Main' },
+  { key: 'bench', label: 'Bench', hint: 'Passed. Backups for Main' },
+  { key: 'main', label: 'In Main', hint: 'Running in Main now' },
+  { key: 'exhausted', label: 'Exhausted', hint: 'Fatigued and off' },
+  { key: 'mid', label: 'Mid-Tier', hint: 'Close, or needs a retest' },
+  { key: 'failed', label: 'Failed', hint: 'Did not work' },
 ];
+// Off the board, reachable from the shelf row under the board.
+export const SHELVES = [
+  { key: 'seasonal', label: 'Seasonal', hint: 'Sale and holiday ads' },
+  { key: 'retired', label: 'Archived', hint: 'Hidden from everything' },
+];
+export const stageLabel = (k) => ([...STAGES, ...SHELVES].find((s) => s.key === k) || { label: k }).label;
+// Where a filed Stage 1 result goes.
+export const stageForResult = (r) => r === 'pass' || r === 'strong_pass' ? 'bench' : r === 'fail' ? 'failed' : 'mid';
 
 export const RESULTS = {
   strong_pass: { label: 'Pass · Strong', tone: 'pass' },
@@ -46,8 +55,31 @@ export const RESULTS = {
   insufficient: { label: 'Insufficient', tone: 'ins' },
   fail: { label: 'Fail', tone: 'fail' },
   unfair: { label: 'Not a fair test', tone: 'ins' },
-  winner: { label: 'Winner', tone: 'pass' },
+  held: { label: 'Held in Main', tone: 'pass', main: true },
+  not_held: { label: "Didn't hold in Main", tone: 'mid', main: true },
+  winner: { label: 'Winner', tone: 'pass', main: true },
 };
+
+// Setup eras. Results from Era 1 say little about the creative.
+export const ERAS = {
+  era1: { label: 'Era 1 · no test system', short: 'Era 1', note: 'One mixed campaign, no testing. Shows what Meta chose to spend on, not a fair test.' },
+  era2: { label: 'Era 2 · CBO batches', short: 'Era 2', note: 'Two $24 CBOs (images, videos), three ads at a time.' },
+  era3: { label: 'Era 3 · current setup', short: 'Era 3', note: 'One ad per Stage 1 test.' },
+};
+export const eraOf = (day) => !day ? 'era3' : day < '2026-01-01' ? 'era1' : day < '2026-09-01' ? 'era2' : 'era3';
+export const TEST_METHODS = ['Single ad (ABO)', 'Batch (CBO)', 'Straight to Main (no test)', 'Other'];
+
+// Old data used other stage names. Map them on read.
+export function normalizeAd(ad) {
+  const t = ad.tags || {};
+  const out = { ...ad };
+  const map = { idea: 'untested', review: 'untested', ready: 'untested', results: stageForResult(ad.result) };
+  if (ad.stage === 'winner') out.stage = t.active === false ? 'exhausted' : 'main';
+  else if (map[ad.stage]) out.stage = map[ad.stage];
+  if (ad.stage === 'ready') out.tags = { ...t, ready: true };
+  if (ad.setup_era === 'old' || ad.setup_era === 'new') out.setup_era = eraOf(ad.launched_on);
+  return out;
+}
 
 export const rulesOf = (p) => Object.assign({}, DEFAULT_RULES, (p && p.rules) || {});
 export const econOf = (p) => {

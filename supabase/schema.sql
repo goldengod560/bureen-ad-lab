@@ -33,10 +33,10 @@ create table if not exists ads (
   notes         text,
   media_path    text,                                  -- path in the ad-media storage bucket
   media_type    text,                                  -- image/png, video/mp4 ...
-  stage         text not null default 'idea',          -- idea | review | ready | testing | results | main | winner | retired
-  result        text,                                  -- pass | strong_pass | mid | insufficient | fail | unfair
+  stage         text not null default 'untested',      -- untested | testing | bench | main | exhausted | mid | failed | seasonal | retired
+  result        text,                                  -- pass | strong_pass | mid | insufficient | fail | unfair | held | not_held
   launched_on   date,                                  -- first day of spend in Meta
-  setup_era     text,                                  -- old (before Mar 2026) | new
+  setup_era     text,                                  -- era1 (to Dec 2025) | era2 (Jan-Aug 2026) | era3 (Sep 2026 on)
   tags          jsonb not null default '{}'::jsonb,    -- hook, background, text amount, person/product...
   history       jsonb not null default '{}'::jsonb,    -- imported lifetime stats and Yasin's notes
   created_at    timestamptz not null default now()

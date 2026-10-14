@@ -1,9 +1,9 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js';
-import * as R from './rules.js';
-import { importHistory } from './importer.js';
+import { createBackend } from './data.js?v=3';
+import * as R from './rules.js?v=3';
+import { importHistory } from './importer.js?v=3';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -58,7 +58,7 @@ function App() {
   const [busy, setBusy] = useState(false);
 
   const say = (m) => { setToast(m); clearTimeout(toastTimer); toastTimer = setTimeout(() => setToast(''), 2800); };
-  const reload = async () => { try { setData(await be.loadAll()); } catch (e) { say('Could not load: ' + e.message); } };
+  const reload = async () => { try { const d = await be.loadAll(); d.ads = d.ads.map(R.normalizeAd); setData(d); } catch (e) { say('Could not load: ' + e.message); } };
 
   useEffect(() => {
     if (!be.configured) { setSession(null); return; }
@@ -131,46 +131,63 @@ function ProductTabs({ data, products, product, setPid, setModal }) {
 }
 
 // ---------- board ----------
+const histStats = (ad) => { const h = ad.history || {}; return h.roas != null ? `${R.xroas(h.roas)} · ${R.money(h.cpa)} CPA · ${R.money0(h.spend)}` : null; };
+const lastTestLine = (t) => t && t.result_reason ? t.result_reason : '';
 function cardInfo(ad, ctx) {
   const { data, product } = ctx;
   const tests = data.tests.filter((t) => t.ad_id === ad.id).sort(byCreated);
   const t = tests[tests.length - 1];
   const rules = R.rulesOf(product), econ = R.econOf(product);
-  const hist = ad.history || {};
-  if (ad.stage === 'testing' && t) {
-    const st = R.testStatus(t, data.checkpoints.filter((c) => c.test_id === t.id), rules, econ.aov);
-    if (st.due.length) return { line: `Day ${st.day} of ${st.planned}. Day ${st.due[st.due.length - 1]} results due.`, chip: 'Results due', tone: 'mid', glow: 'live' };
-    if (st.final) return { line: st.text, chip: 'Finalize', tone: 'live', glow: 'live' };
-    if (st.early) return { line: st.text, chip: 'Early stop?', tone: 'fail', glow: 'live' };
-    return { line: st.text, chip: `Day ${Math.min(st.day, st.planned)}/${st.planned}`, tone: 'live', glow: 'live' };
+  const tags = ad.tags || {};
+  const stats = histStats(ad);
+  const resLabel = (R.RESULTS[ad.result] || {}).label;
+  switch (ad.stage) {
+    case 'testing': {
+      if (!t) return { line: 'No test record', chip: 'Testing', tone: 'live', glow: 'live' };
+      const st = R.testStatus(t, data.checkpoints.filter((c) => c.test_id === t.id), rules, econ.aov);
+      if (st.due.length) return { line: `Day ${st.day} of ${st.planned}. Day ${st.due[st.due.length - 1]} results due.`, chip: 'Results due', tone: 'mid', glow: 'live' };
+      if (st.final) return { line: st.text, chip: 'Finalize', tone: 'live', glow: 'live' };
+      if (st.early) return { line: st.text, chip: 'Early stop?', tone: 'fail', glow: 'live' };
+      return { line: st.text, chip: `Day ${Math.min(st.day, st.planned)}/${st.planned}`, tone: 'live', glow: 'live' };
+    }
+    case 'untested': return { line: (ad.notes || '').split('\n')[0] || ad.angle || ad.concept || 'Idea', chip: tags.ready ? 'Ready' : ad.parent_id ? 'Recycled' : 'Idea', tone: tags.ready ? 'live' : 'muted', glow: tags.ready ? 'live' : null };
+    case 'bench': return { line: stats || lastTestLine(t), chip: resLabel || 'Pass', tone: 'pass', glow: 'pass' };
+    case 'main': {
+      const s2 = tests.find((x) => x.stage === 2 && x.status === 'active');
+      if (s2) { const d = R.testDay(s2); return { line: `Day ${d} in Main. Judge after ${rules.stage2Min} to ${rules.stage2Max} days.` + (stats ? ' · ' + stats : ''), chip: `Day ${Math.min(d, rules.stage2Max)}/${rules.stage2Max} in Main`, tone: 'live', glow: 'live' }; }
+      return { line: (tags.fatiguing ? 'Fatiguing' : 'Running') + (stats ? ' · ' + stats : ''), chip: tags.fatiguing ? 'Fatiguing' : 'Running', tone: tags.fatiguing ? 'mid' : 'pass', glow: tags.fatiguing ? 'mid' : 'pass' };
+    }
+    case 'exhausted': return { line: [tags.offReason ? 'Off: ' + tags.offReason : 'Off', stats].filter(Boolean).join(' · '), chip: 'Exhausted', tone: 'muted' };
+    case 'seasonal': return { line: stats || ad.notes || '', chip: tags.season || 'Seasonal', tone: 'ins' };
+    default: return { line: stats || lastTestLine(t), chip: resLabel || 'Result', tone: toneOf(ad.result) };
   }
-  const stats = hist.roas != null ? `${R.xroas(hist.roas)} · ${R.money(hist.cpa)} CPA · ${R.money0(hist.spend)}` : null;
-  if (ad.stage === 'winner') {
-    const off = ad.tags && ad.tags.active === false, fat = ad.tags && ad.tags.fatiguing;
-    return { line: (off ? 'Off · ' + (ad.tags.offReason || 'fatigued') : fat ? 'Running · fatiguing' : 'Running') + (stats ? ' · ' + stats : ''), chip: off ? 'Off' : fat ? 'Fatiguing' : 'Running', tone: off ? 'muted' : fat ? 'mid' : 'pass', glow: off ? null : 'pass' };
-  }
-  if (ad.stage === 'main') return { line: stats || 'In your Main campaign', chip: ad.tags && ad.tags.fatiguing ? 'Fatiguing' : 'Main', tone: ad.tags && ad.tags.fatiguing ? 'mid' : 'live' };
-  if (ad.stage === 'results') return { line: stats || (t && t.result_reason) || '', chip: (R.RESULTS[ad.result] || {}).label || 'Result', tone: toneOf(ad.result) };
-  if (ad.stage === 'ready') return { line: 'Waiting for a test slot', chip: 'Ready', tone: 'live' };
-  if (ad.stage === 'review') return { line: ad.angle || 'Check it before launch', chip: 'Review', tone: 'muted' };
-  return { line: ad.angle || (ad.notes || '').split('\n')[0] || 'Idea', chip: ad.parent_id ? 'Recycled' : 'Idea', tone: 'muted' };
 }
 
 function Card(props) {
   const { ad, setModal } = props; const ci = cardInfo(ad, props);
   return html`<button type="button" class=${'card' + (ci.glow ? ' glow-' + ci.glow : '')} onClick=${() => setModal({ type: AdDetail, props: { adId: ad.id } })}>
     <${Media} path=${ad.media_path} type=${ad.media_type} />
-    <span class="t"><span class="nm">${displayName(ad)}</span><span class="ln">${ci.line}</span><span class=${'chip t-' + ci.tone}>${ci.chip}</span></span>
+    <span class="t"><span class="nm">${displayName(ad)}</span><span class="ln">${ci.line}</span>
+      <span class="chips"><span class=${'chip t-' + ci.tone}>${ci.chip}</span>${ad.setup_era === 'era1' && html`<span class="chip t-muted" title=${R.ERAS.era1.note}>Era 1</span>`}</span></span>
   </button>`;
 }
 
-const RESULT_GROUPS = [['Pass', ['strong_pass', 'pass']], ['Mid-Tier', ['mid']], ['Insufficient', ['insufficient']], ['Not a fair test', ['unfair']], ['Fail', ['fail']], ['Other', [null, undefined, 'winner']]];
+// Sub-groups inside a column. null = no grouping.
+const GROUPS = {
+  untested: [['Ready to launch', (a) => a.tags && a.tags.ready], ['Ideas', (a) => !(a.tags && a.tags.ready)]],
+  main: [['On trial', (a, c) => c.data.tests.some((t) => t.ad_id === a.id && t.stage === 2 && t.status === 'active')], ['Running', () => true]],
+  mid: [['Close, fix it', (a) => a.result !== 'insufficient' && a.result !== 'unfair'], ['Retest', () => true]],
+  failed: [['Era 2 and later', (a) => a.setup_era !== 'era1'], ['Era 1 · never a fair shot', () => true]],
+};
 function StageList({ stageKey, list, ctx }) {
   const [open, setOpen] = useState({});
   if (!list.length) return html`<div class="empty">Nothing here</div>`;
-  if (stageKey !== 'results') return list.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${ctx} />`);
-  return RESULT_GROUPS.map(([label, keys]) => {
-    const g = list.filter((a) => keys.includes(a.result)); if (!g.length) return null;
+  const groups = GROUPS[stageKey];
+  if (!groups) return list.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${ctx} />`);
+  const left = [...list];
+  return groups.map(([label, fn]) => {
+    const g = left.filter((a) => fn(a, ctx)); g.forEach((a) => left.splice(left.indexOf(a), 1));
+    if (!g.length) return null;
     const shown = open[label] ? g : g.slice(0, 4);
     return html`<div class="grp"><span>${label}</span><span>${g.length}</span></div>
       ${shown.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${ctx} />`)}
@@ -178,21 +195,39 @@ function StageList({ stageKey, list, ctx }) {
   });
 }
 
+function benchHealth(data, product) {
+  const rules = R.rulesOf(product);
+  const ads = data.ads.filter((a) => a.product_id === product.id);
+  const bench = ads.filter((a) => a.stage === 'bench').length;
+  const main = ads.filter((a) => a.stage === 'main');
+  const fatiguing = main.filter((a) => a.tags && a.tags.fatiguing);
+  return { bench, target: rules.benchTarget, main: main.length, fatiguing, low: bench < rules.benchTarget, urgent: fatiguing.length > 0 && bench < Math.max(1, rules.benchTarget) };
+}
+
+function ShelfPanel({ shelf, list, ctx, close }) {
+  return html`<section class="panel"><div class="row"><h2>${R.stageLabel(shelf)}</h2><span class="muted small">${R.SHELVES.find((s) => s.key === shelf).hint}</span><span class="spacer"></span><button class="btn sm ghost" onClick=${close}>Close</button></div>
+    <div class="shelf">${list.length ? list.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${ctx} />`) : html`<div class="empty">Nothing here</div>`}</div></section>`;
+}
+
 function Board(ctx) {
   const { data, product, stage, setStage, setModal } = ctx;
-  const ads = data.ads.filter((a) => a.product_id === product.id && a.stage !== 'retired');
+  const [shelf, setShelf] = useState(null);
+  const ads = data.ads.filter((a) => a.product_id === product.id);
   const by = (k) => ads.filter((a) => a.stage === k).sort((a, b) => (b.launched_on || b.created_at || '').localeCompare(a.launched_on || a.created_at || ''));
-  const rules = R.rulesOf(product), econ = R.econOf(product), bev = R.breakEven(econ);
-  const live = data.tests.filter((t) => t.status === 'active' && t.product_id === product.id);
-  const cur = R.STAGES.find((s) => s.key === stage) || R.STAGES[3];
+  const econ = R.econOf(product), bev = R.breakEven(econ);
+  const live = data.tests.filter((t) => t.status === 'active' && t.product_id === product.id && t.stage === 1);
+  const bh = benchHealth(data, product);
+  const cur = R.STAGES.find((s) => s.key === stage) || R.STAGES[1];
+  const newAd = () => setModal({ type: AdForm, props: { mode: 'new' } });
   return html`
     <section class="tiles" aria-label="Summary">
       <div class="tile"><div class="k">Break-even</div><div class="v">${R.xroas(bev.roas)}</div><div class="s">${R.money(bev.cpa)} CPA at ${R.money(econ.aov)} avg order</div></div>
-      <div class="tile"><div class="k">Pass line</div><div class="v">${rules.passARoas}x · $${rules.passACpa}</div><div class="s">${rules.minPurchases}+ purchases, no back-half collapse</div></div>
-      <div class="tile"><div class="k">Testing now</div><div class="v">${live.filter((t) => t.stage === 1).length}</div><div class="s">${live.filter((t) => t.stage === 2).length} in Stage 2</div></div>
-      <div class="tile"><div class="k">Winners</div><div class="v">${by('winner').length}</div><div class="s">${by('winner').filter((a) => !(a.tags && a.tags.active === false)).length} running now</div></div>
+      <div class="tile"><div class="k">Testing now</div><div class="v">${live.length}</div><div class="s">${by('untested').filter((a) => a.tags && a.tags.ready).length} ready to launch</div></div>
+      <div class="tile"><div class="k">In Main</div><div class="v">${bh.main}</div><div class="s">${bh.fatiguing.length ? bh.fatiguing.length + ' fatiguing' : 'none fatiguing'}</div></div>
+      <div class=${'tile' + (bh.urgent ? ' warn' : '')}><div class="k">Bench</div><div class="v">${bh.bench} <small>/ ${bh.target}</small></div><div class="s">${bh.urgent ? 'Low, and Main is fatiguing' : bh.low ? 'Under your target' : 'Backups ready'}</div></div>
     </section>
-    <div class="row board-new"><span class="spacer"></span><button class="btn primary" onClick=${() => setModal({ type: AdForm, props: { mode: 'new' } })}>+ New ad</button></div>
+    <div class="row board-new">${R.SHELVES.map((s) => html`<button class=${'btn sm ghost' + (shelf === s.key ? ' on' : '')} onClick=${() => setShelf(shelf === s.key ? null : s.key)}>${s.label} · ${by(s.key).length}</button>`)}<span class="spacer"></span><button class="btn primary" onClick=${newAd}>+ New ad</button></div>
+    ${shelf && html`<div class="lap-only"><${ShelfPanel} shelf=${shelf} list=${by(shelf)} ctx=${ctx} close=${() => setShelf(null)} /></div>`}
     <div class="board-scroll"><div class="board">
       ${R.STAGES.map((s) => { const list = by(s.key);
         return html`<section class=${'col ' + s.key} aria-label=${s.label}><h2>${s.label}<span>${list.length}</span></h2><div class="hint">${s.hint}</div>
@@ -200,15 +235,43 @@ function Board(ctx) {
     </div></div>
     <div class="stagepick" role="tablist" aria-label="Stages">
       ${R.STAGES.map((s) => html`<button role="tab" aria-selected=${s.key === stage} class=${s.key === stage ? 'on' : ''} onClick=${() => setStage(s.key)}><b>${s.label}</b><span>${by(s.key).length}</span></button>`)}
-      <button onClick=${() => setModal({ type: AdForm, props: { mode: 'new' } })}><b>+ New</b><span>ad</span></button>
+      <button onClick=${newAd}><b>+ New</b><span>ad</span></button>
     </div>
     <div class="phonelist">
       <div class="row"><h2 style="font-size:20px">${cur.label}</h2><span class="spacer"></span><span class="muted small">${cur.hint}</span></div>
       <${StageList} stageKey=${cur.key} list=${by(cur.key)} ctx=${ctx} />
+      <div class="row" style="margin-top:6px">${R.SHELVES.map((s) => html`<button class="btn sm ghost" onClick=${() => setShelf(shelf === s.key ? null : s.key)}>${s.label} · ${by(s.key).length}</button>`)}</div>
+      ${shelf && html`<${ShelfPanel} shelf=${shelf} list=${by(shelf)} ctx=${ctx} close=${() => setShelf(null)} />`}
     </div>`;
 }
 
 // ---------- ad detail ----------
+// How every ad sharing this concept has done. Era 1 results are shown but not counted.
+function conceptStats(data, concept) {
+  if (!concept) return null;
+  const fam = data.ads.filter((a) => a.concept && a.concept.trim().toLowerCase() === concept.trim().toLowerCase());
+  const counted = fam.filter((a) => a.setup_era !== 'era1' && a.stage !== 'untested' && a.stage !== 'testing');
+  const won = counted.filter((a) => ['pass', 'strong_pass', 'held'].includes(a.result) || ['bench', 'main', 'exhausted'].includes(a.stage));
+  const lastRun = fam.map((a) => a.launched_on || '').filter(Boolean).sort().pop() || null;
+  return { fam, counted: counted.length, won: won.length, era1: fam.filter((a) => a.setup_era === 'era1').length, lastRun };
+}
+const allConcepts = (data) => [...new Set(data.ads.map((a) => (a.concept || '').trim()).filter(Boolean))].sort();
+
+function ConceptPanel({ ad, data, reload, say, setModal }) {
+  const [val, setVal] = useState(ad.concept || '');
+  const cs = conceptStats(data, ad.concept);
+  const save = async () => { if ((val || '') === (ad.concept || '')) return; await be.update('ads', ad.id, { concept: val.trim() || null }); await reload(); say('Concept saved'); };
+  return html`<div class="panel"><div class="row"><h2>Concept</h2><span class="spacer"></span>
+      <input class="inp" style="max-width:240px;min-height:34px" list="concept-list" value=${val} placeholder="Name the idea" onInput=${(e) => setVal(e.target.value)} onBlur=${save} onKeyDown=${(e) => e.key === 'Enter' && e.target.blur()} aria-label="Concept" /></div>
+    <datalist id="concept-list">${allConcepts(data).map((c) => html`<option value=${c} />`)}</datalist>
+    ${cs && cs.fam.length > 1 ? html`
+      <div class="small">${cs.fam.length} versions${cs.counted ? ` · Era 2 and later: ${cs.won} of ${cs.counted} worked` : ' · none tested since Era 1'}${cs.era1 ? ` · ${cs.era1} from Era 1 (not counted)` : ''}</div>
+      ${cs.fam.length >= 5 && html`<div class="status warn small">You've run this concept ${cs.fam.length} times. Change something real (hook, first frame, offer), not just the text.</div>`}
+      <div class="fam">${cs.fam.filter((f) => f.id !== ad.id).map((f) => html`<button class="famitem" onClick=${() => setModal({ type: AdDetail, props: { adId: f.id } })}><${Media} path=${f.media_path} type=${f.media_type} /><span class="small">${f.base_name}</span><span class=${'chip t-' + (f.result ? toneOf(f.result) : 'muted')}>${R.stageLabel(f.stage)}${f.setup_era === 'era1' ? ' · Era 1' : ''}</span></button>`)}</div>`
+    : html`<div class="small muted">${ad.concept ? 'The only ad with this concept so far.' : 'Group versions of the same idea (same footage or shot, different text) so you can see how the idea has done overall.'}</div>`}
+  </div>`;
+}
+
 function AdDetail(ctx) {
   const { data, adId, close, setModal, setLightbox, reload, say } = ctx;
   const ad = data.ads.find((a) => a.id === adId);
@@ -219,26 +282,54 @@ function AdDetail(ctx) {
   const tests = data.tests.filter((t) => t.ad_id === ad.id).sort(byCreated);
   const active = tests.find((t) => t.status === 'active');
   const hist = ad.history || {};
+  const tags = ad.tags || {};
   const family = data.ads.filter((a) => a.id !== ad.id && (a.parent_id === ad.id || a.id === ad.parent_id || (ad.parent_id && a.parent_id === ad.parent_id)));
   const decisions = data.decisions.filter((d) => d.ad_id === ad.id).sort((a, b) => String(b.day).localeCompare(String(a.day)));
   const open = (type, props) => setModal({ type, props: { adId: ad.id, ...props } });
-  const move = async (to, note) => {
-    await be.update('ads', ad.id, { stage: to });
-    await be.insert('decisions', { product_id: ad.product_id, ad_id: ad.id, kind: 'move', choice: `Moved to ${(R.STAGES.find((s) => s.key === to) || { label: to }).label}`, reason: note || '' });
-    await reload(); say('Moved');
+  const log = (kind, choice, reason) => be.insert('decisions', { product_id: ad.product_id, ad_id: ad.id, kind, choice, reason: reason || '' });
+  const move = async (to, note, patch) => {
+    await be.update('ads', ad.id, { stage: to, ...(patch || {}) });
+    await log('move', `Moved to ${R.stageLabel(to)}`, note);
+    await reload(); say('Moved to ' + R.stageLabel(to));
   };
+  const setTag = async (k, v, msg) => { await be.update('ads', ad.id, { tags: { ...tags, [k]: v } }); await reload(); say(msg); };
   const del = async () => { await be.remove('ads', ad.id); await reload(); close(); say('Deleted'); };
-  const toggleOff = async () => { const tags = { ...(ad.tags || {}), active: ad.tags && ad.tags.active === false ? true : false }; await be.update('ads', ad.id, { tags }); await reload(); };
 
+  const A = (label, fn, cls) => html`<button class=${'btn ' + (cls || '')} onClick=${fn}>${label}</button>`;
   const actions = [];
-  if (ad.stage === 'idea') actions.push(html`<button class="btn primary" onClick=${() => move('review')}>Send to review</button>`);
-  if (ad.stage === 'review') actions.push(html`<button class="btn primary" onClick=${() => move('ready')}>Approve: ready to test</button>`, html`<button class="btn" onClick=${() => move('idea')}>Back to ideas</button>`);
-  if (ad.stage === 'ready') actions.push(html`<button class="btn primary" onClick=${() => open(LaunchForm)}>It went live in Meta</button>`);
-  if (ad.stage === 'testing' && active) actions.push(html`<button class="btn primary" onClick=${() => open(CheckinForm, { testId: active.id })}>Add results</button>`, html`<button class="btn" onClick=${() => open(FinalizeForm, { testId: active.id })}>Finalize</button>`, html`<button class="btn danger" onClick=${() => open(StopForm, { testId: active.id })}>Stop early</button>`);
-  if (ad.stage === 'results' && (ad.result === 'pass' || ad.result === 'strong_pass')) actions.push(html`<button class="btn primary" onClick=${() => open(MainForm, { mode: 'start' })}>Move to Main (Stage 2)</button>`);
-  if (ad.stage === 'results' && !(ad.result === 'pass' || ad.result === 'strong_pass')) actions.push(html`<button class="btn" onClick=${() => setModal({ type: AdForm, props: { mode: 'version', adId: ad.id, recycle: true } })}>Recycle with a fix</button>`);
-  if (ad.stage === 'main') actions.push(active && active.stage === 2 ? html`<button class="btn primary" onClick=${() => open(MainForm, { mode: 'record', testId: active.id })}>Record Main result</button>` : html`<button class="btn" onClick=${() => open(MainForm, { mode: 'start' })}>Start a Stage 2 check</button>`);
-  if (ad.stage === 'winner') actions.push(html`<button class="btn" onClick=${toggleOff}>${ad.tags && ad.tags.active === false ? 'Mark as running' : 'Mark as off (fatigued)'}</button>`);
+  switch (ad.stage) {
+    case 'untested':
+      actions.push(A('It went live in Meta', () => open(LaunchForm), tags.ready ? 'primary' : ''));
+      actions.push(A(tags.ready ? 'Not ready yet' : 'Mark ready to launch', () => setTag('ready', !tags.ready, tags.ready ? 'Back to ideas' : 'Marked ready'), tags.ready ? 'ghost' : 'primary'));
+      actions.push(A('Straight to Main (no test)', () => open(MainForm, { mode: 'start', emergency: true }), 'ghost'));
+      break;
+    case 'testing':
+      if (active) actions.push(A('Add results', () => open(CheckinForm, { testId: active.id }), 'primary'), A('Finalize', () => open(FinalizeForm, { testId: active.id })), A('Stop early', () => open(StopForm, { testId: active.id }), 'danger'));
+      break;
+    case 'bench':
+      actions.push(A('Put in Main', () => open(MainForm, { mode: 'start' }), 'primary'));
+      break;
+    case 'main':
+      if (active && active.stage === 2) actions.push(A('Record Main result', () => open(MainForm, { mode: 'record', testId: active.id }), 'primary'));
+      actions.push(A(tags.fatiguing ? 'Not fatiguing' : 'Mark fatiguing', () => setTag('fatiguing', !tags.fatiguing, tags.fatiguing ? 'Marked running' : 'Marked fatiguing')));
+      actions.push(A('Turned off: Exhausted', () => open(ExhaustForm), 'ghost'));
+      break;
+    case 'exhausted':
+      actions.push(A('Revive to Bench', () => move('bench', 'Revived after rest', { tags: { ...tags, revivedOn: R.today(), fatiguing: false } }), 'primary'));
+      break;
+    case 'mid':
+      actions.push(A('Recycle with a fix', () => setModal({ type: AdForm, props: { mode: 'version', adId: ad.id, recycle: true } }), 'primary'));
+      actions.push(A('Retest as is', () => move('untested', 'Retest as is', { tags: { ...tags, ready: true } })));
+      break;
+    case 'failed':
+      actions.push(A('Recycle with a fix', () => setModal({ type: AdForm, props: { mode: 'version', adId: ad.id, recycle: true } })));
+      if (ad.setup_era === 'era1') actions.push(A('Retest (Era 1 result)', () => move('untested', 'Retest: Era 1 result was not a fair test', { tags: { ...tags, ready: true } })));
+      break;
+    case 'seasonal':
+      actions.push(A('Move to Untested', () => move('untested', 'Pulled from Seasonal')));
+      break;
+  }
+  const era = R.ERAS[ad.setup_era];
 
   return html`<${Modal} wide title=${displayName(ad)} sub=${product.name + ' · ' + (ad.format || 'image')} onClose=${close}>
     <div class="detail">
@@ -248,26 +339,31 @@ function AdDetail(ctx) {
           <button class="btn sm" onClick=${() => setModal({ type: AdForm, props: { mode: 'version', adId: ad.id } })}>New version</button>
           <span class="spacer"></span>
           ${confirmDel ? html`<span class="small">Delete for good?</span><button class="btn sm danger" onClick=${del}>Delete</button><button class="btn sm ghost" onClick=${() => setConfirmDel(false)}>Keep</button>` : html`<button class="btn sm ghost danger" onClick=${() => setConfirmDel(true)}>Delete</button>`}</div>
-        ${family.length > 0 && html`<div class="panel"><h2>Versions</h2>${family.map((f) => html`<button class="card" onClick=${() => setModal({ type: AdDetail, props: { adId: f.id } })}><${Media} path=${f.media_path} type=${f.media_type} /><span class="t"><span class="nm">${displayName(f)}</span><span class="ln">${(R.STAGES.find((s) => s.key === f.stage) || {}).label || f.stage}</span></span></button>`)}</div>`}
+        ${family.length > 0 && html`<div class="panel"><h2>Versions</h2>${family.map((f) => html`<button class="card" onClick=${() => setModal({ type: AdDetail, props: { adId: f.id } })}><${Media} path=${f.media_path} type=${f.media_type} /><span class="t"><span class="nm">${displayName(f)}</span><span class="ln">${R.stageLabel(f.stage)}</span></span></button>`)}</div>`}
       </div>
       <div class="stack">
         <div class="row">
-          <span class="chip t-live">${(R.STAGES.find((s) => s.key === ad.stage) || { label: ad.stage }).label}</span>
-          ${ad.stage === 'winner' && html`<span class=${'chip t-' + (ad.tags && ad.tags.active === false ? 'muted' : ad.tags && ad.tags.fatiguing ? 'mid' : 'pass')}>${ad.tags && ad.tags.active === false ? 'Off · ' + (ad.tags.offReason || 'fatigued') : ad.tags && ad.tags.fatiguing ? 'Running · fatiguing' : 'Running'}</span>`}
+          <span class="chip t-live">${R.stageLabel(ad.stage)}</span>
+          ${ad.stage === 'main' && html`<span class=${'chip t-' + (tags.fatiguing ? 'mid' : 'pass')}>${tags.fatiguing ? 'Fatiguing' : 'Running'}</span>`}
+          ${ad.stage === 'exhausted' && tags.offReason && html`<span class="chip t-muted">Off · ${tags.offReason}</span>`}
+          ${ad.stage === 'untested' && tags.ready && html`<span class="chip t-live">Ready</span>`}
           ${ad.result && ad.result !== 'winner' && html`<span class=${'chip t-' + toneOf(ad.result)}>${(R.RESULTS[ad.result] || {}).label || ad.result}</span>`}
-          ${ad.setup_era === 'old' && html`<span class="chip t-mid">Old setup · low confidence</span>`}
+          ${era && html`<span class=${'chip t-' + (ad.setup_era === 'era1' ? 'mid' : 'muted')} title=${era.note}>${era.label}</span>`}
+          ${hist.oldPage && ad.setup_era !== 'era1' && html`<span class="chip t-mid">Old landing page</span>`}
           ${ad.launched_on && html`<span class="chip t-muted">Live ${ad.launched_on}</span>`}
         </div>
+        ${ad.setup_era === 'era1' && html`<div class="status warn small">${R.ERAS.era1.note}</div>`}
         ${actions.length > 0 && html`<div class="row">${actions}</div>`}
         <div class="row"><label class="f" style="flex-direction:row;align-items:center;gap:8px">Move to
           <select class="inp" style="width:auto;min-height:36px" value=${ad.stage} onChange=${(e) => move(e.target.value, 'Moved by hand')}>
-            ${R.STAGES.map((s) => html`<option value=${s.key}>${s.label}</option>`)}<option value="retired">Retired (hidden)</option></select></label></div>
+            ${[...R.STAGES, ...R.SHELVES].map((s) => html`<option value=${s.key}>${s.label}</option>`)}</select></label></div>
         ${(ad.headline || ad.primary_text || ad.angle || ad.offer || ad.notes) && html`<div class="panel">
           ${ad.angle && html`<div class="small"><span class="muted">Angle:</span> ${ad.angle}</div>`}
           ${ad.offer && html`<div class="small"><span class="muted">Offer:</span> ${ad.offer}</div>`}
           ${ad.headline && html`<div class="small"><span class="muted">Headline:</span> ${ad.headline}</div>`}
           ${ad.primary_text && html`<div class="small" style="white-space:pre-wrap"><span class="muted">Primary text:</span> ${ad.primary_text}</div>`}
           ${ad.notes && html`<div class="small" style="white-space:pre-wrap"><span class="muted">Notes:</span> ${ad.notes}</div>`}</div>`}
+        <${ConceptPanel} key=${ad.id + (ad.concept || '')} ad=${ad} ...${ctx} />
         ${hist.spend != null && html`<div class="panel"><h2>History</h2>
           <div class="metrics"><div class="metric"><small>Spend</small><b>${R.money0(hist.spend)}</b></div><div class="metric"><small>Buys</small><b>${hist.purchases}</b></div>
           <div class="metric"><small>CPA</small><b>${R.money(hist.cpa)}</b></div><div class="metric"><small>ROAS</small><b>${R.xroas(hist.roas)}</b></div>${hist.ran && html`<div class="metric"><small>Ran</small><b style="font-size:12.5px">${hist.ran}</b></div>`}</div>
@@ -304,7 +400,7 @@ function TestPanel({ data, test, rules, econ, setModal }) {
     ${cps.length > 0 && html`<div class="tscroll"><table class="t"><thead><tr><th>Check-in</th><th>Spend</th><th>Buys</th><th>CPA</th><th>ROAS</th><th>CTR</th><th></th></tr></thead><tbody>
       ${cps.map((cp) => { const mm = R.metrics(cp, econ.aov); return html`<tr><td>Day ${cp.day}</td><td>${R.money(mm.spend)}</td><td>${mm.purchases}</td><td>${R.money(mm.cpa)}</td><td>${R.xroas(mm.roas)}</td><td>${R.pct(mm.ctr)}</td><td>${test.status === 'active' && html`<button class="link small" onClick=${() => setModal({ type: CheckinForm, props: { adId: test.ad_id, testId: test.id, day: cp.day } })}>Edit</button>`}</td></tr>`; })}
     </tbody></table></div>`}
-    ${(c.landingPage || c.enhancements != null) && html`<div class="tiny muted">Conditions: ${[c.landingPage, c.enhancements ? 'creative enhancements ON' : 'enhancements off', c.shopAds ? 'Shop ads ON' : null].filter(Boolean).join(' · ')}</div>`}
+    ${(c.landingPage || c.enhancements != null || c.method) && html`<div class="tiny muted">Conditions: ${[c.method, c.landingPage, c.enhancements ? 'creative enhancements ON' : c.enhancements === false ? 'enhancements off' : null, c.shopAds ? 'Shop ads ON' : null, c.emergency ? 'emergency, no test' : null].filter(Boolean).join(' · ')}</div>`}
   </div>`;
 }
 
@@ -317,6 +413,7 @@ function AdForm(ctx) {
     : { ...src, base_name: mode === 'version' ? bumpV(src.base_name) : src.base_name, notes: mode === 'version' ? (recycle ? 'Recycled. The fix: ' : 'What changed: ') : src.notes };
   const [f, setF] = useState(init); const [file, setFile] = useState(null); const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const cs = conceptStats(data, f.concept);
   const save = async () => {
     if (!f.base_name.trim()) { say('Give the ad a name.'); return; }
     setBusy(true);
@@ -326,7 +423,7 @@ function AdForm(ctx) {
       if (file) { media_path = await be.upload(`${pidUse}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${extOf(file)}`, file); media_type = file.type; }
       const row = { base_name: f.base_name.trim(), format: f.format, angle: f.angle, offer: f.offer, headline: f.headline, primary_text: f.primary_text, notes: f.notes, concept: f.concept || null, media_path, media_type };
       if (mode === 'edit') { await be.update('ads', src.id, row); await reload(); close(); say('Saved'); return; }
-      const ins = await be.insert('ads', { ...row, product_id: pidUse, stage: 'idea', version: mode === 'version' ? (src.version || 1) + 1 : 1, parent_id: mode === 'version' ? src.id : null, tags: {}, history: {} });
+      const ins = await be.insert('ads', { ...row, product_id: pidUse, stage: 'untested', version: mode === 'version' ? (src.version || 1) + 1 : 1, parent_id: mode === 'version' ? src.id : null, tags: {}, history: {} });
       await reload(); say(mode === 'version' ? 'New version added to Ideas' : 'Added to Ideas');
       setModal({ type: AdDetail, props: { adId: ins.id } });
     } catch (e) { say('Could not save: ' + e.message); }
@@ -338,7 +435,8 @@ function AdForm(ctx) {
       <${Field} label="Image or video">
         <input type="file" accept="image/*,video/*" onChange=${(e) => setFile(e.target.files[0] || null)} /><//>
       <${Field} label="Format"><select value=${f.format} onChange=${set('format')}><option value="image">Image</option><option value="video">Video</option><option value="carousel">Carousel</option></select><//>
-      <${Field} label="Concept (the idea behind it)"><input value=${f.concept || ''} onInput=${set('concept')} placeholder="Value: $6 per shirt" /><//>
+      <${Field} label="Concept (same footage or shot = same concept)"><input list="concept-list-form" value=${f.concept || ''} onInput=${set('concept')} placeholder="Display walkthrough" /><datalist id="concept-list-form">${allConcepts(data).map((c) => html`<option value=${c} />`)}</datalist><//>
+      ${cs && cs.fam.length >= 3 && html`<div class="status warn small full">This concept has ${cs.fam.length} versions already${cs.counted ? `; ${cs.won} of ${cs.counted} worked since Era 1` : ''}. Change something real, not just the text.</div>`}
       <${Field} label="Angle"><input value=${f.angle || ''} onInput=${set('angle')} placeholder="Value, person wearing, rotation, gym…" /><//>
       <${Field} full label="Offer"><input value=${f.offer || ''} onInput=${set('offer')} /><//>
       <${Field} full label="Headline"><input value=${f.headline || ''} onInput=${set('headline')} /><//>
@@ -355,7 +453,7 @@ function LaunchForm(ctx) {
   const rules = R.rulesOf(product);
   const live = data.tests.filter((t) => t.status === 'active' && t.stage === 1);
   const spendLive = live.reduce((s, t) => s + (+t.budget || 0), 0);
-  const [f, setF] = useState({ date: R.today(), budget: rules.stage1Budget, days: rules.plannedDays, landingPage: 'Current page (Mar 2026+)', enhancements: false, shopAds: false });
+  const [f, setF] = useState({ date: R.today(), budget: rules.stage1Budget, days: rules.plannedDays, method: R.TEST_METHODS[0], landingPage: 'Current page (Mar 2026+)', enhancements: false, shopAds: false });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
   const warns = [];
   if (live.length >= rules.slots) warns.push(`${live.length} Stage 1 tests are already live (your limit is ${rules.slots}).`);
@@ -363,8 +461,8 @@ function LaunchForm(ctx) {
   if (rules.weekendLock && R.isWeekendLock()) warns.push('Weekend lock is on (Friday night to Sunday).');
   if (f.enhancements) warns.push('Creative enhancements ON: Meta will change your ad, so the result says less about your creative.');
   const go = async () => {
-    await be.insert('tests', { ad_id: ad.id, product_id: ad.product_id, stage: 1, start_date: f.date, planned_days: +f.days || rules.plannedDays, budget: +f.budget || null, status: 'active', conditions: { landingPage: f.landingPage, enhancements: f.enhancements, shopAds: f.shopAds } });
-    await be.update('ads', ad.id, { stage: 'testing', launched_on: f.date, setup_era: 'new' });
+    await be.insert('tests', { ad_id: ad.id, product_id: ad.product_id, stage: 1, start_date: f.date, planned_days: +f.days || rules.plannedDays, budget: +f.budget || null, status: 'active', conditions: { method: f.method, landingPage: f.landingPage, enhancements: f.enhancements, shopAds: f.shopAds } });
+    await be.update('ads', ad.id, { stage: 'testing', launched_on: f.date, setup_era: R.eraOf(f.date), tags: { ...(ad.tags || {}), ready: false } });
     await be.insert('decisions', { product_id: ad.product_id, ad_id: ad.id, kind: 'launch', choice: `Launched at $${f.budget}/day`, day: f.date });
     await reload(); close(); say('Test started. Name now shows the launch date.');
   };
@@ -374,6 +472,7 @@ function LaunchForm(ctx) {
       <${Field} label="First day it spent money"><input type="date" value=${f.date} onInput=${set('date')} /><//>
       <${Field} label="Budget ($/day)"><input inputmode="decimal" value=${f.budget} onInput=${set('budget')} /><//>
       <${Field} label="Test window (days)"><input inputmode="numeric" value=${f.days} onInput=${set('days')} /><//>
+      <${Field} label="How you're testing it"><select value=${f.method} onChange=${set('method')}>${R.TEST_METHODS.filter((m) => !m.startsWith('Straight')).map((m) => html`<option>${m}</option>`)}</select><//>
       <${Field} full label="Landing page"><input value=${f.landingPage} onInput=${set('landingPage')} /><//>
       <label class="chk full"><input type="checkbox" checked=${f.enhancements} onChange=${set('enhancements')} /> Advantage+ creative enhancements on</label>
       <label class="chk full"><input type="checkbox" checked=${f.shopAds} onChange=${set('shopAds')} /> Shop ads on</label>
@@ -428,17 +527,17 @@ function FinalizeForm(ctx) {
     if (pick !== c.result && !why.trim()) { say('Add a reason when you change the result.'); return; }
     const strong = pick === 'strong_pass';
     await be.update('tests', test.id, { status: 'complete', result: pick, strong, result_reason: c.evidence.join(' '), override_reason: pick !== c.result ? why : null });
-    await be.update('ads', test.ad_id, { stage: 'results', result: pick });
+    await be.update('ads', test.ad_id, { stage: R.stageForResult(pick), result: pick });
     await be.insert('decisions', { product_id: test.product_id, ad_id: test.ad_id, test_id: test.id, kind: 'result', choice: `Filed as ${R.RESULTS[pick].label}`, reason: why });
-    await reload(); close(); say('Filed in Results');
+    await reload(); close(); say('Filed in ' + R.stageLabel(R.stageForResult(pick)));
   };
   return html`<${Modal} title="Finalize the test" onClose=${close}>
     ${early && html`<div class="banner">The planned window isn't finished (last check-in was day ${last.day}). Finalizing now is your call.</div>`}
     ${!m && html`<div class="banner">No numbers yet. Add results first.</div>`}
-    ${m && html`<div class="status ${toneOf(c.result) === 'pass' ? 'good' : toneOf(c.result) === 'fail' ? 'bad' : 'warn'}"><b>Your rules say: ${R.RESULTS[c.result].label}</b><ul style="margin:6px 0 0;padding-left:18px">${c.evidence.map((x) => html`<li>${x}</li>`)}</ul></div>`}
+    ${m && html`<div class="status ${toneOf(c.result) === 'pass' ? 'good' : toneOf(c.result) === 'fail' ? 'bad' : 'warn'}"><b>Your rules say: ${R.RESULTS[c.result].label}</b><ul style="margin:6px 0 0;padding-left:18px">${c.evidence.map((x) => html`<li>${x}</li>`)}</ul><div class="small" style="margin-top:6px">Files into: <b>${R.stageLabel(R.stageForResult(pick))}</b></div></div>`}
     ${events.length > 0 && html`<div class="banner">Changes logged during this test: ${events.map((e) => `${e.day} ${e.kind}`).join('; ')}. If they distorted it, file it as "Not a fair test".</div>`}
     <div class="form">
-      <${Field} label="File it as"><select value=${pick} onChange=${(e) => setPick(e.target.value)}>${Object.entries(R.RESULTS).filter(([k]) => k !== 'winner').map(([k, v]) => html`<option value=${k}>${v.label}${k === c.result ? ' (your rules)' : ''}</option>`)}</select><//>
+      <${Field} label="File it as"><select value=${pick} onChange=${(e) => setPick(e.target.value)}>${Object.entries(R.RESULTS).filter(([, v]) => !v.main).map(([k, v]) => html`<option value=${k}>${v.label}${k === c.result ? ' (your rules)' : ''}</option>`)}</select><//>
       <${Field} full label="Reason, if you change it"><input value=${why} onInput=${(e) => setWhy(e.target.value)} /><//>
     </div>
     <div class="row"><button class="btn primary" onClick=${go}>File result</button><button class="btn ghost" onClick=${close}>Not yet</button></div>
@@ -452,7 +551,7 @@ function StopForm(ctx) {
   const go = async () => {
     const result = why === 'early' ? 'fail' : 'unfair';
     await be.update('tests', test.id, { status: 'stopped', result, result_reason: why === 'early' ? 'Stopped by the early-stop rule.' : 'Stopped: ' + (note || 'outside problem'), override_reason: note || null });
-    await be.update('ads', test.ad_id, { stage: 'results', result });
+    await be.update('ads', test.ad_id, { stage: R.stageForResult(result), result });
     await be.insert('decisions', { product_id: test.product_id, ad_id: test.ad_id, test_id: test.id, kind: 'kill', choice: 'Stopped early', reason: note });
     await reload(); close(); say('Stopped and filed');
   };
@@ -466,35 +565,67 @@ function StopForm(ctx) {
 }
 
 function MainForm(ctx) {
-  const { data, adId, mode, testId, close, reload, say } = ctx;
+  const { data, adId, mode, testId, emergency, close, reload, say } = ctx;
   const ad = data.ads.find((a) => a.id === adId); const product = data.products.find((p) => p.id === ad.product_id); const rules = R.rulesOf(product);
   const test = testId ? data.tests.find((t) => t.id === testId) : null;
-  const [f, setF] = useState({ date: R.today(), base: '', after: '', verdict: 'validated', note: '' });
+  const [f, setF] = useState({ date: R.today(), base: '', after: '', verdict: 'held', dest: 'bench', note: '' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const start = async () => {
-    await be.insert('tests', { ad_id: ad.id, product_id: ad.product_id, stage: 2, start_date: f.date, planned_days: rules.stage2Max, status: 'active', conditions: { baseRoas: R.num(f.base) } });
-    await be.update('ads', ad.id, { stage: 'main' });
-    await be.insert('decisions', { product_id: ad.product_id, ad_id: ad.id, kind: 'move', choice: 'Added to Main (Stage 2)', reason: 'Budget unchanged' });
-    await reload(); close(); say('Moved to Main');
+    if (emergency && !f.note.trim()) { say('Add a short reason for skipping the test.'); return; }
+    await be.insert('tests', { ad_id: ad.id, product_id: ad.product_id, stage: 2, start_date: f.date, planned_days: rules.stage2Max, status: 'active', conditions: { baseRoas: R.num(f.base), method: emergency ? 'Straight to Main (no test)' : undefined, emergency: !!emergency } });
+    const patch = { stage: 'main', tags: { ...(ad.tags || {}), ready: false, fatiguing: false, mainSince: f.date } };
+    if (emergency || !ad.launched_on) { patch.launched_on = f.date; patch.setup_era = R.eraOf(f.date); }
+    await be.update('ads', ad.id, patch);
+    await be.insert('decisions', { product_id: ad.product_id, ad_id: ad.id, kind: 'move', day: f.date, choice: emergency ? 'Straight to Main without a test' : 'Put in Main (Stage 2)', reason: f.note || 'Budget unchanged' });
+    await reload(); close(); say('In Main. Check back in ' + rules.stage2Min + ' to ' + rules.stage2Max + ' days.');
   };
   const record = async () => {
-    const ok = f.verdict === 'validated';
-    await be.update('tests', test.id, { status: 'complete', result: ok ? 'winner' : 'mid', result_reason: `Main ROAS ${f.base || (test.conditions || {}).baseRoas || '?'}x before, ${f.after || '?'}x after.`, override_reason: f.note || null });
-    await be.update('ads', ad.id, ok ? { stage: 'winner', result: 'winner', tags: { ...(ad.tags || {}), active: true } } : { stage: 'results', tags: { ...(ad.tags || {}), notValidated: true } });
-    await be.insert('decisions', { product_id: ad.product_id, ad_id: ad.id, test_id: test.id, kind: 'result', choice: ok ? 'Validated in Main' : 'Not validated in Main', reason: f.note });
-    await reload(); close(); say(ok ? 'Validated winner' : 'Marked not validated');
+    const held = f.verdict === 'held';
+    await be.update('tests', test.id, { status: 'complete', result: held ? 'held' : 'not_held', result_reason: `Main ROAS ${f.base || (test.conditions || {}).baseRoas || '?'}x before, ${f.after || '?'}x after.`, override_reason: f.note || null });
+    if (!held) await be.update('ads', ad.id, { stage: f.dest, tags: { ...(ad.tags || {}), notHeld: true } });
+    await be.insert('decisions', { product_id: ad.product_id, ad_id: ad.id, test_id: test.id, kind: 'result', choice: held ? 'Held in Main' : `Didn't hold in Main, moved to ${R.stageLabel(f.dest)}`, reason: f.note });
+    await reload(); close(); say(held ? 'Held in Main' : 'Moved to ' + R.stageLabel(f.dest));
   };
   const days = test && test.start_date ? R.daysBetween(test.start_date, R.today()) : 0;
-  return html`<${Modal} title=${mode === 'start' ? 'Move to Main (Stage 2)' : 'Record the Main result'} sub=${ad.base_name} onClose=${close}>
-    ${mode === 'start' ? html`<p class="small muted" style="margin:0">Add one new candidate at a time and keep the Main budget the same. Judge the whole campaign after ${rules.stage2Min} to ${rules.stage2Max} days.</p>
-      <div class="form"><${Field} label="Date added to Main"><input type="date" value=${f.date} onInput=${set('date')} /><//><${Field} label="Main ROAS before (baseline)"><input inputmode="decimal" value=${f.base} onInput=${set('base')} /><//></div>
-      <div class="row"><button class="btn primary" onClick=${start}>Start Stage 2</button><button class="btn ghost" onClick=${close}>Cancel</button></div>`
+  const benchLeft = data.ads.filter((a) => a.product_id === ad.product_id && a.stage === 'bench' && a.id !== ad.id).length;
+  return html`<${Modal} title=${mode === 'start' ? (emergency ? 'Straight to Main' : 'Put in Main') : 'Record the Main result'} sub=${ad.base_name} onClose=${close}>
+    ${mode === 'start' ? html`
+      ${emergency ? html`<div class="banner">This skips the test. It's logged as an emergency move, like Try-On in July, so you can see later how often it works.</div>`
+        : html`<p class="small muted" style="margin:0">Add one new ad at a time and keep the Main budget the same. Judge it after ${rules.stage2Min} to ${rules.stage2Max} days. ${benchLeft < rules.benchTarget ? `After this, your Bench has ${benchLeft} (target ${rules.benchTarget}).` : ''}</p>`}
+      <div class="form"><${Field} label="Date added to Main"><input type="date" value=${f.date} onInput=${set('date')} /><//><${Field} label="Main ROAS before (optional)"><input inputmode="decimal" value=${f.base} onInput=${set('base')} /><//>
+      <${Field} full label=${emergency ? 'Why skip the test' : 'Note'}><input value=${f.note} onInput=${set('note')} /><//></div>
+      <div class="row"><button class="btn primary" onClick=${start}>Put in Main</button><button class="btn ghost" onClick=${close}>Cancel</button></div>`
     : html`${days < rules.stage2Min && html`<div class="banner">Only ${days} days in Main. Your rule is ${rules.stage2Min} to ${rules.stage2Max}.</div>`}
       <div class="form"><${Field} label="Main ROAS before"><input inputmode="decimal" value=${f.base || ((test && test.conditions) || {}).baseRoas || ''} onInput=${set('base')} /><//>
       <${Field} label="Main ROAS since adding it"><input inputmode="decimal" value=${f.after} onInput=${set('after')} /><//>
-      <${Field} label="Verdict"><select value=${f.verdict} onChange=${set('verdict')}><option value="validated">Validated winner</option><option value="not">Not validated</option></select><//>
+      <${Field} label="Verdict"><select value=${f.verdict} onChange=${set('verdict')}><option value="held">Held in Main (keep it)</option><option value="not">Didn't hold</option></select><//>
+      ${f.verdict !== 'held' && html`<${Field} label="Move it to"><select value=${f.dest} onChange=${set('dest')}><option value="bench">Bench (try again later)</option><option value="mid">Mid-Tier</option><option value="failed">Failed</option></select><//>`}
       <${Field} full label="Note"><input value=${f.note} onInput=${set('note')} /><//></div>
       <div class="row"><button class="btn primary" onClick=${record}>Save</button><button class="btn ghost" onClick=${close}>Cancel</button></div>`}
+  <//>`;
+}
+
+function ExhaustForm(ctx) {
+  const { data, adId, close, reload, say } = ctx;
+  const ad = data.ads.find((a) => a.id === adId);
+  const [f, setF] = useState({ date: R.today(), reason: 'fatigued', note: '' });
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const go = async () => {
+    const s2 = data.tests.find((t) => t.ad_id === ad.id && t.status === 'active');
+    if (s2) await be.update('tests', s2.id, { status: 'stopped', result_reason: 'Turned off: ' + f.reason });
+    await be.update('ads', ad.id, { stage: 'exhausted', tags: { ...(ad.tags || {}), fatiguing: false, offReason: f.reason, offOn: f.date } });
+    await be.insert('decisions', { product_id: ad.product_id, ad_id: ad.id, kind: 'kill', day: f.date, choice: 'Turned off in Main: ' + f.reason, reason: f.note });
+    await reload(); close(); say('Moved to Exhausted');
+  };
+  const bench = data.ads.filter((a) => a.product_id === ad.product_id && a.stage === 'bench');
+  return html`<${Modal} title="Turned off in Main" sub=${ad.base_name} onClose=${close}>
+    <div class="form">
+      <${Field} label="Date turned off"><input type="date" value=${f.date} onInput=${set('date')} /><//>
+      <${Field} label="Why"><select value=${f.reason} onChange=${set('reason')}><option value="fatigued">Fatigued</option><option value="stopped converting">Stopped converting</option><option value="replaced">Replaced by a better ad</option><option value="other">Other</option></select><//>
+      <${Field} full label="Note"><input value=${f.note} onInput=${set('note')} /><//>
+    </div>
+    <div class=${'status ' + (bench.length ? 'live' : 'warn')}>${bench.length ? `Bench has ${bench.length} ready: ${bench.slice(0, 3).map((a) => a.base_name).join(', ')}.` : 'Your Bench is empty. Nothing tested is ready to replace it.'}</div>
+    <div class="row"><button class="btn primary" onClick=${go}>Move to Exhausted</button><button class="btn ghost" onClick=${close}>Cancel</button></div>
   <//>`;
 }
 
@@ -516,13 +647,18 @@ function Today(ctx) {
   for (const t of data.tests.filter((x) => x.status === 'active')) {
     const ad = data.ads.find((a) => a.id === t.ad_id); const p = products.find((x) => x.id === t.product_id); if (!ad || !p) continue;
     const rules = R.rulesOf(p);
-    if (t.stage === 2) { const d = R.daysBetween(t.start_date, R.today()); if (d >= rules.stage2Min) items.push({ tone: 'blue', title: `Judge Stage 2: ${ad.base_name}`, sub: `${d} days in Main · ${p.name}`, tag: 'TODAY', go: () => setModal({ type: MainForm, props: { adId: ad.id, mode: 'record', testId: t.id } }) }); continue; }
+    if (t.stage === 2) { const d = R.daysBetween(t.start_date, R.today()); if (d >= rules.stage2Min) items.push({ tone: 'blue', title: `Judge in Main: ${ad.base_name}`, sub: `${d} days in Main · ${p.name}`, tag: 'TODAY', go: () => setModal({ type: MainForm, props: { adId: ad.id, mode: 'record', testId: t.id } }) }); continue; }
     const st = R.testStatus(t, data.checkpoints.filter((c) => c.test_id === t.id), rules, R.econOf(p).aov);
     if (st.early) items.push({ tone: 'red', title: `Early-stop rule met: ${ad.base_name}`, sub: st.text, tag: 'DECIDE', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) });
     if (st.final) items.push({ tone: 'blue', title: `Finalize: ${displayName(ad)}`, sub: `${p.name} · window complete`, tag: 'TODAY', go: () => setModal({ type: FinalizeForm, props: { testId: t.id } }) });
     else if (st.due.length) items.push({ tone: 'amber', title: `Day ${st.due[st.due.length - 1]} results: ${displayName(ad)}`, sub: `${p.name} · day ${st.day} of ${st.planned}`, tag: 'DUE', go: () => setModal({ type: CheckinForm, props: { testId: t.id } }) });
   }
-  const ready = data.ads.filter((a) => a.stage === 'ready');
+  for (const p of products) {
+    const bh = benchHealth(data, p);
+    if (bh.urgent) items.unshift({ tone: 'red', title: `${p.name}: Bench is ${bh.bench ? 'low' : 'empty'} and Main is fatiguing`, sub: `${bh.fatiguing.map((a) => a.base_name).join(', ')} fatiguing. ${bh.bench} of ${bh.target} tested backups ready. Test now so September doesn't repeat.`, tag: 'ACT', go: () => { setPid(p.id); setView('board'); } });
+    else if (bh.low && bh.main) items.push({ tone: 'amber', title: `${p.name}: Bench under target`, sub: `${bh.bench} of ${bh.target} tested backups ready.`, tag: 'PLAN', go: () => { setPid(p.id); setView('board'); } });
+  }
+  const ready = data.ads.filter((a) => a.stage === 'untested' && a.tags && a.tags.ready);
   const live = data.tests.filter((t) => t.status === 'active' && t.stage === 1).length;
   const rules0 = R.rulesOf(products[0]);
   const running = data.tests.filter((t) => t.status === 'active');
@@ -535,7 +671,7 @@ function Today(ctx) {
     ${ready.length > 0 && live < rules0.slots && html`<section class="panel"><h2>Slot open</h2><div class="small">${rules0.slots - live} test slot${rules0.slots - live > 1 ? 's' : ''} free. Ready to launch:</div>
       <div class="list">${ready.map((a) => html`<button class="li" style="background:none;border-left:0;border-right:0;border-bottom:0;color:inherit;text-align:left;cursor:pointer;width:100%" onClick=${() => setModal({ type: AdDetail, props: { adId: a.id } })}><${Media} path=${a.media_path} type=${a.media_type} cls="" /><span class="grow small"><b>${a.base_name}</b><br/><span class="muted">${(products.find((p) => p.id === a.product_id) || {}).name}</span></span></button>`)}</div></section>`}
     <section class="panel"><h2>Running</h2>
-      ${running.length ? html`<div class="list">${running.map((t) => { const ad = data.ads.find((a) => a.id === t.ad_id); return ad && html`<button class="li" style="background:none;border-left:0;border-right:0;border-bottom:0;color:inherit;text-align:left;cursor:pointer;width:100%" onClick=${() => setModal({ type: AdDetail, props: { adId: ad.id } })}><span class="bar blue"></span><span class="grow small"><b>${displayName(ad)}</b><br/><span class="muted">${t.stage === 2 ? 'Stage 2 · Main' : 'Stage 1'} · day ${R.testDay(t)}</span></span></button>`; })}</div>` : html`<div class="empty">No live tests</div>`}
+      ${running.length ? html`<div class="list">${running.map((t) => { const ad = data.ads.find((a) => a.id === t.ad_id); return ad && html`<button class="li" style="background:none;border-left:0;border-right:0;border-bottom:0;color:inherit;text-align:left;cursor:pointer;width:100%" onClick=${() => setModal({ type: AdDetail, props: { adId: ad.id } })}><span class="bar blue"></span><span class="grow small"><b>${displayName(ad)}</b><br/><span class="muted">${t.stage === 2 ? 'Trial in Main' : 'Stage 1'} · day ${R.testDay(t)}</span></span></button>`; })}</div>` : html`<div class="empty">No live tests</div>`}
     </section>`;
 }
 
@@ -545,7 +681,7 @@ const RULE_ROWS = [
   ['Test window', [['plannedDays', 'Test window', 'days'], ['checkins', 'Check-in days', 'day']]],
   ['Pass, Mid, Fail', [['minPurchases', 'Minimum purchases', 'buys'], ['passARoas', 'Pass A: ROAS at least', 'x'], ['passACpa', 'Pass A: CPA at most', '$'], ['passBRoas', 'Pass B: ROAS at least', 'x'], ['passBCpa', 'Pass B: CPA at most', '$'], ['failRoas', 'Fail below ROAS', 'x'], ['strongPct', 'Strong pass: CPA at most', '% of line'], ['collapseDays', 'Back-half collapse window', 'days']]],
   ['Early stop', [['earlyDay', 'From day', 'day'], ['earlySpend', 'Spend at least', '$'], ['earlyMaxPurchases', 'Purchases at most', 'buys']]],
-  ['Capacity & timing', [['slots', 'Test slots at once', 'slots'], ['testingCap', 'Testing cap, all products', '$/day'], ['stage2Min', 'Stage 2 minimum', 'days'], ['stage2Max', 'Stage 2 maximum', 'days'], ['raiseStep', 'Budget raise step', '%']]],
+  ['Capacity & timing', [['slots', 'Test slots at once', 'slots'], ['testingCap', 'Testing cap, all products', '$/day'], ['stage2Min', 'Stage 2 minimum', 'days'], ['stage2Max', 'Stage 2 maximum', 'days'], ['raiseStep', 'Budget raise step', '%'], ['benchTarget', 'Tested backups to keep on the Bench', 'ads']]],
 ];
 
 function Rules(ctx) {
