@@ -18,16 +18,27 @@ export async function importHistory(file, be, data, onProgress) {
       // A newer history file re-sorts ads it brought in before. Ads you've moved since keep your choice.
       const oldVer = (old.history && old.history.bundleVersion) || 1;
       const touched = data.decisions.some((d) => d.ad_id === old.id);
+      const patch = {};
+      // Always restore the picture if it's missing.
+      const hasMedia = old.media_path && await be.mediaUrl(old.media_path).catch(() => null);
+      if (!hasMedia && a.media && zip.file(a.media)) {
+        const blob = await zip.file(a.media).async('blob');
+        patch.media_path = await be.upload(`${old.product_id}/history-${a.history.importId}.${a.media.split('.').pop()}`, new File([blob], a.media.split('/').pop(), { type: a.media_type }));
+        patch.media_type = a.media_type;
+      }
       if (ver > oldVer && !touched) {
-        const patch = {};
-        if (a.media && zip.file(a.media)) {
-          const blob = await zip.file(a.media).async('blob');
-          patch.media_path = await be.upload(`${old.product_id}/history-${a.history.importId}.${a.media.split('.').pop()}`, new File([blob], a.media.split('/').pop(), { type: a.media_type }));
-          patch.media_type = a.media_type;
-        }
-        await be.update('ads', old.id, { ...patch, stage: a.stage, result: a.result || null, tags: a.tags || {}, concept: a.concept || null, angle: a.angle || null, setup_era: a.setup_era || null, notes: a.notes || null, history: { ...a.history, bundleVersion: ver } });
+        // A newer history file re-sorts ads it brought in before.
+        Object.assign(patch, { stage: a.stage, result: a.result || null, tags: a.tags || {}, concept: a.concept || null, angle: a.angle || null, setup_era: a.setup_era || null, notes: a.notes || null, history: { ...a.history, bundleVersion: ver } });
+        resorted++;
+      } else if (ver > oldVer) {
+        // You've moved this ad yourself: keep its folder, only fill in what's missing.
+        if (!old.angle && a.angle) patch.angle = a.angle;
+        if (!old.concept && a.concept) patch.concept = a.concept;
+        if (a.setup_era && (!old.setup_era || old.setup_era === 'old' || old.setup_era === 'new')) patch.setup_era = a.setup_era;
+        patch.history = { ...(old.history || {}), bundleVersion: ver };
         resorted++;
       }
+      if (Object.keys(patch).length) await be.update('ads', old.id, patch);
       continue;
     }
     const product = productFor(a.productKind);

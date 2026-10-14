@@ -1,9 +1,9 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=4';
-import * as R from './rules.js?v=4';
-import { importHistory } from './importer.js?v=4';
+import { createBackend } from './data.js?v=5';
+import * as R from './rules.js?v=5';
+import { importHistory } from './importer.js?v=5';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -151,7 +151,7 @@ function cardInfo(ad, ctx) {
       if (st.early) return { line: st.text, chip: 'Early stop?', tone: 'fail', glow: 'live' };
       return { line: st.text, chip: `Day ${Math.min(st.day, st.planned)}/${st.planned}`, tone: 'live', glow: 'live' };
     }
-    case 'untested': return { line: (ad.notes || '').split('\n')[0] || ad.angle || ad.concept || 'Idea', chip: tags.ready ? 'Ready' : ad.parent_id ? 'Recycled' : 'Idea', tone: tags.ready ? 'live' : 'muted', glow: tags.ready ? 'live' : null };
+    case 'untested': return { line: (ad.notes || '').split('\n')[0] || (tags.retest && stats) || ad.angle || ad.concept || 'Idea', chip: tags.ready ? 'Ready' : tags.retest ? 'Retest' : ad.parent_id ? 'Recycled' : 'Idea', tone: tags.ready ? 'live' : tags.retest ? 'ins' : 'muted', glow: tags.ready ? 'live' : null };
     case 'bench': return { line: stats || lastTestLine(t), chip: resLabel || 'Pass', tone: 'pass', glow: 'pass' };
     case 'main': {
       const s2 = tests.find((x) => x.stage === 2 && x.status === 'active');
@@ -175,9 +175,9 @@ function Card(props) {
 
 // Sub-groups inside a column. null = no grouping.
 const GROUPS = {
-  untested: [['Ready to launch', (a) => a.tags && a.tags.ready], ['Ideas', (a) => !(a.tags && a.tags.ready)]],
+  untested: [['Ready to launch', (a) => a.tags && a.tags.ready], ['Retest', (a) => a.tags && a.tags.retest], ['Ideas', () => true]],
   main: [['On trial', (a, c) => c.data.tests.some((t) => t.ad_id === a.id && t.stage === 2 && t.status === 'active')], ['Running', () => true]],
-  mid: [['Close, fix it', (a) => a.result !== 'insufficient' && a.result !== 'unfair'], ['Retest', () => true]],
+  mid: [['Era 2 and later', (a) => a.setup_era !== 'era1'], ['Era 1 · weak evidence', () => true]],
   failed: [['Era 2 and later', (a) => a.setup_era !== 'era1'], ['Era 1 · never a fair shot', () => true]],
 };
 function StageList({ stageKey, list, ctx }) {
@@ -327,11 +327,11 @@ function AdDetail(ctx) {
       break;
     case 'mid':
       actions.push(A('Recycle with a fix', () => setModal({ type: AdForm, props: { mode: 'version', adId: ad.id, recycle: true } }), 'primary'));
-      actions.push(A('Retest as is', () => move('untested', 'Retest as is', { tags: { ...tags, ready: true } })));
+      actions.push(A('Retest as is', () => move('untested', 'Retest as is', { tags: { ...tags, retest: true, ready: false } })));
       break;
     case 'failed':
       actions.push(A('Recycle with a fix', () => setModal({ type: AdForm, props: { mode: 'version', adId: ad.id, recycle: true } })));
-      if (ad.setup_era === 'era1') actions.push(A('Retest (Era 1 result)', () => move('untested', 'Retest: Era 1 result was not a fair test', { tags: { ...tags, ready: true } })));
+      if (ad.setup_era === 'era1') actions.push(A('Retest (Era 1 result)', () => move('untested', 'Retest: Era 1 result was not a fair test', { tags: { ...tags, retest: true, ready: false } })));
       break;
     case 'seasonal':
       actions.push(A('Move to Untested', () => move('untested', 'Pulled from Seasonal')));
@@ -355,6 +355,7 @@ function AdDetail(ctx) {
           ${ad.stage === 'main' && html`<span class=${'chip t-' + (tags.fatiguing ? 'mid' : 'pass')}>${tags.fatiguing ? 'Fatiguing' : 'Running'}</span>`}
           ${ad.stage === 'exhausted' && tags.offReason && html`<span class="chip t-muted">Off · ${tags.offReason}</span>`}
           ${ad.stage === 'untested' && tags.ready && html`<span class="chip t-live">Ready</span>`}
+          ${ad.stage === 'untested' && tags.retest && html`<span class="chip t-ins">Retest</span>`}
           ${ad.result && ad.result !== 'winner' && html`<span class=${'chip t-' + toneOf(ad.result)}>${(R.RESULTS[ad.result] || {}).label || ad.result}</span>`}
           ${era && html`<span class=${'chip t-' + (ad.setup_era === 'era1' ? 'mid' : 'muted')} title=${era.note}>${era.label}</span>`}
           ${hist.oldPage && ad.setup_era !== 'era1' && html`<span class="chip t-mid">Old landing page</span>`}
@@ -535,7 +536,8 @@ function FinalizeForm(ctx) {
     if (pick !== c.result && !why.trim()) { say('Add a reason when you change the result.'); return; }
     const strong = pick === 'strong_pass';
     await be.update('tests', test.id, { status: 'complete', result: pick, strong, result_reason: c.evidence.join(' '), override_reason: pick !== c.result ? why : null });
-    await be.update('ads', test.ad_id, { stage: R.stageForResult(pick), result: pick });
+    const fad = data.ads.find((a) => a.id === test.ad_id) || {};
+    await be.update('ads', test.ad_id, { stage: R.stageForResult(pick), result: pick, tags: { ...(fad.tags || {}), retest: R.isRetestResult(pick), ready: false } });
     await be.insert('decisions', { product_id: test.product_id, ad_id: test.ad_id, test_id: test.id, kind: 'result', choice: `Filed as ${R.RESULTS[pick].label}`, reason: why });
     await reload(); close(); say('Filed in ' + R.stageLabel(R.stageForResult(pick)));
   };
@@ -559,7 +561,8 @@ function StopForm(ctx) {
   const go = async () => {
     const result = why === 'early' ? 'fail' : 'unfair';
     await be.update('tests', test.id, { status: 'stopped', result, result_reason: why === 'early' ? 'Stopped by the early-stop rule.' : 'Stopped: ' + (note || 'outside problem'), override_reason: note || null });
-    await be.update('ads', test.ad_id, { stage: R.stageForResult(result), result });
+    const sad = data.ads.find((a) => a.id === test.ad_id) || {};
+    await be.update('ads', test.ad_id, { stage: R.stageForResult(result), result, tags: { ...(sad.tags || {}), retest: R.isRetestResult(result), ready: false } });
     await be.insert('decisions', { product_id: test.product_id, ad_id: test.ad_id, test_id: test.id, kind: 'kill', choice: 'Stopped early', reason: note });
     await reload(); close(); say('Stopped and filed');
   };
@@ -700,7 +703,7 @@ const BUCKETS = [
   ['mid', 'Mid-Tier', 'mid', (a) => a.stage === 'mid'],
   ['failed', 'Failed', 'fail', (a) => a.stage === 'failed'],
   ['seasonal', 'Seasonal', 'ins', (a) => a.stage === 'seasonal'],
-  ['open', 'Not tested yet', 'live', () => true],
+  ['open', 'Untested or retest', 'live', () => true],
 ];
 function summarize(list, data, withEra1) {
   const counted = withEra1 ? list : list.filter((a) => a.setup_era !== 'era1');

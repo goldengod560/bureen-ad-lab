@@ -31,12 +31,12 @@ export const DEFAULT_ECON = {
 };
 
 export const STAGES = [
-  { key: 'untested', label: 'Untested', hint: 'Ideas and ready to launch' },
+  { key: 'untested', label: 'Untested', hint: 'Ready, retests and ideas' },
   { key: 'testing', label: 'Testing', hint: 'Live in Meta' },
   { key: 'bench', label: 'Bench', hint: 'Passed. Backups for Main' },
   { key: 'main', label: 'In Main', hint: 'Running in Main now' },
   { key: 'exhausted', label: 'Exhausted', hint: 'Fatigued and off' },
-  { key: 'mid', label: 'Mid-Tier', hint: 'Close, or needs a retest' },
+  { key: 'mid', label: 'Mid-Tier', hint: 'Close but not a pass' },
   { key: 'failed', label: 'Failed', hint: 'Did not work' },
 ];
 // Off the board, reachable from the shelf row under the board.
@@ -46,7 +46,9 @@ export const SHELVES = [
 ];
 export const stageLabel = (k) => ([...STAGES, ...SHELVES].find((s) => s.key === k) || { label: k }).label;
 // Where a filed Stage 1 result goes.
-export const stageForResult = (r) => r === 'pass' || r === 'strong_pass' ? 'bench' : r === 'fail' ? 'failed' : 'mid';
+export const stageForResult = (r) => r === 'pass' || r === 'strong_pass' ? 'bench' : r === 'fail' ? 'failed' : r === 'insufficient' || r === 'unfair' ? 'untested' : 'mid';
+// Results that mean "not judged yet": they go back to Untested as a retest.
+export const isRetestResult = (r) => r === 'insufficient' || r === 'unfair';
 
 export const RESULTS = {
   strong_pass: { label: 'Pass · Strong', tone: 'pass' },
@@ -77,6 +79,7 @@ export function normalizeAd(ad) {
   if (ad.stage === 'winner') out.stage = t.active === false ? 'exhausted' : 'main';
   else if (map[ad.stage]) out.stage = map[ad.stage];
   if (ad.stage === 'ready') out.tags = { ...t, ready: true };
+  if (out.stage === 'untested' && isRetestResult(ad.result) && !t.retest) out.tags = { ...(out.tags || t), retest: true };
   if (ad.setup_era === 'old' || ad.setup_era === 'new') out.setup_era = eraOf(ad.launched_on);
   return out;
 }
