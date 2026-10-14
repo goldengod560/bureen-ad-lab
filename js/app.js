@@ -1,9 +1,9 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=5';
-import * as R from './rules.js?v=5';
-import { importHistory } from './importer.js?v=5';
+import { createBackend } from './data.js?v=6';
+import * as R from './rules.js?v=6';
+import { importHistory } from './importer.js?v=6';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -256,6 +256,7 @@ function conceptStats(data, concept) {
   const lastRun = fam.map((a) => a.launched_on || '').filter(Boolean).sort().pop() || null;
   return { fam, counted: counted.length, won: won.length, era1: fam.filter((a) => a.setup_era === 'era1').length, lastRun };
 }
+const allAngles = (data) => [...new Set(data.ads.map((a) => (a.angle || '').trim()).filter(Boolean))].sort();
 const allConcepts = (data) => [...new Set(data.ads.map((a) => (a.concept || '').trim()).filter(Boolean))].sort();
 
 function ConceptPanel({ ad, data, reload, say, setModal }) {
@@ -446,7 +447,8 @@ function AdForm(ctx) {
       <${Field} label="Format"><select value=${f.format} onChange=${set('format')}><option value="image">Image</option><option value="video">Video</option><option value="carousel">Carousel</option></select><//>
       <${Field} label="Concept (same footage or shot = same concept)"><input list="concept-list-form" value=${f.concept || ''} onInput=${set('concept')} placeholder="Display walkthrough" /><datalist id="concept-list-form">${allConcepts(data).map((c) => html`<option value=${c} />`)}</datalist><//>
       ${cs && cs.fam.length >= 3 && html`<div class="status warn small full">This concept has ${cs.fam.length} versions already${cs.counted ? `; ${cs.won} of ${cs.counted} worked since Era 1` : ''}. Change something real, not just the text.</div>`}
-      <${Field} label="Angle"><input list="angle-list-form" value=${f.angle || ''} onInput=${set('angle')} placeholder="$6 per shirt" /><datalist id="angle-list-form">${[...new Set(data.ads.map((a) => (a.angle || '').trim()).filter(Boolean))].sort().map((c) => html`<option value=${c} />`)}</datalist><//>
+      <${Field} label="Angle"><input list="angle-list-form" value=${f.angle || ''} onInput=${set('angle')} placeholder="$6 per shirt" /><datalist id="angle-list-form">${allAngles(data).map((c) => html`<option value=${c} />`)}</datalist><//>
+      ${allAngles(data).length > 0 && html`<div class="pickrow full"><span class="tiny muted">Tap an angle:</span>${allAngles(data).map((c) => html`<button type="button" class=${'pick' + (f.angle === c ? ' on' : '')} onClick=${() => setF({ ...f, angle: c })}>${c}</button>`)}</div>`}
       <${Field} full label="Offer"><input value=${f.offer || ''} onInput=${set('offer')} /><//>
       <${Field} full label="Headline"><input value=${f.headline || ''} onInput=${set('headline')} /><//>
       <${Field} full label="Primary text"><textarea value=${f.primary_text || ''} onInput=${set('primary_text')}></textarea><//>
@@ -715,6 +717,16 @@ function summarize(list, data, withEra1) {
   return { b, cnt, tot, roas: tot.spend ? tot.rev / tot.spend : null, cpa: tot.buys ? tot.spend / tot.buys : null, winRate: judged ? (cnt.worked + cnt.exhausted) / judged : null, judged, hidden: list.length - counted.length };
 }
 
+function QuickSet({ list, field, data, reload, say }) {
+  const opts = field === 'angle' ? allAngles(data) : allConcepts(data);
+  const [custom, setCustom] = useState({});
+  const setIt = async (ad, v) => { if (!v) return; await be.update('ads', ad.id, { [field]: v }); await reload(); say('Saved'); };
+  return html`<section class="panel"><h2>Set the ${field} here</h2><p class="small muted" style="margin:0">Pick one per ad. It moves into that ${field} right away.</p>
+    <div class="list">${list.map((ad) => html`<div class="li"><${Media} path=${ad.media_path} type=${ad.media_type} /><span class="grow small"><b>${ad.base_name}</b></span>
+      ${custom[ad.id] != null ? html`<input class="inp" style="max-width:200px;min-height:34px" placeholder="New ${field}" value=${custom[ad.id]} onInput=${(e) => setCustom({ ...custom, [ad.id]: e.target.value })} onKeyDown=${(e) => e.key === 'Enter' && setIt(ad, e.target.value.trim())} onBlur=${(e) => setIt(ad, e.target.value.trim())} />`
+        : html`<select class="inp" style="max-width:220px;min-height:34px" value="" onChange=${(e) => e.target.value === '__new' ? setCustom({ ...custom, [ad.id]: '' }) : setIt(ad, e.target.value)}><option value="">Choose…</option>${opts.map((o) => html`<option value=${o}>${o}</option>`)}<option value="__new">+ New ${field}…</option></select>`}</div>`)}</div></section>`;
+}
+
 function Angles(ctx) {
   const { data, product } = ctx;
   const [by, setBy] = useState('angle');
@@ -742,7 +754,7 @@ function Angles(ctx) {
         <div class="tile"><div class="k">ROAS</div><div class="v">${R.xroas(s.roas)}</div><div class="s">${R.money(s.cpa)} CPA</div></div>
         <div class="tile"><div class="k">Spend</div><div class="v">${R.money0(s.tot.spend)}</div><div class="s">${Math.round(s.tot.buys)} purchases</div></div>
       </section>
-      ${cur.k === '__none' && html`<div class="status warn">These ads have no ${what} yet. Open one and type it in the ${what} box so it counts.</div>`}
+      ${cur.k === '__none' && html`<${QuickSet} list=${cur.list} field=${by} ...${ctx} />`}
       ${BUCKETS.map(([k, label, tone]) => s.b[k].length > 0 && html`<section class="panel"><div class="row"><h2>${label}</h2><span class=${'chip t-' + tone}>${s.b[k].length}</span></div>
         <div class="shelf">${s.b[k].map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${ctx} />`)}</div></section>`)}`;
   }

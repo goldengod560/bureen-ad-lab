@@ -216,3 +216,8 @@ table.t th:first-child,table.t td:first-child{text-align:left;font-family:var(--
 .seg.sm{grid-template-columns:repeat(3,auto);flex-shrink:0}
 .seg.sm button{min-height:30px;padding:0 10px;font-size:12px;white-space:nowrap}
 @media (max-width:900px){.qrow{flex-direction:column;align-items:stretch}}
+
+.pickrow{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.pick{border:1px solid var(--line2);background:var(--panel2);color:var(--ink);border-radius:999px;padding:4px 10px;font-size:12px;cursor:pointer}
+.pick.on{border-color:var(--accent);background:rgba(61,139,255,.16);color:var(--accent2)}
+.li .thumb{width:44px;height:44px;flex-shrink:0}
