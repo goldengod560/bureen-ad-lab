@@ -1,9 +1,9 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=6';
-import * as R from './rules.js?v=6';
-import { importHistory } from './importer.js?v=6';
+import { createBackend } from './data.js?v=7';
+import * as R from './rules.js?v=7';
+import { importHistory } from './importer.js?v=7';
 
 const html = htm.bind(h);
 const be = createBackend();
