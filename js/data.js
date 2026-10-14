@@ -1,5 +1,5 @@
 // Data layer. Talks to Supabase, or to an in-browser mock when ?mock=1 (for testing without an account).
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js?v=8';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js?v=9';
 
 const TABLES = ['products', 'ads', 'tests', 'checkpoints', 'events', 'decisions', 'learnings'];
 const BUCKET = 'ad-media';

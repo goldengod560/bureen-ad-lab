@@ -1,9 +1,9 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=8';
-import * as R from './rules.js?v=8';
-import { importHistory } from './importer.js?v=8';
+import { createBackend } from './data.js?v=9';
+import * as R from './rules.js?v=9';
+import { importHistory } from './importer.js?v=9';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -66,6 +66,12 @@ function App() {
     be.onAuth((s) => setSession(s));
   }, []);
   useEffect(() => { if (session) reload(); }, [session]);
+  useEffect(() => {
+    // Any failed save shows a message instead of failing silently.
+    const h = (e) => { const m = (e.reason && (e.reason.message || e.reason)) || 'unknown error'; say('Could not save: ' + m); reload(); };
+    window.addEventListener('unhandledrejection', h);
+    return () => window.removeEventListener('unhandledrejection', h);
+  }, []);
   useEffect(() => { try { if (pid) localStorage.setItem('adlab-pid', pid); } catch (e) {} }, [pid]);
 
   if (!be.configured) return html`<div class="login"><div class="panel"><div class="brand"><i></i>BUREEN<b>AD LAB</b></div>
@@ -296,8 +302,9 @@ function AdDetail(ctx) {
   const open = (type, props) => setModal({ type, props: { adId: ad.id, ...props } });
   const log = (kind, choice, reason) => be.insert('decisions', { product_id: ad.product_id, ad_id: ad.id, kind, choice, reason: reason || '' });
   const move = async (to, note, patch) => {
-    await be.update('ads', ad.id, { stage: to, ...(patch || {}) });
-    await log('move', `Moved to ${R.stageLabel(to)}`, note);
+    try { await be.update('ads', ad.id, { stage: to, ...(patch || {}) }); }
+    catch (e) { say('Could not move: ' + e.message); await reload(); return; }
+    try { await log('move', `Moved to ${R.stageLabel(to)}`, note); } catch (e) { console.warn('decision log failed', e); }
     await reload(); say('Moved to ' + R.stageLabel(to));
   };
   const setTag = async (k, v, msg) => { await be.update('ads', ad.id, { tags: { ...tags, [k]: v } }); await reload(); say(msg); };
