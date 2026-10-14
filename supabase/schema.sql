@@ -92,17 +92,33 @@ create table if not exists checkpoints (
   unique (test_id, day)
 );
 
--- Daily numbers imported from Ads Manager files (Phase 2 file drop)
-create table if not exists ad_days (
-  id          uuid primary key default gen_random_uuid(),
-  ad_name     text not null,
-  ad_set      text,
-  campaign    text,
-  day         date not null,
-  spend       numeric, impressions numeric, link_clicks numeric, adds_to_cart numeric,
-  checkouts   numeric, purchases numeric, revenue numeric, frequency numeric, hook_plays numeric,
-  imported_at timestamptz not null default now(),
-  unique (ad_name, ad_set, campaign, day)
+-- Daily numbers per ad, from the Ads Manager files you drop in (named meta_days, not ad_days, to dodge ad blockers)
+drop table if exists ad_days;
+create table if not exists meta_days (
+  id           uuid primary key default gen_random_uuid(),
+  ad_name      text not null,
+  adset        text not null default '',
+  campaign     text not null default '',
+  day          date not null,
+  spend        numeric, impressions numeric, reach numeric, frequency numeric,
+  link_clicks  numeric, adds_to_cart numeric, checkouts numeric,
+  purchases    numeric, revenue numeric, hook_plays numeric,
+  imported_at  timestamptz not null default now(),
+  created_at   timestamptz not null default now(),
+  unique (ad_name, adset, campaign, day)
+);
+create index if not exists meta_days_day_idx on meta_days(day);
+
+-- Daily store totals pulled from Shopify (read-only)
+create table if not exists shop_days (
+  day          date primary key,
+  orders       int not null default 0,
+  gross        numeric not null default 0,   -- total sales incl. shipping and tax, after discounts
+  refunds      numeric not null default 0,
+  discounts    numeric not null default 0,
+  units        int not null default 0,
+  synced_at    timestamptz not null default now(),
+  created_at   timestamptz not null default now()
 );
 
 -- Change log: site, stock, offer, tracking, Meta changes
@@ -143,7 +159,7 @@ create table if not exists learnings (
 do $$
 declare t text;
 begin
-  foreach t in array array['products','creatives','tests','checkpoints','ad_days','events','decisions','learnings'] loop
+  foreach t in array array['products','creatives','tests','checkpoints','meta_days','shop_days','events','decisions','learnings'] loop
     execute format('alter table %I enable row level security', t);
     execute format('drop policy if exists "signed in full access" on %I', t);
     execute format('create policy "signed in full access" on %I for all to authenticated using (true) with check (true)', t);

@@ -16,6 +16,7 @@ export const DEFAULT_RULES = {
   raiseStep: 20,
   weekendLock: true,
   benchTarget: 2,
+  fatigueCpaUp: 25, fatigueRoasDown: 20, fatigueMinSpend: 50,
 };
 
 export const DEFAULT_ECON = {

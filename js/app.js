@@ -1,9 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=11';
-import * as R from './rules.js?v=11';
-import { importHistory } from './importer.js?v=11';
+import { createBackend } from './data.js?v=12';
+import * as R from './rules.js?v=12';
+import { importHistory } from './importer.js?v=12';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=12';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -66,6 +67,14 @@ function App() {
     be.onAuth((s) => setSession(s));
   }, []);
   useEffect(() => { if (session) reload(); }, [session]);
+  // Pull Shopify orders on its own when the last sync is over 2 hours old.
+  useEffect(() => {
+    if (!data || be.mock) return;
+    const last = data.shop_days.reduce((m, r) => (String(r.synced_at) > m ? String(r.synced_at) : m), '');
+    let skip = false; try { skip = localStorage.getItem('adlab-shop-off') === '1' && !last; } catch (e) {}
+    if (skip || (last && Date.now() - new Date(last).getTime() < 2 * 3600e3)) return;
+    be.syncShopify().then(reload).catch(() => { try { if (!last) localStorage.setItem('adlab-shop-off', '1'); } catch (e) {} });
+  }, [data && data.shop_days.length, session]);
   useEffect(() => {
     // Any failed save shows a message instead of failing silently.
     const h = (e) => { const m = (e.reason && (e.reason.message || e.reason)) || 'unknown error'; say('Could not save: ' + m); reload(); };
@@ -87,7 +96,7 @@ function App() {
 
   const activeStage1 = data.tests.filter((t) => t.status === 'active' && t.stage === 1);
   const rules0 = R.rulesOf(product);
-  const NAV = [['today', 'Today'], ['board', 'Board'], ['angles', 'Angles'], ['rules', 'Rules'], ['learn', 'Learnings'], ['more', 'More']];
+  const NAV = [['today', 'Today'], ['board', 'Board'], ['stats', 'Stats'], ['angles', 'Angles'], ['rules', 'Rules'], ['learn', 'Learnings'], ['more', 'More']];
 
   return html`
     <header class="top">
@@ -102,15 +111,16 @@ function App() {
     </header>
     <main class="wrap">
       ${R.isWeekendLock() && html`<div class="banner"><b>Weekend lock.</b> Your rule: no new ads, reactivations or budget changes Friday night through Sunday.</div>`}
-      ${view !== 'more' && view !== 'today' && html`<${ProductTabs} ...${ctx} setPid=${setPid} />`}
+      ${view !== 'more' && view !== 'today' && view !== 'stats' && html`<${ProductTabs} ...${ctx} setPid=${setPid} />`}
       ${view === 'board' && html`<${Board} ...${ctx} stage=${stage} setStage=${setStage} />`}
       ${view === 'today' && html`<${Today} ...${ctx} setPid=${setPid} />`}
+      ${view === 'stats' && html`<${Stats} ...${ctx} />`}
       ${view === 'angles' && html`<${Angles} key=${product.id} ...${ctx} />`}
       ${view === 'rules' && html`<${Rules} key=${product.id} ...${ctx} />`}
       ${view === 'learn' && html`<${Learn} ...${ctx} />`}
       ${view === 'more' && html`<${More} ...${ctx} />`}
     </main>
-    <nav class="bnav" aria-label="Main">${[['today', 'Today'], ['board', 'Board'], ['angles', 'Angles'], ['rules', 'Rules'], ['more', 'More']].map(([k, l]) => html`<button class=${view === k || (k === 'more' && view === 'learn') ? 'on' : ''} onClick=${() => setView(k)}>${l}</button>`)}</nav>
+    <nav class="bnav" aria-label="Main">${[['today', 'Today'], ['board', 'Board'], ['stats', 'Stats'], ['angles', 'Angles'], ['more', 'More']].map(([k, l]) => html`<button class=${view === k || (k === 'more' && (view === 'learn' || view === 'rules')) ? 'on' : ''} onClick=${() => setView(k)}>${l}</button>`)}</nav>
     ${modal && html`<${modal.type} ...${ctx} ...${modal.props} close=${() => setModal(null)} />`}
     <${Lightbox} item=${lightbox} onClose=${() => setLightbox(null)} />
     <${Toast} msg=${toast} />`;
@@ -370,6 +380,11 @@ function AdDetail(ctx) {
           ${ad.launched_on && html`<span class="chip t-muted">Live ${ad.launched_on}</span>`}
         </div>
         ${ad.setup_era === 'era1' && html`<div class="status warn small">${R.ERAS.era1.note}</div>`}
+        ${ad.stage === 'main' && (() => { const f = fatigueSignals(data, product).find((x) => x.ad.id === ad.id); return f && html`<div class="status warn small"><b>May be fatiguing.</b> ${fatigueText(f)}</div>`; })()}
+        ${(() => { const rows = rowsForAd(ad, data.meta_days); if (!rows.length) return null; const t = sumRows(rows.filter((r) => r.day >= R.addDays(R.today(), -7))), all = sumRows(rows);
+          return html`<div class="panel"><h2>From your Ads Manager files</h2><div class="metrics">
+            <div class="metric"><small>Last 7 days</small><b>${R.money0(t.spend)}</b></div><div class="metric"><small>7d ROAS</small><b>${R.xroas(t.roas)}</b></div><div class="metric"><small>7d CPA</small><b>${R.money(t.cpa)}</b></div>
+            <div class="metric"><small>All files</small><b>${R.money0(all.spend)}</b></div><div class="metric"><small>ROAS</small><b>${R.xroas(all.roas)}</b></div><div class="metric"><small>Buys</small><b>${Math.round(all.purchases)}</b></div></div></div>`; })()}
         ${actions.length > 0 && html`<div class="row">${actions}</div>`}
         <div class="row"><label class="f" style="flex-direction:row;align-items:center;gap:8px">Move to
           <select class="inp" style="width:auto;min-height:36px" value=${ad.stage} onChange=${(e) => move(e.target.value, 'Moved by hand')}>
@@ -678,6 +693,12 @@ function Today(ctx) {
     if (bh.urgent) items.unshift({ tone: 'red', title: `${p.name}: Bench is ${bh.bench ? 'low' : 'empty'} and Main is fatiguing`, sub: `${bh.fatiguing.map((a) => a.base_name).join(', ')} fatiguing. ${bh.bench} of ${bh.target} tested backups ready. Test now so September doesn't repeat.`, tag: 'ACT', go: () => { setPid(p.id); setView('board'); } });
     else if (bh.low && bh.main) items.push({ tone: 'amber', title: `${p.name}: Bench under target`, sub: `${bh.bench} of ${bh.target} tested backups ready.`, tag: 'PLAN', go: () => { setPid(p.id); setView('board'); } });
   }
+  for (const p of products) for (const f of fatigueSignals(data, p)) {
+    if (f.ad.tags && f.ad.tags.fatiguing) continue;
+    items.unshift({ tone: 'amber', title: `${f.ad.base_name} may be fatiguing`, sub: fatigueText(f) + ' Open it and mark it fatiguing if you agree.', tag: 'CHECK', go: () => setModal({ type: AdDetail, props: { adId: f.ad.id } }) });
+  }
+  const lastMeta = data.meta_days.reduce((m, r) => (r.day > m ? r.day : m), '');
+  if (!lastMeta || lastMeta < R.addDays(R.today(), -1)) items.push({ tone: 'blue', title: lastMeta ? `Add yesterday's Ads Manager file (last one: ${lastMeta})` : 'Add your first Ads Manager file', sub: 'Keeps check-ins, fatigue warnings and Stats up to date.', tag: 'DAILY', go: () => setView('stats') });
   const ready = data.ads.filter((a) => a.stage === 'untested' && a.tags && a.tags.ready);
   const live = data.tests.filter((t) => t.status === 'active' && t.stage === 1).length;
   const rules0 = R.rulesOf(products[0]);
@@ -825,6 +846,204 @@ function ReviewForm(ctx) {
   <//>`;
 }
 
+// ---------- analyst: file drop, auto check-ins, fatigue, stats ----------
+const round2 = (n) => (n == null ? null : Math.round(n * 100) / 100);
+
+// Fill day 3 / day 7 check-ins for live tests from the Ads Manager rows. Numbers you typed yourself are never overwritten.
+async function autoCheckins(data) {
+  const filled = [];
+  for (const t of data.tests.filter((x) => x.status === 'active' && x.stage === 1 && x.start_date)) {
+    const ad = data.ads.find((a) => a.id === t.ad_id); const p = data.products.find((x) => x.id === t.product_id);
+    if (!ad || !p) continue;
+    const rules = R.rulesOf(p); const planned = t.planned_days || rules.plannedDays;
+    const rows = rowsForAd(ad, data.meta_days).filter((r) => r.day >= t.start_date);
+    if (!rows.length) continue;
+    const maxDay = rows.map((r) => r.day).sort().pop();
+    const want = [...new Set([...R.checkinDays(rules).map((d) => Math.min(d, planned)), planned])];
+    for (const d of want) {
+      const end = R.addDays(t.start_date, d - 1);
+      if (maxDay < end) continue;
+      const existing = data.checkpoints.find((c) => c.test_id === t.id && c.day === d);
+      if (existing && existing.source !== 'file') continue;
+      const tot = sumRows(rows.filter((r) => r.day <= end));
+      const from = R.addDays(end, -((rules.collapseDays || 3) - 1));
+      const row = { test_id: t.id, day: d, spend: round2(tot.spend), purchases: tot.purchases, revenue: round2(tot.revenue), impressions: tot.impressions, link_clicks: tot.link_clicks,
+        adds_to_cart: tot.adds_to_cart, checkouts: tot.checkouts, frequency: round2(tot.frequency), hook_plays: tot.hook_plays || null,
+        last3_purchases: d >= planned ? sumRows(rows.filter((r) => r.day >= from && r.day <= end)).purchases : null, notes: 'From Ads Manager file', source: 'file' };
+      if (existing) await be.update('checkpoints', existing.id, row); else await be.insert('checkpoints', row);
+      filled.push(`${ad.base_name}: day ${d}`);
+    }
+  }
+  return filled;
+}
+
+// Main ads whose last 7 days look worse than the 7 before. A suggestion only: you decide.
+function fatigueSignals(data, product) {
+  const md = data.meta_days; if (!md.length) return [];
+  const rules = R.rulesOf(product);
+  const last = md.reduce((m, r) => (r.day > m ? r.day : m), '');
+  const a = R.addDays(last, -6), b = R.addDays(last, -13), be7 = R.addDays(last, -7);
+  return data.ads.filter((x) => x.product_id === product.id && x.stage === 'main').map((ad) => {
+    const rows = rowsForAd(ad, md);
+    const now = sumRows(rows.filter((r) => r.day >= a)), prev = sumRows(rows.filter((r) => r.day >= b && r.day <= be7));
+    if (now.spend < rules.fatigueMinSpend || prev.spend < rules.fatigueMinSpend) return null;
+    const cpaUp = now.cpa && prev.cpa ? (now.cpa / prev.cpa - 1) * 100 : now.purchases === 0 ? 100 : 0;
+    const roasDown = prev.roas ? (1 - (now.roas || 0) / prev.roas) * 100 : 0;
+    if (cpaUp >= rules.fatigueCpaUp || roasDown >= rules.fatigueRoasDown) return { ad, now, prev, cpaUp, roasDown, last };
+    return null;
+  }).filter(Boolean);
+}
+const fatigueText = (f) => `CPA ${R.money(f.prev.cpa)} → ${R.money(f.now.cpa)}, ROAS ${R.xroas(f.prev.roas)} → ${R.xroas(f.now.roas)} (last 7 days vs the 7 before)${f.now.frequency ? `, frequency ${f.now.frequency.toFixed(1)}` : ''}.`;
+
+function MetaDrop({ data, reload, say, compact }) {
+  const [st, setSt] = useState(null);
+  const last = data.meta_days.reduce((m, r) => (r.day > m ? r.day : m), '');
+  const go = async (file) => {
+    if (!file) return;
+    setSt({ msg: 'Reading ' + file.name + '…' });
+    try {
+      const f = await readMetaFile(file);
+      setSt({ msg: `Saving ${f.rows.length} rows…` });
+      await be.upsert('meta_days', f.rows.map((r) => ({ ...r, imported_at: new Date().toISOString() })));
+      const fresh = await be.loadAll(); fresh.ads = fresh.ads.map(R.normalizeAd);
+      const filled = await autoCheckins(fresh);
+      const known = new Set(fresh.ads.map((a) => normName(a.base_name)));
+      const unmatched = [...new Set(f.rows.filter((r) => r.spend > 0 && !known.has(normName(r.ad_name))).map((r) => r.ad_name))];
+      await reload();
+      setSt({ ok: true, msg: `Added ${f.days.length === 1 ? f.days[0] : f.days[0] + ' to ' + f.days[f.days.length - 1]}: ${f.rows.length} ad rows, ${R.money0(f.spend)} spend.`
+        + (filled.length ? ` Filled check-ins: ${filled.join(', ')}.` : '') + (f.ranged ? ` Skipped ${f.ranged} rows that covered several days.` : ''), unmatched });
+      say('Ads Manager file added');
+    } catch (e) { setSt({ err: true, msg: e.message }); }
+  };
+  return html`<div class=${'drop' + (compact ? ' compact' : '')}>
+    <label class="btn primary"><input type="file" accept=".csv,.xlsx,.xls" hidden onChange=${(e) => { go(e.target.files[0]); e.target.value = ''; }} />Add Ads Manager file</label>
+    <span class="small muted">${last ? `Meta numbers through ${last}.` : 'No Meta numbers yet.'} Export the Ads tab for yesterday (or with Breakdown → Day), CSV or Excel.</span>
+    ${st && html`<div class=${'status small ' + (st.err ? 'bad' : st.ok ? 'good' : 'live')}>${st.msg}
+      ${st.unmatched && st.unmatched.length > 0 && html`<div class="tiny muted" style="margin-top:4px">Not in Ad Lab yet (counted in totals): ${st.unmatched.slice(0, 6).join(' · ')}${st.unmatched.length > 6 ? ` +${st.unmatched.length - 6} more` : ''}</div>`}</div>`}
+  </div>`;
+}
+
+function ShopSync({ data, reload, say }) {
+  const [st, setSt] = useState(null);
+  const last = data.shop_days.reduce((m, r) => (String(r.synced_at) > m ? String(r.synced_at) : m), '');
+  const go = async () => {
+    setSt({ msg: 'Pulling orders from Shopify…' });
+    try { const r = await be.syncShopify(); await reload(); setSt({ ok: true, msg: `Synced ${r.orders} orders over ${r.days} days.` }); say('Shopify synced'); }
+    catch (e) { setSt({ err: true, msg: e.message }); }
+  };
+  return html`<div class="drop compact">
+    <button class="btn" onClick=${go}>Sync Shopify</button>
+    <span class="small muted">${last ? 'Last synced ' + new Date(last).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + '. Syncs on its own when you open the app.' : 'Not connected yet.'}</span>
+    ${st && html`<div class=${'status small ' + (st.err ? 'bad' : st.ok ? 'good' : 'live')}>${st.msg}</div>`}
+  </div>`;
+}
+
+// Line chart: one money axis, hover crosshair + tooltip.
+function LineChart({ labels, series, fmt, refLine, height = 190 }) {
+  const [hi, setHi] = useState(null);
+  const W = 720, H = height, L = 48, Rt = 10, T = 12, B = 24;
+  const vals = series.flatMap((s) => s.values.filter((v) => v != null));
+  if (refLine) vals.push(refLine.value);
+  const max = Math.max(1e-9, ...vals) * 1.1;
+  const x = (i) => L + (labels.length <= 1 ? 0 : i * (W - L - Rt) / (labels.length - 1));
+  const y = (v) => T + (H - T - B) * (1 - v / max);
+  const ticks = [0, 0.5, 1].map((f) => max / 1.1 * f);
+  const step = Math.max(1, Math.ceil(labels.length / 7));
+  const move = (e) => { const r = e.currentTarget.getBoundingClientRect(); const px = (e.clientX - r.left) / r.width * W; const i = Math.round((px - L) / ((W - L - Rt) / Math.max(1, labels.length - 1))); setHi(Math.max(0, Math.min(labels.length - 1, i))); };
+  return html`<div class="chart">
+    <svg viewBox=${`0 0 ${W} ${H}`} preserveAspectRatio="none" onMouseMove=${move} onMouseLeave=${() => setHi(null)} role="img">
+      ${ticks.map((t) => html`<line x1=${L} x2=${W - Rt} y1=${y(t)} y2=${y(t)} class="grid" /><text x=${L - 6} y=${y(t) + 4} class="ax" text-anchor="end">${fmt(t, true)}</text>`)}
+      ${labels.map((l, i) => i % step === 0 && html`<text x=${x(i)} y=${H - 6} class="ax" text-anchor="middle">${R.shortDate(l)}</text>`)}
+      ${refLine && html`<line x1=${L} x2=${W - Rt} y1=${y(refLine.value)} y2=${y(refLine.value)} class="ref" /><text x=${W - Rt} y=${y(refLine.value) - 5} class="ax" text-anchor="end">${refLine.label}</text>`}
+      ${series.map((s) => { const pts = s.values.map((v, i) => (v == null ? null : `${x(i)},${y(v)}`)).filter(Boolean).join(' '); return html`<polyline points=${pts} fill="none" stroke=${s.color} stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke" />`; })}
+      ${hi != null && html`<line x1=${x(hi)} x2=${x(hi)} y1=${T} y2=${H - B} class="cross" />${series.map((s) => s.values[hi] != null && html`<circle cx=${x(hi)} cy=${y(s.values[hi])} r="4" fill=${s.color} stroke="var(--panel)" stroke-width="2" vector-effect="non-scaling-stroke" />`)}`}
+    </svg>
+    ${series.length > 1 && html`<div class="legend">${series.map((s) => html`<span><i style=${'background:' + s.color}></i>${s.name}</span>`)}</div>`}
+    ${hi != null && html`<div class="tip" style=${`left:${Math.min(80, Math.max(8, x(hi) / W * 100))}%`}><b>${labels[hi]}</b>${series.map((s) => html`<div><i style=${'background:' + s.color}></i>${s.name}: ${s.values[hi] == null ? '—' : fmt(s.values[hi])}</div>`)}</div>`}
+  </div>`;
+}
+
+const RANGES = [['7', 'Last 7 days'], ['14', '14 days'], ['30', '30 days'], ['90', '90 days'], ['mtd', 'This month']];
+function rangeDays(key) {
+  const end = R.today();
+  if (key === 'mtd') { const start = end.slice(0, 8) + '01'; return { start, end, n: R.daysBetween(start, end) + 1 }; }
+  const n = +key; return { start: R.addDays(end, -(n - 1)), end, n };
+}
+function periodTotals(data, start, end, econ) {
+  const shop = data.shop_days.filter((d) => d.day >= start && d.day <= end);
+  const meta = data.meta_days.filter((d) => d.day >= start && d.day <= end);
+  const revenue = shop.reduce((s, d) => s + (+d.gross || 0) - (+d.refunds || 0), 0);
+  const orders = shop.reduce((s, d) => s + (+d.orders || 0), 0), units = shop.reduce((s, d) => s + (+d.units || 0), 0);
+  const m = sumRows(meta);
+  const flat = econ.costs.filter((c) => !c.pct).reduce((s, c) => s + (R.num(c.value) || 0), 0);
+  const pct = econ.costs.filter((c) => c.pct).reduce((s, c) => s + (R.num(c.value) || 0), 0) / 100;
+  const profit = shop.length ? revenue * (1 - pct) - (units || orders) * flat - m.spend : null;
+  return { revenue, orders, units, spend: m.spend, metaRev: m.revenue, metaBuys: m.purchases, mer: m.spend ? revenue / m.spend : null, roas: m.roas,
+    aov: orders ? revenue / orders : null, cpa: orders && m.spend ? m.spend / orders : null, profit, hasShop: shop.length > 0, hasMeta: meta.length > 0 };
+}
+function Delta({ now, prev, good = 'up' }) {
+  if (now == null || prev == null || !prev) return null;
+  const d = (now / prev - 1) * 100; if (!isFinite(d)) return null;
+  const better = good === 'up' ? d >= 0 : d <= 0;
+  return html`<span class=${'delta ' + (good === 'flat' || Math.abs(d) < 1 ? '' : better ? 'up' : 'down')}>${d >= 0 ? '▲' : '▼'} ${Math.abs(d).toFixed(0)}%</span>`;
+}
+
+function Stats(ctx) {
+  const { data, product, setModal } = ctx;
+  const [rk, setRk] = useState(() => { try { return localStorage.getItem('adlab-range') || '7'; } catch (e) { return '7'; } });
+  const [tab, setTab] = useState('ads');
+  const [all, setAll] = useState(false);
+  useEffect(() => { try { localStorage.setItem('adlab-range', rk); } catch (e) {} }, [rk]);
+  const econ = R.econOf(product), bev = R.breakEven(econ);
+  const { start, end, n } = rangeDays(rk);
+  const pStart = R.addDays(start, -n), pEnd = R.addDays(start, -1);
+  const cur = periodTotals(data, start, end, econ), prev = periodTotals(data, pStart, pEnd, econ);
+  const labels = Array.from({ length: n }, (_, i) => R.addDays(start, i));
+  const byDayShop = new Map(data.shop_days.map((d) => [d.day, d]));
+  const metaByDay = new Map(); data.meta_days.forEach((r) => { if (r.day >= start && r.day <= end) metaByDay.set(r.day, (metaByDay.get(r.day) || 0) + (+r.spend || 0)); });
+  const revS = labels.map((d) => (byDayShop.has(d) ? (+byDayShop.get(d).gross || 0) - (+byDayShop.get(d).refunds || 0) : null));
+  const spS = labels.map((d) => (metaByDay.has(d) ? metaByDay.get(d) : null));
+  const merS = labels.map((d, i) => (revS[i] != null && spS[i] ? revS[i] / spS[i] : null));
+  // per-ad rows
+  const inRange = data.meta_days.filter((r) => r.day >= start && r.day <= end);
+  const groups = new Map();
+  inRange.forEach((r) => { const k = normName(r.ad_name); if (!groups.has(k)) groups.set(k, { name: r.ad_name, rows: [] }); groups.get(k).rows.push(r); });
+  const adRows = [...groups.values()].map((g) => { const ad = data.ads.find((a) => normName(a.base_name) === normName(g.name)); return { ...g, ad, t: sumRows(g.rows) }; }).sort((a, b) => b.t.spend - a.t.spend);
+  const by = (keyFn) => { const m = new Map(); adRows.forEach((r) => { const k = keyFn(r) || 'Not in Ad Lab'; if (!m.has(k)) m.set(k, []); m.get(k).push(...r.rows); }); return [...m.entries()].map(([k, rows]) => ({ k, t: sumRows(rows) })).sort((a, b) => b.t.spend - a.t.spend); };
+  const angleRows = by((r) => r.ad && (r.ad.angle || 'No angle set'));
+  const campRows = (() => { const m = new Map(); inRange.forEach((r) => { const k = r.campaign || '—'; if (!m.has(k)) m.set(k, []); m.get(k).push(r); }); return [...m.entries()].map(([k, rows]) => ({ k, t: sumRows(rows) })).sort((a, b) => b.t.spend - a.t.spend); })();
+  const tone = (roas) => (roas == null ? '' : roas >= (bev.roas || 2.7) ? 'good' : roas < 2 ? 'bad' : '');
+  const shown = all ? adRows : adRows.slice(0, 10);
+  const noData = !data.shop_days.length && !data.meta_days.length;
+  return html`
+    <div class="row"><h1 style="font-size:30px">Stats</h1><span class="spacer"></span>
+      <div class="seg wide" role="group" aria-label="Date range">${RANGES.map(([k, l]) => html`<button class=${rk === k ? 'on' : ''} onClick=${() => setRk(k)}>${l}</button>`)}</div></div>
+    <div class="grid2"><${ShopSync} ...${ctx} /><${MetaDrop} ...${ctx} /></div>
+    ${noData ? html`<div class="empty">No numbers yet. Connect Shopify and add your first Ads Manager file to see stats.</div>` : html`
+    <section class="tiles k6">
+      <div class="tile"><div class="k">Revenue</div><div class="v">${cur.hasShop ? R.money0(cur.revenue) : '—'}</div><div class="s"><${Delta} now=${cur.revenue} prev=${prev.revenue} /> vs prior ${n} days</div></div>
+      <div class="tile"><div class="k">Ad spend</div><div class="v">${cur.hasMeta ? R.money0(cur.spend) : '—'}</div><div class="s"><${Delta} now=${cur.spend} prev=${prev.spend} good="flat" /> Meta</div></div>
+      <div class=${'tile ' + (cur.mer != null && cur.mer < (bev.roas || 0) ? 'warn' : '')}><div class="k">MER (blended ROAS)</div><div class="v">${R.xroas(cur.mer)}</div><div class="s">Break-even ${R.xroas(bev.roas)} · <${Delta} now=${cur.mer} prev=${prev.mer} /></div></div>
+      <div class="tile"><div class="k">Profit (est.)</div><div class="v">${cur.profit == null ? '—' : R.money0(cur.profit)}</div><div class="s">After product, shipping, fees and ads</div></div>
+      <div class="tile"><div class="k">Orders · AOV</div><div class="v">${cur.hasShop ? cur.orders : '—'} <small>· ${R.money(cur.aov)}</small></div><div class="s"><${Delta} now=${cur.orders} prev=${prev.orders} /> orders</div></div>
+      <div class="tile"><div class="k">Meta ROAS · CPA</div><div class="v">${R.xroas(cur.roas)} <small>· ${R.money(cur.cpa)}</small></div><div class="s">${Math.round(cur.metaBuys)} Meta-reported buys</div></div>
+    </section>
+    <div class="grid2">
+      <section class="panel"><h2>Revenue and ad spend</h2><${LineChart} labels=${labels} fmt=${(v, ax) => (ax ? '$' + Math.round(v) : R.money0(v))} series=${[{ name: 'Revenue (Shopify)', color: '#3D8BFF', values: revS }, { name: 'Ad spend (Meta)', color: '#C2669E', values: spS }]} /></section>
+      <section class="panel"><h2>MER by day</h2><${LineChart} labels=${labels} fmt=${(v) => v.toFixed(2) + 'x'} refLine=${bev.roas ? { value: bev.roas, label: 'Break-even ' + R.xroas(bev.roas) } : null} series=${[{ name: 'MER', color: '#3D8BFF', values: merS }]} /></section>
+    </div>
+    <section class="panel">
+      <div class="row"><h2>Breakdown</h2><span class="spacer"></span><div class="seg wide">${[['ads', 'By ad'], ['angle', 'By angle'], ['camp', 'By campaign']].map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => setTab(k)}>${l}</button>`)}</div></div>
+      ${!inRange.length ? html`<div class="empty">No Meta rows in this range.</div>` : html`<div class="tscroll"><table class="t stats">
+        <thead><tr><th>${tab === 'ads' ? 'Ad' : tab === 'angle' ? 'Angle' : 'Campaign'}</th><th>Spend</th><th>Buys</th><th>ROAS</th><th>CPA</th><th>CTR</th><th>Freq</th></tr></thead>
+        <tbody>${(tab === 'ads' ? shown.map((r) => ({ k: r.name, t: r.t, ad: r.ad })) : tab === 'angle' ? angleRows : campRows).map((r) => html`<tr class=${r.ad ? 'click' : ''} onClick=${() => r.ad && setModal({ type: AdDetail, props: { adId: r.ad.id } })}>
+          <td><span class="cellname">${r.ad && html`<${Media} path=${r.ad.media_path} type=${r.ad.media_type} />`}<span>${r.k}${r.ad ? html`<br/><span class="tiny muted">${R.stageLabel(r.ad.stage)}${r.ad.angle ? ' · ' + r.ad.angle : ''}</span>` : ''}</span></span></td>
+          <td>${R.money0(r.t.spend)}</td><td>${Math.round(r.t.purchases)}</td><td class=${tone(r.t.roas)}>${R.xroas(r.t.roas)}</td><td>${R.money(r.t.cpa)}</td><td>${R.pct(r.t.ctr)}</td><td>${r.t.frequency ? r.t.frequency.toFixed(1) : '—'}</td></tr>`)}</tbody></table></div>
+        ${tab === 'ads' && adRows.length > 10 && html`<button class="link small" onClick=${() => setAll(!all)}>${all ? 'Show top 10' : `Show all ${adRows.length}`}</button>`}`}
+      <p class="tiny muted" style="margin:0">ROAS and buys here are what Meta reports. MER uses real Shopify revenue. Profit uses ${product.name}'s cost lines per pack sold.</p>
+    </section>`}`;
+}
+
 // ---------- rules ----------
 const RULE_ROWS = [
   ['Budgets', [['stage1Budget', 'Stage 1 budget per ad set', '$/day'], ['boostedBudget', 'Boosted budget', '$/day'], ['boostAt', 'Boost when 30-day blended ROAS is at least', 'x']]],
@@ -924,6 +1143,7 @@ function More(ctx) {
   return html`
     <h1 style="font-size:30px">More</h1>
     <div class="grid2">
+      <section class="panel"><h2>Rules</h2><p class="small muted" style="margin:0">Testing rules, break-even and costs per product.</p><div class="row"><button class="btn" onClick=${() => setView('rules')}>Open Rules</button></div></section>
       <section class="panel"><h2>Learnings</h2><p class="small muted" style="margin:0">Learnings, changes and every decision, per product.</p><div class="row"><button class="btn" onClick=${() => setView('learn')}>Open Learnings</button></div></section>
       <section class="panel"><h2>Import your ad history</h2>
         <p class="small muted" style="margin:0">Load the history file from Claude once: your past ads, images, verdicts and notes.</p>

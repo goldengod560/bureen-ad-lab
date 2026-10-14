@@ -221,3 +221,33 @@ table.t th:first-child,table.t td:first-child{text-align:left;font-family:var(--
 .pick{border:1px solid var(--line2);background:var(--panel2);color:var(--ink);border-radius:999px;padding:4px 10px;font-size:12px;cursor:pointer}
 .pick.on{border-color:var(--accent);background:rgba(61,139,255,.16);color:var(--accent2)}
 .li .thumb{width:44px;height:44px;flex-shrink:0}
+
+/* stats */
+.drop{display:flex;flex-direction:column;gap:8px;background:var(--panel);border:1px dashed var(--line2);border-radius:12px;padding:12px}
+.drop .btn{align-self:flex-start}
+.tiles.k6{grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr))}
+.delta{font:500 11px var(--mono);color:var(--muted)}
+.delta.up{color:var(--pass)}.delta.down{color:var(--fail)}
+.seg.wide{grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:auto}
+.seg.wide button{padding:0 12px;min-height:34px;font-size:13px;white-space:nowrap}
+.chart{position:relative}
+.chart svg{width:100%;height:190px;display:block;overflow:visible}
+.chart .grid{stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke}
+.chart .ref{stroke:var(--muted);stroke-width:1;stroke-dasharray:4 4;vector-effect:non-scaling-stroke}
+.chart .cross{stroke:var(--line2);stroke-width:1;vector-effect:non-scaling-stroke}
+.chart .ax{fill:var(--muted);font:10px var(--mono)}
+.chart .legend{display:flex;gap:14px;font-size:12px;color:var(--muted);margin-top:4px}
+.chart .legend i,.chart .tip i{display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.chart .tip{position:absolute;top:0;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--line2);border-radius:8px;padding:6px 8px;font-size:12px;pointer-events:none;white-space:nowrap}
+table.stats td,table.stats th{text-align:right}
+table.stats td:first-child,table.stats th:first-child{text-align:left}
+table.stats td.good{color:var(--pass)} table.stats td.bad{color:var(--fail)}
+table.stats tr.click{cursor:pointer} table.stats tr.click:hover td{background:var(--panel2)}
+.cellname{display:flex;gap:8px;align-items:center}
+.cellname .thumb{width:34px;height:34px;flex-shrink:0}
+@media (max-width:900px){.seg.wide{overflow-x:auto;max-width:100%}}
+@media (max-width:900px){
+  table.stats th:nth-child(6),table.stats td:nth-child(6),table.stats th:nth-child(7),table.stats td:nth-child(7){display:none}
+  table.stats td:first-child{min-width:140px}
+  .cellname .thumb{display:none}
+}
