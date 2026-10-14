@@ -1,9 +1,9 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=7';
-import * as R from './rules.js?v=7';
-import { importHistory } from './importer.js?v=7';
+import { createBackend } from './data.js?v=8';
+import * as R from './rules.js?v=8';
+import { importHistory } from './importer.js?v=8';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -112,7 +112,7 @@ function App() {
 
 function Login() {
   const [email, setEmail] = useState(''); const [pw, setPw] = useState(''); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
-  const go = async (e) => { e.preventDefault(); setBusy(true); setErr(''); try { await be.signIn(email.trim(), pw); } catch (x) { setErr('Sign-in failed. Check your email and password.'); } setBusy(false); };
+  const go = async (e) => { e.preventDefault(); setBusy(true); setErr(''); try { await be.signIn(email.trim(), pw); } catch (x) { const m = String((x && x.message) || x); setErr(/invalid login/i.test(m) ? 'Wrong email or password, or this user does not exist yet in Supabase (Authentication → Users).' : /not confirmed/i.test(m) ? 'This user is not confirmed yet. In Supabase, open Authentication → Users and confirm it.' : 'Sign-in failed: ' + m); } setBusy(false); };
   return html`<div class="login"><form class="panel" onSubmit=${go}>
     <div class="brand"><i></i>BUREEN<b>AD LAB</b></div>
     <${Field} label="Email"><input type="email" autocomplete="username" value=${email} onInput=${(e) => setEmail(e.target.value)} required /><//>
