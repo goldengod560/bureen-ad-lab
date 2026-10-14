@@ -4,6 +4,14 @@
 
 create extension if not exists "pgcrypto";
 
+-- The ads table is named "creatives": ad blockers block web addresses containing /ads?id=.
+-- (Renames the old table if this project was set up before that change.)
+do $$ begin
+  if exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'ads') then
+    alter table public.ads rename to creatives;
+  end if;
+end $$;
+
 -- Products: one row per product tab (Crew Neck, V-Neck, ...)
 create table if not exists products (
   id          uuid primary key default gen_random_uuid(),
@@ -18,13 +26,13 @@ create table if not exists products (
 );
 
 -- Ads: every creative version. One row per version (V1, V2...).
-create table if not exists ads (
+create table if not exists creatives (
   id            uuid primary key default gen_random_uuid(),
   product_id    uuid not null references products(id) on delete cascade,
   concept       text,                                  -- e.g. "Value: $6 per shirt"
   base_name     text not null,                         -- name as it appears in Ads Manager
   version       int  not null default 1,
-  parent_id     uuid references ads(id) on delete set null,
+  parent_id     uuid references creatives(id) on delete set null,
   format        text not null default 'image',         -- image | video | carousel
   angle         text,
   offer         text,
@@ -41,13 +49,13 @@ create table if not exists ads (
   history       jsonb not null default '{}'::jsonb,    -- imported lifetime stats and Yasin's notes
   created_at    timestamptz not null default now()
 );
-create index if not exists ads_product_idx on ads(product_id);
-create index if not exists ads_stage_idx on ads(stage);
+create index if not exists ads_product_idx on creatives(product_id);
+create index if not exists ads_stage_idx on creatives(stage);
 
 -- Tests: a Stage 1 test or a Stage 2 (Main) run of one ad
 create table if not exists tests (
   id             uuid primary key default gen_random_uuid(),
-  ad_id          uuid not null references ads(id) on delete cascade,
+  ad_id          uuid not null references creatives(id) on delete cascade,
   product_id     uuid not null references products(id) on delete cascade,
   stage          int  not null default 1,
   start_date     date,
@@ -111,7 +119,7 @@ create table if not exists events (
 create table if not exists decisions (
   id          uuid primary key default gen_random_uuid(),
   product_id  uuid references products(id) on delete cascade,
-  ad_id       uuid references ads(id) on delete set null,
+  ad_id       uuid references creatives(id) on delete set null,
   test_id     uuid references tests(id) on delete set null,
   day         date not null default current_date,
   kind        text not null,                          -- launch | kill | budget | alarm | move
@@ -135,7 +143,7 @@ create table if not exists learnings (
 do $$
 declare t text;
 begin
-  foreach t in array array['products','ads','tests','checkpoints','ad_days','events','decisions','learnings'] loop
+  foreach t in array array['products','creatives','tests','checkpoints','ad_days','events','decisions','learnings'] loop
     execute format('alter table %I enable row level security', t);
     execute format('drop policy if exists "signed in full access" on %I', t);
     execute format('create policy "signed in full access" on %I for all to authenticated using (true) with check (true)', t);

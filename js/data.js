@@ -1,8 +1,10 @@
 // Data layer. Talks to Supabase, or to an in-browser mock when ?mock=1 (for testing without an account).
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js?v=9';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js?v=10';
 
 const TABLES = ['products', 'ads', 'tests', 'checkpoints', 'events', 'decisions', 'learnings'];
 const BUCKET = 'ad-media';
+// The ads table is called "creatives" in the database: ad blockers block web addresses like /ads?id=.
+const T = (t) => (t === 'ads' ? 'creatives' : t);
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Math.random().toString(36).slice(2) + Date.now());
 
 function supabaseBackend() {
@@ -17,12 +19,12 @@ function supabaseBackend() {
     async signOut() { await client.auth.signOut(); },
     async loadAll() {
       const out = {};
-      await Promise.all(TABLES.map(async (t) => { out[t] = check(await client.from(t).select('*').order('created_at', { ascending: true })); }));
+      await Promise.all(TABLES.map(async (t) => { out[t] = check(await client.from(T(t)).select('*').order('created_at', { ascending: true })); }));
       return out;
     },
-    async insert(t, row) { return check(await client.from(t).insert(row).select().single()); },
-    async update(t, id, patch) { return check(await client.from(t).update(patch).eq('id', id).select().single()); },
-    async remove(t, id) { check(await client.from(t).delete().eq('id', id)); },
+    async insert(t, row) { return check(await client.from(T(t)).insert(row).select().single()); },
+    async update(t, id, patch) { return check(await client.from(T(t)).update(patch).eq('id', id).select().single()); },
+    async remove(t, id) { check(await client.from(T(t)).delete().eq('id', id)); },
     async upload(path, file) {
       check(await client.storage.from(BUCKET).upload(path, file, { upsert: true, contentType: file.type || undefined }));
       urlCache.delete(path);
