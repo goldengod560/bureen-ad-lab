@@ -1,9 +1,9 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=3';
-import * as R from './rules.js?v=3';
-import { importHistory } from './importer.js?v=3';
+import { createBackend } from './data.js?v=4';
+import * as R from './rules.js?v=4';
+import { importHistory } from './importer.js?v=4';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -81,7 +81,7 @@ function App() {
 
   const activeStage1 = data.tests.filter((t) => t.status === 'active' && t.stage === 1);
   const rules0 = R.rulesOf(product);
-  const NAV = [['today', 'Today'], ['board', 'Board'], ['rules', 'Rules'], ['learn', 'Learnings'], ['more', 'More']];
+  const NAV = [['today', 'Today'], ['board', 'Board'], ['angles', 'Angles'], ['rules', 'Rules'], ['learn', 'Learnings'], ['more', 'More']];
 
   return html`
     <header class="top">
@@ -99,11 +99,12 @@ function App() {
       ${view !== 'more' && view !== 'today' && html`<${ProductTabs} ...${ctx} setPid=${setPid} />`}
       ${view === 'board' && html`<${Board} ...${ctx} stage=${stage} setStage=${setStage} />`}
       ${view === 'today' && html`<${Today} ...${ctx} setPid=${setPid} />`}
+      ${view === 'angles' && html`<${Angles} key=${product.id} ...${ctx} />`}
       ${view === 'rules' && html`<${Rules} key=${product.id} ...${ctx} />`}
       ${view === 'learn' && html`<${Learn} ...${ctx} />`}
       ${view === 'more' && html`<${More} ...${ctx} />`}
     </main>
-    <nav class="bnav" aria-label="Main">${[['today', 'Today'], ['board', 'Board'], ['rules', 'Rules'], ['more', 'More']].map(([k, l]) => html`<button class=${view === k || (k === 'more' && view === 'learn') ? 'on' : ''} onClick=${() => setView(k)}>${l}</button>`)}</nav>
+    <nav class="bnav" aria-label="Main">${[['today', 'Today'], ['board', 'Board'], ['angles', 'Angles'], ['rules', 'Rules'], ['more', 'More']].map(([k, l]) => html`<button class=${view === k || (k === 'more' && view === 'learn') ? 'on' : ''} onClick=${() => setView(k)}>${l}</button>`)}</nav>
     ${modal && html`<${modal.type} ...${ctx} ...${modal.props} close=${() => setModal(null)} />`}
     <${Lightbox} item=${lightbox} onClose=${() => setLightbox(null)} />
     <${Toast} msg=${toast} />`;
@@ -168,7 +169,7 @@ function Card(props) {
   return html`<button type="button" class=${'card' + (ci.glow ? ' glow-' + ci.glow : '')} onClick=${() => setModal({ type: AdDetail, props: { adId: ad.id } })}>
     <${Media} path=${ad.media_path} type=${ad.media_type} />
     <span class="t"><span class="nm">${displayName(ad)}</span><span class="ln">${ci.line}</span>
-      <span class="chips"><span class=${'chip t-' + ci.tone}>${ci.chip}</span>${ad.setup_era === 'era1' && html`<span class="chip t-muted" title=${R.ERAS.era1.note}>Era 1</span>`}</span></span>
+      <span class="chips"><span class=${'chip t-' + ci.tone}>${ci.chip}</span>${ad.stage === 'untested' && ad.tags && ad.tags.review && html`<span class=${'chip t-' + (ad.tags.review.score >= 80 ? 'pass' : ad.tags.review.score >= 60 ? 'mid' : 'fail')}>Check ${ad.tags.review.score}</span>`}${ad.setup_era === 'era1' && html`<span class="chip t-muted" title=${R.ERAS.era1.note}>Era 1</span>`}</span></span>
   </button>`;
 }
 
@@ -259,9 +260,15 @@ const allConcepts = (data) => [...new Set(data.ads.map((a) => (a.concept || '').
 
 function ConceptPanel({ ad, data, reload, say, setModal }) {
   const [val, setVal] = useState(ad.concept || '');
+  const [ang, setAng] = useState(ad.angle || '');
+  const saveAng = async () => { if ((ang || '') === (ad.angle || '')) return; await be.update('ads', ad.id, { angle: ang.trim() || null }); await reload(); say('Angle saved'); };
+  const angles = [...new Set(data.ads.map((a) => (a.angle || '').trim()).filter(Boolean))].sort();
   const cs = conceptStats(data, ad.concept);
   const save = async () => { if ((val || '') === (ad.concept || '')) return; await be.update('ads', ad.id, { concept: val.trim() || null }); await reload(); say('Concept saved'); };
-  return html`<div class="panel"><div class="row"><h2>Concept</h2><span class="spacer"></span>
+  return html`<div class="panel"><div class="row"><h2>Angle</h2><span class="spacer"></span>
+      <input class="inp" style="max-width:240px;min-height:34px" list="angle-list" value=${ang} placeholder="$6 per shirt" onInput=${(e) => setAng(e.target.value)} onBlur=${saveAng} onKeyDown=${(e) => e.key === 'Enter' && e.target.blur()} aria-label="Angle" /></div>
+    <datalist id="angle-list">${angles.map((c) => html`<option value=${c} />`)}</datalist>
+    <div class="row"><h2>Concept</h2><span class="spacer"></span>
       <input class="inp" style="max-width:240px;min-height:34px" list="concept-list" value=${val} placeholder="Name the idea" onInput=${(e) => setVal(e.target.value)} onBlur=${save} onKeyDown=${(e) => e.key === 'Enter' && e.target.blur()} aria-label="Concept" /></div>
     <datalist id="concept-list">${allConcepts(data).map((c) => html`<option value=${c} />`)}</datalist>
     ${cs && cs.fam.length > 1 ? html`
@@ -299,8 +306,9 @@ function AdDetail(ctx) {
   const actions = [];
   switch (ad.stage) {
     case 'untested':
+      actions.push(A(tags.review ? `Check: ${tags.review.score}/100` : 'Pre-launch check', () => open(ReviewForm), tags.review ? '' : 'primary'));
       actions.push(A('It went live in Meta', () => open(LaunchForm), tags.ready ? 'primary' : ''));
-      actions.push(A(tags.ready ? 'Not ready yet' : 'Mark ready to launch', () => setTag('ready', !tags.ready, tags.ready ? 'Back to ideas' : 'Marked ready'), tags.ready ? 'ghost' : 'primary'));
+      actions.push(A(tags.ready ? 'Not ready yet' : 'Mark ready to launch', () => setTag('ready', !tags.ready, tags.ready ? 'Back to ideas' : 'Marked ready'), 'ghost'));
       actions.push(A('Straight to Main (no test)', () => open(MainForm, { mode: 'start', emergency: true }), 'ghost'));
       break;
     case 'testing':
@@ -437,7 +445,7 @@ function AdForm(ctx) {
       <${Field} label="Format"><select value=${f.format} onChange=${set('format')}><option value="image">Image</option><option value="video">Video</option><option value="carousel">Carousel</option></select><//>
       <${Field} label="Concept (same footage or shot = same concept)"><input list="concept-list-form" value=${f.concept || ''} onInput=${set('concept')} placeholder="Display walkthrough" /><datalist id="concept-list-form">${allConcepts(data).map((c) => html`<option value=${c} />`)}</datalist><//>
       ${cs && cs.fam.length >= 3 && html`<div class="status warn small full">This concept has ${cs.fam.length} versions already${cs.counted ? `; ${cs.won} of ${cs.counted} worked since Era 1` : ''}. Change something real, not just the text.</div>`}
-      <${Field} label="Angle"><input value=${f.angle || ''} onInput=${set('angle')} placeholder="Value, person wearing, rotation, gym…" /><//>
+      <${Field} label="Angle"><input list="angle-list-form" value=${f.angle || ''} onInput=${set('angle')} placeholder="$6 per shirt" /><datalist id="angle-list-form">${[...new Set(data.ads.map((a) => (a.angle || '').trim()).filter(Boolean))].sort().map((c) => html`<option value=${c} />`)}</datalist><//>
       <${Field} full label="Offer"><input value=${f.offer || ''} onInput=${set('offer')} /><//>
       <${Field} full label="Headline"><input value=${f.headline || ''} onInput=${set('headline')} /><//>
       <${Field} full label="Primary text"><textarea value=${f.primary_text || ''} onInput=${set('primary_text')}></textarea><//>
@@ -675,6 +683,126 @@ function Today(ctx) {
     </section>`;
 }
 
+// ---------- angles ----------
+function adNumbers(ad, data) {
+  const h = ad.history || {};
+  let spend = +h.spend || 0, buys = +h.purchases || 0, rev = h.roas != null && h.spend ? h.roas * h.spend : 0;
+  for (const t of data.tests.filter((x) => x.ad_id === ad.id)) {
+    const c = data.checkpoints.filter((x) => x.test_id === t.id).sort((a, b) => b.day - a.day)[0];
+    if (!c) continue;
+    spend += +c.spend || 0; buys += +c.purchases || 0; rev += c.revenue != null ? +c.revenue : 0;
+  }
+  return { spend, buys, rev };
+}
+const BUCKETS = [
+  ['worked', 'Worked', 'pass', (a) => a.stage === 'bench' || a.stage === 'main'],
+  ['exhausted', 'Exhausted (worked, then fatigued)', 'muted', (a) => a.stage === 'exhausted'],
+  ['mid', 'Mid-Tier', 'mid', (a) => a.stage === 'mid'],
+  ['failed', 'Failed', 'fail', (a) => a.stage === 'failed'],
+  ['seasonal', 'Seasonal', 'ins', (a) => a.stage === 'seasonal'],
+  ['open', 'Not tested yet', 'live', () => true],
+];
+function summarize(list, data, withEra1) {
+  const counted = withEra1 ? list : list.filter((a) => a.setup_era !== 'era1');
+  const b = {}; BUCKETS.forEach(([k]) => { b[k] = []; });
+  list.forEach((a) => { const hit = BUCKETS.find(([, , , fn]) => fn(a)); b[hit[0]].push(a); });
+  const cnt = {}; BUCKETS.forEach(([k, , , fn]) => { cnt[k] = counted.filter((a) => BUCKETS.find(([, , , f]) => f(a))[0] === k).length; });
+  const tot = counted.reduce((s, a) => { const n = adNumbers(a, data); return { spend: s.spend + n.spend, buys: s.buys + n.buys, rev: s.rev + n.rev }; }, { spend: 0, buys: 0, rev: 0 });
+  const judged = cnt.worked + cnt.exhausted + cnt.mid + cnt.failed;
+  return { b, cnt, tot, roas: tot.spend ? tot.rev / tot.spend : null, cpa: tot.buys ? tot.spend / tot.buys : null, winRate: judged ? (cnt.worked + cnt.exhausted) / judged : null, judged, hidden: list.length - counted.length };
+}
+
+function Angles(ctx) {
+  const { data, product } = ctx;
+  const [by, setBy] = useState('angle');
+  const [sel, setSel] = useState(null);
+  const [era1, setEra1] = useState(false);
+  const ads = data.ads.filter((a) => a.product_id === product.id && a.stage !== 'retired');
+  const keyOf = (a) => ((by === 'angle' ? a.angle : a.concept) || '').trim();
+  const groups = {};
+  ads.forEach((a) => { const k = keyOf(a) || '__none'; (groups[k] = groups[k] || []).push(a); });
+  const rows = Object.entries(groups).map(([k, list]) => ({ k, label: k === '__none' ? 'Not set' : k, list, s: summarize(list, data, era1) }))
+    .sort((x, y) => (x.k === '__none') - (y.k === '__none') || (y.s.cnt.worked + y.s.cnt.exhausted) - (x.s.cnt.worked + x.s.cnt.exhausted) || y.s.tot.spend - x.s.tot.spend);
+  const what = by === 'angle' ? 'angle' : 'concept';
+  const head = html`<div class="row"><h1 style="font-size:30px">${by === 'angle' ? 'Angles' : 'Concepts'} · ${product.name}</h1><span class="spacer"></span>
+    <div class="seg" role="group" aria-label="Group by"><button class=${by === 'angle' ? 'on' : ''} onClick=${() => { setBy('angle'); setSel(null); }}>By angle</button><button class=${by === 'concept' ? 'on' : ''} onClick=${() => { setBy('concept'); setSel(null); }}>By concept</button></div></div>
+    <div class="row small muted" style="margin-top:-6px"><span>${by === 'angle' ? 'Angle = the message ($6 per shirt, lifestyle, pack value).' : 'Concept = the creative itself (same footage or shot, different text).'}</span><span class="spacer"></span>
+      <label class="chk" style="margin:0"><input type="checkbox" checked=${era1} onChange=${(e) => setEra1(e.target.checked)} /> Count Era 1 in totals</label></div>`;
+  const cur = sel && rows.find((r) => r.k === sel);
+  if (cur) {
+    const s = cur.s;
+    return html`${head}
+      <div class="row"><button class="btn sm ghost" onClick=${() => setSel(null)}>← All ${what}s</button><h2 style="font-size:22px;margin:0">${cur.label}</h2></div>
+      <section class="tiles">
+        <div class="tile"><div class="k">Ads</div><div class="v">${cur.list.length}</div><div class="s">${s.judged} judged${s.hidden ? ` · ${s.hidden} Era 1 not counted` : ''}</div></div>
+        <div class="tile"><div class="k">Worked</div><div class="v">${s.winRate != null ? Math.round(s.winRate * 100) + '%' : '—'}</div><div class="s">${s.cnt.worked + s.cnt.exhausted} of ${s.judged} (incl. exhausted)${s.hidden && !era1 ? ', Era 1 not counted' : ''}</div></div>
+        <div class="tile"><div class="k">ROAS</div><div class="v">${R.xroas(s.roas)}</div><div class="s">${R.money(s.cpa)} CPA</div></div>
+        <div class="tile"><div class="k">Spend</div><div class="v">${R.money0(s.tot.spend)}</div><div class="s">${Math.round(s.tot.buys)} purchases</div></div>
+      </section>
+      ${cur.k === '__none' && html`<div class="status warn">These ads have no ${what} yet. Open one and type it in the ${what} box so it counts.</div>`}
+      ${BUCKETS.map(([k, label, tone]) => s.b[k].length > 0 && html`<section class="panel"><div class="row"><h2>${label}</h2><span class=${'chip t-' + tone}>${s.b[k].length}</span></div>
+        <div class="shelf">${s.b[k].map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${ctx} />`)}</div></section>`)}`;
+  }
+  return html`${head}
+    ${rows.length ? html`<div class="angles">${rows.map((r) => { const s = r.s; const total = BUCKETS.reduce((n, [k]) => n + s.b[k].length, 0);
+      return html`<button class=${'angle' + (r.k === '__none' ? ' none' : '')} onClick=${() => setSel(r.k)}>
+        <span class="row" style="gap:6px"><b>${r.label}</b><span class="spacer"></span><span class="mono small muted">${r.list.length} ad${r.list.length === 1 ? '' : 's'}</span></span>
+        <span class="abar">${BUCKETS.map(([k, , tone]) => s.b[k].length > 0 && html`<i class=${'b-' + tone} style=${`flex:${s.b[k].length}`} title=${k}></i>`)}</span>
+        <span class="small">${s.b.worked.length + s.b.exhausted.length} worked · ${s.b.mid.length} mid · ${s.b.failed.length} failed${s.b.open.length ? ` · ${s.b.open.length} untested` : ''}${s.b.seasonal.length ? ` · ${s.b.seasonal.length} seasonal` : ''}</span>
+        <span class="mono small muted">${s.tot.spend ? `${R.xroas(s.roas)} · ${R.money0(s.tot.spend)} spent` : 'No spend counted'}${s.hidden ? ` · ${s.hidden} Era 1 not counted` : ''}</span>
+      </button>`; })}</div>` : html`<div class="empty">No ads yet</div>`}`;
+}
+
+// ---------- pre-launch check ----------
+const CHECKS = [
+  { k: 'price', q: 'Does the headline lead with $6 per shirt, not the pack total?', w: 20, size: 'small', fix: 'Lead with "$6". "Only $6 Each" won; "6 TEES. $36." did 1.01x and "6 TEES. ONE DRAWER." 0.57x.' },
+  { k: 'product', q: 'Are the shirts big and clear in the first frame?', w: 20, size: 'big', fix: 'Show the shirts stacked or laid flat, filling the frame. Your image winners all do this.' },
+  { k: 'hook', q: 'Is a person wearing the shirt, or the shirts themselves, on screen in the first 2 seconds?', w: 20, size: 'big', only: 'video', fix: 'Open on someone wearing it (Try-On won). Opening on packaging failed (0.97x).' },
+  { k: 'bg', q: 'Light or clean background?', w: 10, size: 'small', only: 'image', fix: 'Light backgrounds won most often. Dark can work (Dark Stack), but most dark ads did not hold.' },
+  { k: 'onepack', q: 'Does it push one specific pack or color mix?', w: 15, size: 'big', bad: true, fix: 'Single-pack ads pull orders down (Navy + Olive averaged about $36 vs $47). Show the range and let the bundles work.' },
+  { k: 'match', q: 'Does the product in the ad match the page it links to?', w: 15, size: 'big', fix: 'V-neck creatives sent to the Crew page never passed. Link to the product the ad shows.' },
+  { k: 'short', q: 'Is the text on the creative short (one headline, a few words)?', w: 10, size: 'small', fix: 'Cut it to one short line. The long testimonial caption failed (1.07x).' },
+  { k: 'enh', q: 'Will Advantage+ creative enhancements be off?', w: 10, size: 'small', fix: "Turn them off so the result is about your creative, not Meta's edits." },
+];
+function scoreReview(ad, answers, data) {
+  const fmt = ad.format === 'video' ? 'video' : 'image';
+  const list = CHECKS.filter((c) => !c.only || c.only === fmt);
+  let got = 0, max = 0; const fixes = [];
+  for (const c of list) {
+    max += c.w; const a = answers[c.k];
+    const good = a === 'unsure' ? 0.5 : a == null ? 0 : (c.bad ? a === 'no' : a === 'yes') ? 1 : 0;
+    got += c.w * good;
+    if (a != null && good < 1) fixes.push({ size: c.size, text: c.fix });
+  }
+  const cs = conceptStats(data, ad.concept);
+  if (cs && cs.fam.length >= 5) { max += 10; fixes.push({ size: 'big', text: `This concept has ${cs.fam.length} versions${cs.counted ? ` and ${cs.won} of ${cs.counted} worked since Era 1` : ''}. Change the hook, first frame or offer, not just the text.` }); }
+  else if (ad.concept) { max += 10; got += 10; }
+  const done = list.every((c) => answers[c.k] != null);
+  const score = max ? Math.round(got / max * 100) : 0;
+  const verdict = score >= 80 ? 'Ready to launch' : score >= 60 ? 'Small changes first' : 'Big changes needed';
+  return { list, score, verdict, fixes, done };
+}
+function ReviewForm(ctx) {
+  const { data, adId, close, reload, say } = ctx;
+  const ad = data.ads.find((a) => a.id === adId);
+  const prev = (ad.tags && ad.tags.review) || {};
+  const [ans, setAns] = useState(prev.answers || {});
+  const r = scoreReview(ad, ans, data);
+  const save = async (markReady) => {
+    await be.update('ads', ad.id, { tags: { ...(ad.tags || {}), review: { answers: ans, score: r.score, verdict: r.verdict, day: R.today() }, ...(markReady ? { ready: true } : {}) } });
+    await reload(); close(); say(markReady ? 'Scored and marked ready' : 'Check saved');
+  };
+  const tone = r.score >= 80 ? 'good' : r.score >= 60 ? 'warn' : 'bad';
+  return html`<${Modal} title="Pre-launch check" sub=${ad.base_name} onClose=${close}>
+    <p class="small muted" style="margin:0">Scored against what has won and lost in your own ads. The AI review that looks at the image itself comes later.</p>
+    <div class="stack" style="gap:8px">${r.list.map((c) => html`<div class="qrow"><span class="small">${c.q}</span>
+      <span class="seg sm">${['yes', 'no', 'unsure'].map((v) => html`<button class=${ans[c.k] === v ? 'on' : ''} onClick=${() => setAns({ ...ans, [c.k]: v })}>${v === 'unsure' ? 'Not sure' : v[0].toUpperCase() + v.slice(1)}</button>`)}</span></div>`)}</div>
+    <div class=${'status ' + tone}><b>${r.score}/100 · ${r.done ? r.verdict : 'Answer every question'}</b>
+      ${r.fixes.length > 0 && html`${['big', 'small'].map((sz) => r.fixes.filter((f) => f.size === sz).length > 0 && html`<div class="small" style="margin-top:6px"><b>${sz === 'big' ? 'Big changes' : 'Small changes'}</b><ul style="margin:4px 0 0;padding-left:18px">${r.fixes.filter((f) => f.size === sz).map((f) => html`<li>${f.text}</li>`)}</ul></div>`)}`}</div>
+    <div class="row"><button class="btn primary" disabled=${!r.done} onClick=${() => save(r.score >= 80)}>${r.score >= 80 ? 'Save and mark ready' : 'Save'}</button><button class="btn ghost" onClick=${close}>Cancel</button></div>
+  <//>`;
+}
+
 // ---------- rules ----------
 const RULE_ROWS = [
   ['Budgets', [['stage1Budget', 'Stage 1 budget per ad set', '$/day'], ['boostedBudget', 'Boosted budget', '$/day'], ['boostAt', 'Boost when 30-day blended ROAS is at least', 'x']]],
@@ -768,7 +896,7 @@ function More(ctx) {
   const runImport = async (file) => {
     if (!file) return;
     setProg({ done: 0, total: 0, msg: 'Opening file…' });
-    try { const n = await importHistory(file, be, data, (p) => setProg(p)); await reload(); setProg({ done: n, total: n, msg: `Imported ${n} ads.` }); say('History imported'); }
+    try { const r = await importHistory(file, be, data, (p) => setProg(p)); await reload(); setProg({ msg: `Imported ${r.added} new ad${r.added === 1 ? '' : 's'}${r.resorted ? `, re-sorted ${r.resorted}` : ''}.` }); say('History imported'); }
     catch (e) { setProg({ msg: 'Import failed: ' + e.message, error: true }); }
   };
   return html`
@@ -777,12 +905,13 @@ function More(ctx) {
       <section class="panel"><h2>Learnings</h2><p class="small muted" style="margin:0">Learnings, changes and every decision, per product.</p><div class="row"><button class="btn" onClick=${() => setView('learn')}>Open Learnings</button></div></section>
       <section class="panel"><h2>Import your ad history</h2>
         <p class="small muted" style="margin:0">Load the history file from Claude once: your past ads, images, verdicts and notes.</p>
-        ${already && html`<div class="status good">History is already imported. Importing again skips ads that are already here.</div>`}
+        ${already && html`<div class="status good">History is imported. Importing a newer history file re-sorts ads you have not moved yourself.</div>`}
         <input type="file" accept=".zip" class="inp" onChange=${(e) => runImport(e.target.files[0])} />
         ${prog && html`<div class=${'status ' + (prog.error ? 'bad' : 'live')}>${prog.msg}${prog.total ? ` (${prog.done}/${prog.total})` : ''}</div>`}
       </section>
       <section class="panel"><h2>Backup</h2><p class="small muted" style="margin:0">Download everything as one file. Images stay in your storage.</p><div class="row"><button class="btn" onClick=${exportAll}>Export everything</button></div></section>
       <section class="panel"><h2>Install on your phone</h2><p class="small muted" style="margin:0">iPhone: open this page in Safari, tap Share, then Add to Home Screen. Android: Chrome menu, then Add to Home screen.</p></section>
+      ${be.mock && html`<section class="panel"><h2>Test mode</h2><p class="small muted" style="margin:0">Test data lives only in this browser. Clearing it does not touch your real database.</p><div class="row"><button class="btn danger" onClick=${async () => { if (!confirm('Clear all test data in this browser?')) return; await be.reset(); location.reload(); }}>Clear test data</button></div></section>`}
       <section class="panel"><h2>Account</h2><div class="row"><button class="btn" onClick=${() => be.signOut()}>Sign out</button></div></section>
     </div>`;
 }

@@ -5,14 +5,31 @@ export async function importHistory(file, be, data, onProgress) {
   const entry = zip.file('history.json');
   if (!entry) throw new Error('This is not an Ad Lab history file.');
   const bundle = JSON.parse(await entry.async('string'));
-  const have = new Set(data.ads.map((a) => a.history && a.history.importId).filter(Boolean));
+  const have = new Map(data.ads.filter((a) => a.history && a.history.importId).map((a) => [a.history.importId, a]));
+  const ver = bundle.version || 1;
   const productFor = (kind) => data.products.find((p) => p.kind === kind && !p.archived) || data.products.find((p) => p.kind === 'crew') || data.products[0];
   const ads = bundle.ads || [];
-  let done = 0, added = 0;
+  let done = 0, added = 0, resorted = 0;
   for (const a of ads) {
     done++;
     onProgress({ done, total: ads.length, msg: `Importing ${a.base_name}` });
-    if (have.has(a.history.importId)) continue;
+    const old = have.get(a.history.importId);
+    if (old) {
+      // A newer history file re-sorts ads it brought in before. Ads you've moved since keep your choice.
+      const oldVer = (old.history && old.history.bundleVersion) || 1;
+      const touched = data.decisions.some((d) => d.ad_id === old.id);
+      if (ver > oldVer && !touched) {
+        const patch = {};
+        if (a.media && zip.file(a.media)) {
+          const blob = await zip.file(a.media).async('blob');
+          patch.media_path = await be.upload(`${old.product_id}/history-${a.history.importId}.${a.media.split('.').pop()}`, new File([blob], a.media.split('/').pop(), { type: a.media_type }));
+          patch.media_type = a.media_type;
+        }
+        await be.update('ads', old.id, { ...patch, stage: a.stage, result: a.result || null, tags: a.tags || {}, concept: a.concept || null, angle: a.angle || null, setup_era: a.setup_era || null, notes: a.notes || null, history: { ...a.history, bundleVersion: ver } });
+        resorted++;
+      }
+      continue;
+    }
     const product = productFor(a.productKind);
     let media_path = null, media_type = null;
     if (a.media && zip.file(a.media)) {
@@ -24,7 +41,7 @@ export async function importHistory(file, be, data, onProgress) {
     await be.insert('ads', {
       product_id: product.id, base_name: a.base_name, concept: a.concept || null, format: a.format, angle: a.angle || null,
       offer: a.offer || null, notes: a.notes || null, stage: a.stage, result: a.result || null, launched_on: a.launched_on || null,
-      setup_era: a.setup_era || null, tags: a.tags || {}, history: a.history, media_path, media_type, version: 1,
+      setup_era: a.setup_era || null, tags: a.tags || {}, history: { ...a.history, bundleVersion: ver }, media_path, media_type, version: 1,
     });
     added++;
   }
@@ -43,5 +60,5 @@ export async function importHistory(file, be, data, onProgress) {
       if (p && (!p.economics || !Object.keys(p.economics).length)) await be.update('products', p.id, { economics: econ });
     }
   }
-  return added;
+  return { added, resorted };
 }

@@ -47,6 +47,9 @@ function mockBackend() {
     ['Crew Neck', 'V-Neck', 'Long Sleeve', 'Thermal', 'Tank Top'].forEach((name, i) => db.products.push({ id: uid(), name, subtitle: '6-Pack', kind: ['crew', 'vneck', 'long', 'thermal', 'tank'][i], sort: i + 1, rules: {}, economics: {}, archived: false, created_at: new Date().toISOString() }));
   }
   const media = new Map();
+  // Keep test-mode images in IndexedDB so they survive a refresh.
+  const idb = () => new Promise((res, rej) => { const r = indexedDB.open('adlab-mock-media', 1); r.onupgradeneeded = () => r.result.createObjectStore('m'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+  const idbDo = async (mode, fn) => { const d = await idb(); return new Promise((res, rej) => { const tx = d.transaction('m', mode); const q = fn(tx.objectStore('m')); tx.oncomplete = () => res(q && q.result); tx.onerror = () => rej(tx.error); }); };
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) { /* quota: fine for mock */ } };
   let signedIn = sessionStorage.getItem('adlab-mock-session') === '1';
   let listener = () => {};
@@ -60,8 +63,13 @@ function mockBackend() {
     async insert(t, row) { const r = { id: uid(), created_at: new Date().toISOString(), ...row }; db[t].push(r); save(); return { ...r }; },
     async update(t, id, patch) { const r = db[t].find((x) => x.id === id); Object.assign(r, patch); save(); return { ...r }; },
     async remove(t, id) { db[t] = db[t].filter((x) => x.id !== id); save(); },
-    async upload(path, file) { media.set(path, URL.createObjectURL(file)); return path; },
-    async mediaUrl(path) { return media.get(path) || null; },
+    async upload(path, file) { media.set(path, URL.createObjectURL(file)); try { await idbDo('readwrite', (st) => st.put(file, path)); } catch (e) {} return path; },
+    async mediaUrl(path) {
+      if (media.has(path)) return media.get(path);
+      try { const blob = await idbDo('readonly', (st) => st.get(path)); if (blob) { const u = URL.createObjectURL(blob); media.set(path, u); return u; } } catch (e) {}
+      return null;
+    },
+    async reset() { localStorage.removeItem(KEY); try { await idbDo('readwrite', (st) => st.clear()); } catch (e) {} },
   };
 }
 
