@@ -1,9 +1,9 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=10';
-import * as R from './rules.js?v=10';
-import { importHistory } from './importer.js?v=10';
+import { createBackend } from './data.js?v=11';
+import * as R from './rules.js?v=11';
+import { importHistory } from './importer.js?v=11';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -158,15 +158,15 @@ function cardInfo(ad, ctx) {
       return { line: st.text, chip: `Day ${Math.min(st.day, st.planned)}/${st.planned}`, tone: 'live', glow: 'live' };
     }
     case 'untested': return { line: (ad.notes || '').split('\n')[0] || (tags.retest && stats) || ad.angle || ad.concept || 'Idea', chip: tags.ready ? 'Ready' : tags.retest ? 'Retest' : ad.parent_id ? 'Recycled' : 'Idea', tone: tags.ready ? 'live' : tags.retest ? 'ins' : 'muted', glow: tags.ready ? 'live' : null };
-    case 'bench': return { line: stats || lastTestLine(t), chip: resLabel || 'Pass', tone: 'pass', glow: 'pass' };
+    case 'bench': return { line: stats || lastTestLine(t), chip: ad.result === 'strong_pass' ? 'Strong pass' : null, tone: 'pass', glow: 'pass' };
     case 'main': {
       const s2 = tests.find((x) => x.stage === 2 && x.status === 'active');
       if (s2) { const d = R.testDay(s2); return { line: `Day ${d} in Main. Judge after ${rules.stage2Min} to ${rules.stage2Max} days.` + (stats ? ' · ' + stats : ''), chip: `Day ${Math.min(d, rules.stage2Max)}/${rules.stage2Max} in Main`, tone: 'live', glow: 'live' }; }
       return { line: (tags.fatiguing ? 'Fatiguing' : 'Running') + (stats ? ' · ' + stats : ''), chip: tags.fatiguing ? 'Fatiguing' : 'Running', tone: tags.fatiguing ? 'mid' : 'pass', glow: tags.fatiguing ? 'mid' : 'pass' };
     }
-    case 'exhausted': return { line: [tags.offReason ? 'Off: ' + tags.offReason : 'Off', stats].filter(Boolean).join(' · '), chip: 'Exhausted', tone: 'muted' };
+    case 'exhausted': return { line: [tags.offReason ? 'Off: ' + tags.offReason : 'Off', stats].filter(Boolean).join(' · '), chip: null, tone: 'muted' };
     case 'seasonal': return { line: stats || ad.notes || '', chip: tags.season || 'Seasonal', tone: 'ins' };
-    default: return { line: stats || lastTestLine(t), chip: resLabel || 'Result', tone: toneOf(ad.result) };
+    default: return { line: stats || lastTestLine(t), chip: null, tone: toneOf(ad.result) };
   }
 }
 
@@ -175,7 +175,7 @@ function Card(props) {
   return html`<button type="button" class=${'card' + (ci.glow ? ' glow-' + ci.glow : '')} onClick=${() => setModal({ type: AdDetail, props: { adId: ad.id } })}>
     <${Media} path=${ad.media_path} type=${ad.media_type} />
     <span class="t"><span class="nm">${displayName(ad)}</span><span class="ln">${ci.line}</span>
-      <span class="chips"><span class=${'chip t-' + ci.tone}>${ci.chip}</span>${ad.stage === 'untested' && ad.tags && ad.tags.review && html`<span class=${'chip t-' + (ad.tags.review.score >= 80 ? 'pass' : ad.tags.review.score >= 60 ? 'mid' : 'fail')}>Check ${ad.tags.review.score}</span>`}${ad.setup_era === 'era1' && html`<span class="chip t-muted" title=${R.ERAS.era1.note}>Era 1</span>`}</span></span>
+      <span class="chips">${ci.chip && html`<span class=${'chip t-' + ci.tone}>${ci.chip}</span>`}${ad.stage === 'untested' && ad.tags && ad.tags.review && html`<span class=${'chip t-' + (ad.tags.review.score >= 80 ? 'pass' : ad.tags.review.score >= 60 ? 'mid' : 'fail')}>Check ${ad.tags.review.score}</span>`}${ad.setup_era === 'era1' && !['failed', 'mid'].includes(ad.stage) && html`<span class="chip t-muted" title=${R.ERAS.era1.note}>Era 1</span>`}</span></span>
   </button>`;
 }
 
@@ -195,10 +195,10 @@ function StageList({ stageKey, list, ctx }) {
   return groups.map(([label, fn]) => {
     const g = left.filter((a) => fn(a, ctx)); g.forEach((a) => left.splice(left.indexOf(a), 1));
     if (!g.length) return null;
-    const shown = open[label] ? g : g.slice(0, 4);
+    const shown = open[label] ? g : g.slice(0, 3);
     return html`<div class="grp"><span>${label}</span><span>${g.length}</span></div>
       ${shown.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${ctx} />`)}
-      ${g.length > 4 && html`<button class="link small" style="align-self:flex-start" onClick=${() => setOpen({ ...open, [label]: !open[label] })}>${open[label] ? 'Show less' : `Show all ${g.length}`}</button>`}`;
+      ${g.length > 3 && html`<button class="link small" style="align-self:flex-start" onClick=${() => setOpen({ ...open, [label]: !open[label] })}>${open[label] ? 'Show less' : `Show all ${g.length}`}</button>`}`;
   });
 }
 
