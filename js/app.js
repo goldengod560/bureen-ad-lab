@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=15';
-import * as R from './rules.js?v=15';
-import { importHistory } from './importer.js?v=15';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=15';
+import { createBackend } from './data.js?v=16';
+import * as R from './rules.js?v=16';
+import { importHistory } from './importer.js?v=16';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=16';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -796,6 +796,9 @@ function CheckinForm(ctx) {
     await reload(); close(); say(isFinal ? 'Saved. The test window is done: finalize it next.' : 'Saved. This is a status update, not a verdict.');
   };
   return html`<${Modal} title="Add results" sub="Numbers since the test started, straight from Ads Manager" onClose=${close}>
+    ${data.missingTables && data.missingTables.includes('meta_days') ? html`<div class="banner small">To fill these from a file instead of typing, first run the setup file in Supabase (the banner on the main screen).</div>`
+      : html`<div class="stack" style="gap:6px"><div class="small"><b>Skip the typing:</b> drop your Ads Manager export (Ads tab, Breakdown → Day, from the test's first day to yesterday). Day 3 and day 7 fill in on their own.</div><${MetaDrop} ...${ctx} compact /></div>
+        <div class="tiny muted">Or type the numbers:</div>`}
     <div class="form">
       <${Field} label="Day"><input inputmode="numeric" value=${f.day} onInput=${set('day')} disabled=${!!existing} /><//>
       ${fields.map(([k, l]) => html`<${Field} label=${l}><input inputmode="decimal" value=${f[k]} onInput=${set(k)} /><//>`)}
