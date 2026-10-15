@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=19';
-import * as R from './rules.js?v=19';
-import { importHistory } from './importer.js?v=19';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=19';
+import { createBackend } from './data.js?v=20';
+import * as R from './rules.js?v=20';
+import { importHistory } from './importer.js?v=20';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=20';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -880,17 +880,30 @@ function FinalizeForm(ctx) {
 function StopForm(ctx) {
   const { data, testId, close, reload, say } = ctx;
   const test = data.tests.find((t) => t.id === testId);
-  const [why, setWhy] = useState('early'); const [note, setNote] = useState('');
+  const ad = data.ads.find((a) => a.id === test.ad_id) || {};
+  const [why, setWhy] = useState('early'); const [note, setNote] = useState(''); const [day, setDay] = useState(R.today());
+  const dayN = test.start_date ? R.daysBetween(test.start_date, day) + 1 : null;
+  const from = (test.conditions || {}).spendFrom || test.start_date;
+  const rows = ad.id ? rowsForAd(ad, data.meta_days).filter((r) => r.day >= from && r.day <= day) : [];
+  const t = rows.length ? sumRows(rows) : null;
   const go = async () => {
     const result = why === 'early' ? 'fail' : 'unfair';
-    await be.update('tests', test.id, { status: 'stopped', result, result_reason: why === 'early' ? 'Stopped by the early-stop rule.' : 'Stopped: ' + (note || 'outside problem'), override_reason: note || null });
-    const sad = data.ads.find((a) => a.id === test.ad_id) || {};
-    await be.update('ads', test.ad_id, { stage: R.stageForResult(result), result, tags: { ...(sad.tags || {}), retest: R.isRetestResult(result), ready: false } });
-    await be.insert('decisions', { product_id: test.product_id, ad_id: test.ad_id, test_id: test.id, kind: 'kill', choice: 'Stopped early', reason: note });
-    await reload(); close(); say('Stopped and filed');
+    // Save the numbers up to the stop day as the last check-in, when your files cover it.
+    if (t && dayN > 0) {
+      const row = { test_id: test.id, day: dayN, spend: round2(t.spend), purchases: t.purchases, revenue: round2(t.revenue), impressions: t.impressions, link_clicks: t.link_clicks, adds_to_cart: t.adds_to_cart, checkouts: t.checkouts, frequency: round2(t.frequency), notes: 'Final numbers at stop', source: 'file' };
+      const hit = data.checkpoints.find((c) => c.test_id === test.id && c.day === dayN);
+      if (hit) await be.update('checkpoints', hit.id, row); else await be.insert('checkpoints', row);
+    }
+    const when = `on day ${dayN} (${day})`;
+    await be.update('tests', test.id, { status: 'stopped', result, conditions: { ...(test.conditions || {}), stoppedOn: day }, result_reason: why === 'early' ? `Stopped by the early-stop rule ${when}.` : `Stopped ${when}: ` + (note || 'outside problem'), override_reason: note || null });
+    await be.update('ads', test.ad_id, { stage: R.stageForResult(result), result, tags: { ...(ad.tags || {}), retest: R.isRetestResult(result), ready: false } });
+    await be.insert('decisions', { product_id: test.product_id, ad_id: test.ad_id, test_id: test.id, kind: 'kill', day, choice: `Stopped early ${when}`, reason: note });
+    await reload(); close(); say('Stopped and filed in ' + R.stageLabel(R.stageForResult(result)));
   };
-  return html`<${Modal} title="Stop early" onClose=${close}>
+  return html`<${Modal} title="Stop early" sub=${ad.base_name} onClose=${close}>
     <div class="form">
+      <${Field} label="Date you turned it off"><input type="date" value=${day} onInput=${(e) => setDay(e.target.value)} /><//>
+      <div class="status live small">${dayN ? `That's day ${dayN} of the test.` : ''}${t ? ` Up to then: ${R.money(t.spend)} spent, ${Math.round(t.purchases)} buys, ${R.xroas(t.roas)} ROAS.` : ' Add your Ads Manager file first to save the final numbers.'}</div>
       <${Field} full label="Why"><select value=${why} onChange=${(e) => setWhy(e.target.value)}><option value="early">Early-stop rule (files as Fail)</option><option value="outside">Stock, site, tracking or Meta problem (files as Not a fair test)</option></select><//>
       <${Field} full label="Note"><input value=${note} onInput=${(e) => setNote(e.target.value)} /><//>
     </div>
