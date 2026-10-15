@@ -318,3 +318,5 @@ table.stats tr.click{cursor:pointer} table.stats tr.click:hover td{background:va
   .toolbar.open select.inp{display:block;flex:1 1 100%}
   .toolbar .search{flex:1 1 140px}
 }
+
+.pick.ghost{border-style:dashed;color:var(--muted)}

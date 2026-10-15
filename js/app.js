@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=26';
-import * as R from './rules.js?v=26';
-import { importHistory } from './importer.js?v=26';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=26';
+import { createBackend } from './data.js?v=27';
+import * as R from './rules.js?v=27';
+import { importHistory } from './importer.js?v=27';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=27';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -316,7 +316,7 @@ function useBrowse(key) {
   const match = (a) => { const s = q.trim().toLowerCase(); return !s || [a.base_name, a.angle, a.concept, a.notes].some((x) => String(x || '').toLowerCase().includes(s)); };
   return { q, setQ, sort, setSort, fmt, setFmt, angle, setAngle, apply, match };
 }
-function Toolbar({ b, data, sel, setSel, extra }) {
+function Toolbar({ b, data, product, sel, setSel, extra }) {
   const [open, setOpen] = useState(false);
   const active = b.sort !== 'new' || b.fmt !== 'all' || b.angle;
   return html`<div class=${'toolbar' + (open ? ' open' : '')}>
@@ -324,7 +324,7 @@ function Toolbar({ b, data, sel, setSel, extra }) {
     <button class=${'btn sm phone-only' + (active ? ' on' : '')} onClick=${() => setOpen(!open)}>Filter${active ? ' •' : ''}</button>
     <select class="inp" value=${b.sort} onChange=${(e) => b.setSort(e.target.value)} aria-label="Sort">${SORTS.map(([k, l]) => html`<option value=${k}>${l}</option>`)}</select>
     <select class="inp" value=${b.fmt} onChange=${(e) => b.setFmt(e.target.value)} aria-label="Format"><option value="all">Images + videos</option><option value="image">Images</option><option value="video">Videos</option></select>
-    <select class="inp" value=${b.angle} onChange=${(e) => b.setAngle(e.target.value)} aria-label="Angle"><option value="">All angles</option>${allAngles(data).map((a) => html`<option value=${a}>${a}</option>`)}</select>
+    <select class="inp" value=${b.angle} onChange=${(e) => b.setAngle(e.target.value)} aria-label="Angle"><option value="">All angles</option>${allAngles(data, product).map((a) => html`<option value=${a}>${a}</option>`)}</select>
     <button class=${'btn sm' + (sel ? ' on' : '')} onClick=${() => setSel(sel ? null : [])}>${sel ? 'Cancel select' : 'Select'}</button>
     ${extra}
   </div>`;
@@ -395,7 +395,7 @@ function Board(ctx) {
   const results = searching ? b.apply(ads.filter(b.match), data) : [];
   return html`
     <${SummaryStrip} data=${data} product=${product} />
-    <${Toolbar} b=${b} data=${data} sel=${sel} setSel=${setSel} extra=${upload} />
+    <${Toolbar} b=${b} data=${data} product=${product} sel=${sel} setSel=${setSel} extra=${upload} />
     ${dragging && html`<div class="droprow"><span class="small muted">Drop on a folder:</span>${FOLDERS.map((f) => html`<span class=${'dropchip' + (dropCol === f ? ' on' : '')} ...${dz(f)}>${R.stageLabel(f)}</span>`)}</div>`}
     ${searching ? html`<section class="panel"><div class="row"><h2>Search: ${results.length} ad${results.length === 1 ? '' : 's'}</h2><span class="muted small">across every folder</span></div>
         ${results.length ? html`<div class="agrid">${results.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${cardCtx(ad)} showStage />`)}</div>` : html`<div class="empty">No ads match "${b.q}"</div>`}</section>`
@@ -444,7 +444,7 @@ function Archive(ctx) {
   return html`
     <div class="row"><h1 style="font-size:30px">Archive</h1></div>
     <div class="folders">${FOLDERS.map((f) => html`<button class=${'folder' + (folder === f && !searching ? ' on' : '')} onClick=${() => { setFolder(f); b.setQ(''); }}><b>${R.stageLabel(f)}</b><span>${count(f)}</span></button>`)}</div>
-    <${Toolbar} b=${b} data=${data} sel=${sel} setSel=${setSel} />
+    <${Toolbar} b=${b} data=${data} product=${product} sel=${sel} setSel=${setSel} />
     ${searching ? html`<div class="small muted">${list.length} match${list.length === 1 ? '' : 'es'} across the archive</div>` : html`<div class="small muted">${hint[folder]}</div>`}
     ${searching ? html`<div class="agrid">${list.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${cardCtx(ad)} showStage />`)}</div>`
       : html`<div class="stack"><${CardGroupsSel} key=${folder} stageKey=${folder} list=${list} ctx=${cctx} cardCtx=${cardCtx} limit=${12} grid="agrid" /></div>`}
@@ -512,7 +512,7 @@ function BulkForm(ctx) {
       ${it.story ? html`<span class="story"><${Thumb} url=${it.storyUrl} fmt=${/^video/.test(it.story.type) ? 'video' : 'image'} /><button class="link tiny" onClick=${() => setStory(i, null)}>9:16 ✕</button></span>`
         : html`<label class="btn sm ghost">+ 9:16<input type="file" accept="image/*,video/*" hidden onChange=${(e) => setStory(i, e.target.files[0] || null)} /></label>`}
       <button class="link small" style="color:var(--fail)" onClick=${() => setItems(items.filter((_, j) => j !== i))} aria-label="Remove">✕</button></div>`)}</div>
-    <div class="pickrow"><span class="tiny muted">Angle for all:</span>${allAngles(data).map((c) => html`<button type="button" class=${'pick' + (angle === c ? ' on' : '')} onClick=${() => setAngle(angle === c ? '' : c)}>${c}</button>`)}</div>
+    <div><div class="tiny muted" style="margin-bottom:6px">Angle for all</div><${AnglePicker} value=${angle} onPick=${setAngle} product=${product} reload=${reload} say=${say} /></div>
     <div class="form"><${Field} label="Concept for all (optional)"><input list="concept-list-bulk" value=${concept} onInput=${(e) => setConcept(e.target.value)} /><datalist id="concept-list-bulk">${allConcepts(data).map((c) => html`<option value=${c} />`)}</datalist><//>
       <label class="chk"><input type="checkbox" checked=${ready} onChange=${(e) => setReady(e.target.checked)} /> Ready to launch: put them all in Up Next</label></div>
     ${prog && html`<div class="status live">${prog}</div>`}
@@ -530,19 +530,33 @@ function conceptStats(data, concept) {
   const lastRun = fam.map((a) => a.launched_on || '').filter(Boolean).sort().pop() || null;
   return { fam, counted: counted.length, won: won.length, era1: fam.filter((a) => a.setup_era === 'era1').length, lastRun };
 }
-const allAngles = (data) => [...new Set(data.ads.map((a) => (a.angle || '').trim()).filter(Boolean))].sort();
+const allAngles = (data, product) => R.anglesFor(product || data.products[0]);
+async function addAngle(product, reload, say) {
+  const name = (prompt('New angle name (keep the list short: only add a truly new message):', '') || '').trim();
+  if (!name) return null;
+  if (R.anglesFor(product).some((a) => a.toLowerCase() === name.toLowerCase())) { say('That angle already exists'); return null; }
+  await be.update('products', product.id, { rules: { ...(product.rules || {}), extraAngles: [...((product.rules || {}).extraAngles || []), name] } });
+  await reload(); say('Angle added'); return name;
+}
+function AnglePicker({ value, onPick, product, reload, say }) {
+  return html`<div class="pickrow">${allAngles(null, product).map((c) => html`<button type="button" title=${R.angleHint(c)} class=${'pick' + (value === c ? ' on' : '')} onClick=${() => onPick(value === c ? '' : c)}>${c}</button>`)}
+    <button type="button" class="pick ghost" onClick=${async () => { const n = await addAngle(product, reload, say); if (n) onPick(n); }}>+ Add angle</button>
+    ${value && R.angleHint(value) && html`<div class="tiny muted full" style="width:100%">${R.angleHint(value)}</div>`}</div>`;
+}
 const allConcepts = (data) => [...new Set(data.ads.map((a) => (a.concept || '').trim()).filter(Boolean))].sort();
 
 function ConceptPanel({ ad, data, reload, say, setModal }) {
   const [val, setVal] = useState(ad.concept || '');
   const [ang, setAng] = useState(ad.angle || '');
   const saveAng = async () => { if ((ang || '') === (ad.angle || '')) return; await be.update('ads', ad.id, { angle: ang.trim() || null }); await reload(); say('Angle saved'); };
-  const angles = [...new Set(data.ads.map((a) => (a.angle || '').trim()).filter(Boolean))].sort();
+  const prod = data.products.find((p) => p.id === ad.product_id);
+  const angles = allAngles(data, prod);
   const cs = conceptStats(data, ad.concept);
   const save = async () => { if ((val || '') === (ad.concept || '')) return; await be.update('ads', ad.id, { concept: val.trim() || null }); await reload(); say('Concept saved'); };
   return html`<div class="panel"><div class="row"><h2>Angle</h2><span class="spacer"></span>
-      <input class="inp" style="max-width:240px;min-height:34px" list="angle-list" value=${ang} placeholder="$6 per shirt" onInput=${(e) => setAng(e.target.value)} onBlur=${saveAng} onKeyDown=${(e) => e.key === 'Enter' && e.target.blur()} aria-label="Angle" /></div>
-    <datalist id="angle-list">${angles.map((c) => html`<option value=${c} />`)}</datalist>
+      <select class="inp" style="max-width:240px;min-height:34px" value=${ang} onChange=${async (e) => { const v = e.target.value; setAng(v); await be.update('ads', ad.id, { angle: v || null }); await reload(); say('Angle saved'); }} aria-label="Angle">
+        <option value="">Not set</option>${[...angles, ...(ad.angle && !angles.includes(ad.angle) ? [ad.angle] : [])].map((c) => html`<option value=${c}>${c}</option>`)}</select></div>
+    ${ang && R.angleHint(ang) && html`<div class="tiny muted" style="margin-top:-6px">${R.angleHint(ang)}</div>`}
     <div class="row"><h2>Concept</h2><span class="spacer"></span>
       <input class="inp" style="max-width:240px;min-height:34px" list="concept-list" value=${val} placeholder="Name the idea" onInput=${(e) => setVal(e.target.value)} onBlur=${save} onKeyDown=${(e) => e.key === 'Enter' && e.target.blur()} aria-label="Concept" /></div>
     <datalist id="concept-list">${allConcepts(data).map((c) => html`<option value=${c} />`)}</datalist>
@@ -801,8 +815,7 @@ function AdForm(ctx) {
         <${Field} label="Variant (optional)"><input value=${f.variant} onInput=${set('variant')} placeholder="Olive" /><//>
         <div class="namepreview full"><span class="tiny muted">Name in Ads Manager</span><b class="mono">${name}</b><button class="link small" onClick=${() => { setF({ ...f, base_name: name.replace('…', '') }); setCustom(true); }}>Edit name</button></div>`
       : html`<${Field} full label="Name, exactly as in Ads Manager (the launch date is added when it goes live)"><input value=${f.base_name} onInput=${set('base_name')} /><//>`}
-      <div class="full"><div class="tiny muted" style="margin-bottom:6px">Angle</div><div class="pickrow">${allAngles(data).map((c) => html`<button type="button" class=${'pick' + (f.angle === c ? ' on' : '')} onClick=${() => setF({ ...f, angle: f.angle === c ? '' : c })}>${c}</button>`)}
-        <input class="inp pickinput" list="angle-list-form" value=${allAngles(data).includes(f.angle) ? '' : f.angle || ''} onInput=${set('angle')} placeholder="New angle…" /><datalist id="angle-list-form">${allAngles(data).map((c) => html`<option value=${c} />`)}</datalist></div></div>
+      <div class="full"><div class="tiny muted" style="margin-bottom:6px">Angle: the main message it leads with</div><${AnglePicker} value=${f.angle} onPick=${(v) => setF({ ...f, angle: v })} product=${data.products.find((p) => p.id === f.product_id) || product} reload=${reload} say=${say} /></div>
       <button type="button" class="link small full" style="text-align:left" onClick=${() => setMore(!more)}>${more ? '− Fewer details' : '+ More details (concept, offer, headline, text, notes)'}</button>
       ${more && html`
         <${Field} full label="Concept (same footage or shot = same concept)"><input list="concept-list-form" value=${f.concept || ''} onInput=${set('concept')} placeholder="Display walkthrough" /><datalist id="concept-list-form">${allConcepts(data).map((c) => html`<option value=${c} />`)}</datalist><//>
@@ -1140,8 +1153,8 @@ function summarize(list, data, withEra1) {
   return { b, cnt, tot, roas: tot.spend ? tot.rev / tot.spend : null, cpa: tot.buys ? tot.spend / tot.buys : null, winRate: judged ? (cnt.worked + cnt.exhausted) / judged : null, judged, hidden: list.length - counted.length };
 }
 
-function QuickSet({ list, field, data, reload, say }) {
-  const opts = field === 'angle' ? allAngles(data) : allConcepts(data);
+function QuickSet({ list, field, data, reload, say, product: ctxProduct }) {
+  const opts = field === 'angle' ? allAngles(data, ctxProduct) : allConcepts(data);
   const [custom, setCustom] = useState({});
   const setIt = async (ad, v) => { if (!v) return; await be.update('ads', ad.id, { [field]: v }); await reload(); say('Saved'); };
   return html`<section class="panel"><h2>Set the ${field} here</h2><p class="small muted" style="margin:0">Pick one per ad. It moves into that ${field} right away.</p>
@@ -1463,6 +1476,7 @@ function Rules(ctx) {
     setBusy(true);
     const old = R.rulesOf(product); const nr = {};
     Object.keys(R.DEFAULT_RULES).forEach((k) => { nr[k] = k === 'checkins' ? rules[k] : k === 'weekendLock' ? !!rules.weekendLock : (R.num(rules[k]) ?? R.DEFAULT_RULES[k]); });
+    nr.extraAngles = (product.rules || {}).extraAngles || [];
     const ne = { mode: econ.mode, beRoas: R.num(econ.beRoas), aov: R.num(econ.aov), costs: econ.costs.filter((c) => c.label.trim()).map((c) => ({ label: c.label.trim(), value: R.num(c.value) || 0, pct: !!c.pct })) };
     const changes = Object.keys(nr).filter((k) => String(nr[k]) !== String(old[k])).map((k) => `${k}: ${old[k]} → ${nr[k]}`);
     const oe = R.econOf(product); if (String(oe.beRoas) !== String(ne.beRoas) || String(oe.aov) !== String(ne.aov) || oe.mode !== ne.mode) changes.push(`break-even: ${oe.mode} ${oe.beRoas}x @ $${oe.aov} → ${ne.mode} ${ne.beRoas}x @ $${ne.aov}`);
@@ -1489,6 +1503,10 @@ function Rules(ctx) {
         <button class="btn sm ghost" style="align-self:flex-start" onClick=${() => setEcon({ ...econ, costs: [...econ.costs, { label: 'New cost', value: '0', pct: false }] })}>+ Add a cost line</button>
         <div class="status small">From these costs: ${R.money(bev.calc.cpa)} CPA, ${R.xroas(bev.calc.roas)} ROAS. Cost per order ${R.money(bev.calc.cost)}.</div>
       </section>
+      <section class="panel"><h2>Angles</h2><p class="small muted" style="margin:0">The main message each ad leads with. A short fixed list keeps results comparable.</p>
+        <div class="list">${R.ANGLES.map((x) => html`<div class="li"><span class="grow small"><b>${x.name}</b><br/><span class="muted">${x.hint}</span></span></div>`)}
+          ${((product.rules || {}).extraAngles || []).map((x) => html`<div class="li"><span class="grow small"><b>${x}</b><br/><span class="muted">Added by you</span></span><button class="link small" style="color:var(--fail)" onClick=${async () => { if (!confirm('Remove the angle "' + x + '"? Ads keep it until you change them.')) return; await be.update('products', product.id, { rules: { ...(product.rules || {}), extraAngles: ((product.rules || {}).extraAngles || []).filter((y) => y !== x) } }); await reload(); say('Angle removed'); }}>Remove</button></div>`)}</div>
+        <div class="row"><button class="btn sm" onClick=${() => addAngle(product, reload, say)}>+ Add angle</button></div></section>
       ${RULE_ROWS.map(([title, rows]) => html`<section class="panel"><h2>${title}</h2>${rows.map(([k, l, u]) => html`<div class="rulerow"><label for=${'r-' + k}>${l}</label><input id=${'r-' + k} inputmode=${k === 'checkins' ? 'text' : 'decimal'} value=${rules[k]} onInput=${(e) => setRules({ ...rules, [k]: e.target.value })} /><span class="tiny muted">${u}</span></div>`)}
         ${title === 'Capacity & timing' && html`<label class="chk"><input type="checkbox" checked=${rules.weekendLock} onChange=${(e) => setRules({ ...rules, weekendLock: e.target.checked })} /> Weekend lock warnings (Friday night to Sunday)</label>`}</section>`)}
     </div>`;

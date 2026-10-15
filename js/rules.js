@@ -67,6 +67,23 @@ export const RESULTS = {
   winner: { label: 'Winner', tone: 'pass', main: true },
 };
 
+// The angle list: the main message an ad leads with. Same for every product, so results compare.
+export const ANGLES = [
+  { name: 'Price per shirt', hint: 'Leads with the per-shirt price: "$6 a shirt", "$8 a shirt"' },
+  { name: 'Pack total', hint: 'Leads with the bundle total: "6 for $36"' },
+  { name: 'Discount / sale', hint: '% off, holiday or sale pricing' },
+  { name: 'Quality', hint: 'Material, softness, cotton, how it holds up' },
+  { name: 'Brand / Why Sada', hint: 'Reasons to pick Sada, or a brand look with no price' },
+  { name: 'Fit', hint: 'Big sizes, how it fits, fit testimonials' },
+  { name: 'Lifestyle', hint: 'A person in real life: work, gym, everyday' },
+  { name: 'Curiosity', hint: 'A hook that makes people stop: "For only that price???"' },
+  { name: 'Urgency', hint: '"Going fast", limited stock or time' },
+];
+const ANGLE_MAP = { '$6 per shirt': 'Price per shirt', '$8 per shirt + free shipping': 'Price per shirt', 'Pack value ($36 / 6 tees)': 'Pack total', 'Quality / 100% cotton': 'Quality',
+  'No price (brand / product only)': 'Brand / Why Sada', 'Why Sada': 'Brand / Why Sada', 'Fit / big sizes (testimonial)': 'Fit', 'Price shock / curiosity': 'Curiosity', 'Urgency (going fast)': 'Urgency' };
+export const anglesFor = (product) => [...ANGLES.map((a) => a.name), ...(((product && product.rules) || {}).extraAngles || [])];
+export const angleHint = (name) => (ANGLES.find((a) => a.name === name) || {}).hint || '';
+
 // Setup eras. Results from Era 1 say little about the creative.
 export const ERAS = {
   era1: { label: 'Era 1 · no test system', short: 'Era 1', note: 'One mixed campaign, no testing. Shows what Meta chose to spend on, not a fair test.' },
@@ -86,6 +103,7 @@ export function normalizeAd(ad) {
   // "Untested" was split into Up Next (ready), Retest and Ideas.
   if (ad.stage === 'untested') out.stage = t.ready ? 'next' : (t.retest || isRetestResult(ad.result)) ? 'retest' : 'ideas';
   if (ad.setup_era === 'old' || ad.setup_era === 'new') out.setup_era = eraOf(ad.launched_on);
+  if (ad.angle && ANGLE_MAP[ad.angle.trim()]) out.angle = ANGLE_MAP[ad.angle.trim()];
   return out;
 }
 

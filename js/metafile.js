@@ -1,6 +1,6 @@
 // Reads an Ads Manager export (CSV or Excel) into one row per ad per day.
 // Export at the Ad level, either one day at a time or with Breakdown → Time → Day.
-import * as R from './rules.js?v=26';
+import * as R from './rules.js?v=27';
 
 function parseCSV(text) {
   const rows = []; let row = [], cell = '', q = false;
