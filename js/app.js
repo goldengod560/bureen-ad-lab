@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=12';
-import * as R from './rules.js?v=12';
-import { importHistory } from './importer.js?v=12';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=12';
+import { createBackend } from './data.js?v=13';
+import * as R from './rules.js?v=13';
+import { importHistory } from './importer.js?v=13';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=13';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -59,7 +59,8 @@ function App() {
   const [busy, setBusy] = useState(false);
 
   const say = (m) => { setToast(m); clearTimeout(toastTimer); toastTimer = setTimeout(() => setToast(''), 2800); };
-  const reload = async () => { try { const d = await be.loadAll(); d.ads = d.ads.map(R.normalizeAd); setData(d); } catch (e) { say('Could not load: ' + e.message); } };
+  const [loadErr, setLoadErr] = useState(null);
+  const reload = async () => { try { const d = await be.loadAll(); d.ads = d.ads.map(R.normalizeAd); setData(d); setLoadErr(null); } catch (e) { setLoadErr(e.message); say('Could not load: ' + e.message); } };
 
   useEffect(() => {
     if (!be.configured) { setSession(null); return; }
@@ -88,6 +89,10 @@ function App() {
     <p class="muted small">To try it without a database, open this page with <code>?mock=1</code> at the end of the address.</p></div></div>`;
   if (session === undefined) return html`<div class="login muted">Loading…</div>`;
   if (!session) return html`<${Login} />`;
+  if (loadErr && !data) return html`<div class="login"><div class="panel"><div class="brand"><i></i>BUREEN<b>AD LAB</b></div>
+    <div class="status bad">Couldn't load your ads: ${loadErr}</div>
+    <p class="small muted">${/creatives|ads|relation|schema cache/i.test(loadErr) ? 'Your database needs the latest setup file. In Supabase, open SQL Editor, paste schema.sql from the repo and press Run, then refresh this page.' : 'Refresh the page. If it keeps happening, send Claude a screenshot of this message.'}</p>
+    <div class="row"><button class="btn primary" onClick=${() => location.reload()}>Refresh</button><button class="btn ghost" onClick=${() => be.signOut()}>Sign out</button></div></div></div>`;
   if (!data) return html`<div class="login muted">Loading your ads…</div>`;
 
   const products = data.products.filter((p) => !p.archived).sort((a, b) => a.sort - b.sort);
@@ -110,6 +115,7 @@ function App() {
       </div>
     </header>
     <main class="wrap">
+      ${data.missingTables && data.missingTables.length > 0 && html`<div class="banner"><b>One setup step left.</b> Stats needs two new database tables. In Supabase, open SQL Editor, paste <code>schema.sql</code> from the repo and press Run.</div>`}
       ${R.isWeekendLock() && html`<div class="banner"><b>Weekend lock.</b> Your rule: no new ads, reactivations or budget changes Friday night through Sunday.</div>`}
       ${view !== 'more' && view !== 'today' && view !== 'stats' && html`<${ProductTabs} ...${ctx} setPid=${setPid} />`}
       ${view === 'board' && html`<${Board} ...${ctx} stage=${stage} setStage=${setStage} />`}
