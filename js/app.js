@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=23';
-import * as R from './rules.js?v=23';
-import { importHistory } from './importer.js?v=23';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=23';
+import { createBackend } from './data.js?v=24';
+import * as R from './rules.js?v=24';
+import { importHistory } from './importer.js?v=24';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=24';
 
 const html = htm.bind(h);
 const be = createBackend();
