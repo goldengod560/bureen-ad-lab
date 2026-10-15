@@ -1,6 +1,6 @@
 // Reads an Ads Manager export (CSV or Excel) into one row per ad per day.
 // Export at the Ad level, either one day at a time or with Breakdown → Time → Day.
-import * as R from './rules.js?v=18';
+import * as R from './rules.js?v=19';
 
 function parseCSV(text) {
   const rows = []; let row = [], cell = '', q = false;
@@ -51,6 +51,11 @@ const COLS = {
   purchases: [/^(website )?purchases$/, /^purchases \(all\)$/],
   revenue: [/^(website )?purchases conversion value$/, /^purchase conversion value$/],
   hook_plays: [/^3-second video plays$/],
+  // Fallbacks for exports that only have Results / ROAS / CPC columns
+  results: [/^results$/],
+  result_type: [/^result type$/],
+  roas: [/^purchase roas/, /^website purchase roas/],
+  cpc: [/^cpc \(cost per link click\)/],
 };
 
 function toDay(v) {
@@ -70,7 +75,8 @@ export async function readMetaFile(file) {
   for (const [k, pats] of Object.entries(COLS)) idx[k] = head.findIndex((h) => pats.some((p) => p.test(h)));
   if (idx.ad_name < 0) throw new Error('No "Ad name" column. In Ads Manager, export from the Ads tab (ad level).');
   if (idx.spend < 0) throw new Error('No "Amount spent" column in this file.');
-  const out = new Map(); let ranged = 0;
+  const out = new Map(); let ranged = 0; const notBuys = new Set();
+  if (idx.purchases < 0 && idx.results < 0) throw new Error('No purchases in this file. Add the "Purchases" (or "Results") column in Ads Manager and export again.');
   for (const r of table.slice(1)) {
     const name = String(r[idx.ad_name] ?? '').trim();
     if (!name) continue; // totals row
@@ -78,16 +84,22 @@ export async function readMetaFile(file) {
     if (!day && idx.start >= 0) { const a = toDay(r[idx.start]), b = idx.end >= 0 ? toDay(r[idx.end]) : a; if (a && a === b) day = a; else if (a) { ranged++; continue; } }
     if (!day) continue;
     const g = (k) => (idx[k] >= 0 ? R.num(r[idx[k]]) : null);
+    const spend = g('spend') ?? 0;
+    const isBuy = idx.result_type >= 0 && /purchase/i.test(String(r[idx.result_type] || ''));
+    let purchases = g('purchases'); if (purchases == null && isBuy) purchases = g('results') ?? 0;
+    let revenue = g('revenue'); if (revenue == null && g('roas') != null) revenue = Math.round(g('roas') * spend * 100) / 100;
+    let clicks = g('link_clicks'); if (clicks == null && g('cpc')) clicks = Math.round(spend / g('cpc'));
+    if (idx.purchases < 0 && !isBuy && idx.result_type >= 0 && spend > 0) notBuys.add(name);
     const row = { ad_name: name, adset: idx.adset >= 0 ? String(r[idx.adset] ?? '').trim() : '', campaign: idx.campaign >= 0 ? String(r[idx.campaign] ?? '').trim() : '', day,
-      spend: g('spend') ?? 0, impressions: g('impressions'), reach: g('reach'), frequency: g('frequency'), link_clicks: g('link_clicks'),
-      adds_to_cart: g('adds_to_cart'), checkouts: g('checkouts'), purchases: g('purchases') ?? 0, revenue: g('revenue') ?? 0, hook_plays: g('hook_plays') };
+      spend, impressions: g('impressions'), reach: g('reach'), frequency: g('frequency'), link_clicks: clicks,
+      adds_to_cart: g('adds_to_cart'), checkouts: g('checkouts'), purchases: purchases ?? 0, revenue: revenue ?? 0, hook_plays: g('hook_plays') };
     const key = [row.ad_name, row.adset, row.campaign, row.day].join('|');
     out.set(key, row); // a repeated row in the same file replaces the earlier one
   }
   const rows = [...out.values()];
   if (!rows.length) throw new Error(ranged ? 'This file covers several days per row. Export one day at a time, or add Breakdown → Time → Day.' : 'No ad rows found in this file.');
   const days = [...new Set(rows.map((r) => r.day))].sort();
-  return { rows, days, ranged, spend: rows.reduce((s, r) => s + (r.spend || 0), 0) };
+  return { rows, days, ranged, notBuys: [...notBuys], spend: rows.reduce((s, r) => s + (r.spend || 0), 0) };
 }
 
 // ---------- matching file rows to ads in the app ----------

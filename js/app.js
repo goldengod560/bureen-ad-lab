@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=18';
-import * as R from './rules.js?v=18';
-import { importHistory } from './importer.js?v=18';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=18';
+import { createBackend } from './data.js?v=19';
+import * as R from './rules.js?v=19';
+import { importHistory } from './importer.js?v=19';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=19';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1214,7 +1214,7 @@ function MetaDrop({ data, reload, say, compact }) {
       const unmatched = [...new Set(f.rows.filter((r) => r.spend > 0 && !known.has(normName(r.ad_name))).map((r) => r.ad_name))];
       await reload();
       setSt({ ok: true, msg: `Added ${f.days.length === 1 ? f.days[0] : f.days[0] + ' to ' + f.days[f.days.length - 1]}: ${f.rows.length} ad rows, ${R.money0(f.spend)} spend.`
-        + (filled.length ? ` Filled check-ins: ${filled.join(', ')}.` : '') + (f.ranged ? ` Skipped ${f.ranged} rows that covered several days.` : ''), unmatched });
+        + (filled.length ? ` Filled check-ins: ${filled.join(', ')}.` : '') + (f.ranged ? ` Skipped ${f.ranged} rows that covered several days.` : '') + (f.notBuys && f.notBuys.length ? ` ${f.notBuys.length} ad${f.notBuys.length > 1 ? 's' : ''} optimize for something other than purchases, so their buys show as 0.` : ''), unmatched });
       say('Ads Manager file added');
     } catch (e) { setSt({ err: true, msg: e.message }); }
   };
