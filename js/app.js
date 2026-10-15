@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=17';
-import * as R from './rules.js?v=17';
-import { importHistory } from './importer.js?v=17';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=17';
+import { createBackend } from './data.js?v=18';
+import * as R from './rules.js?v=18';
+import { importHistory } from './importer.js?v=18';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=18';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -656,7 +656,8 @@ function TestPanel({ data, test, rules, econ, setModal }) {
   const c = test.conditions || {};
   return html`<div class=${'panel' + (test.status === 'active' ? ' accent' : '')}>
     <div class="row"><h2>${test.stage === 2 ? 'Stage 2 · Main' : 'Stage 1 test'}</h2><span class="spacer"></span>
-      <span class="muted small">${test.start_date ? 'Started ' + test.start_date : ''}${test.budget ? ' · $' + test.budget + '/day' : ''}</span></div>
+      <span class="muted small">${test.start_date ? 'Day 1: ' + test.start_date : ''}${(test.conditions || {}).spendFrom ? ' (live from ' + test.conditions.spendFrom + ')' : ''}${test.budget ? ' · $' + test.budget + '/day' : ''}</span>
+      <button class="link small" onClick=${() => setModal({ type: EditTestForm, props: { testId: test.id, adId: test.ad_id } })}>Edit</button></div>
     ${test.status === 'active' && test.stage === 1 && html`<div class=${'status ' + (st.final ? 'good' : st.early ? 'bad' : st.behind ? 'warn' : 'live')}>${st.text}</div>`}
     ${test.status !== 'active' && test.result && html`<div class=${'status ' + (toneOf(test.result) === 'pass' ? 'good' : toneOf(test.result) === 'fail' ? 'bad' : 'warn')}><b>${(R.RESULTS[test.result] || {}).label || test.result}</b>${test.result_reason ? ' · ' + test.result_reason : ''}${test.override_reason ? html`<br/><span class="small">Your call: ${test.override_reason}</span>` : ''}</div>`}
     ${m && html`<div class="metrics">
@@ -772,6 +773,40 @@ function LaunchForm(ctx) {
       <label class="chk full"><input type="checkbox" checked=${f.shopAds} onChange=${set('shopAds')} /> Shop ads on</label>
     </div>
     <div class="row"><button class="btn primary" onClick=${go}>Start test</button><button class="btn ghost" onClick=${close}>Cancel</button></div>
+  <//>`;
+}
+
+function EditTestForm(ctx) {
+  const { data, testId, close, reload, say } = ctx;
+  const test = data.tests.find((t) => t.id === testId); const ad = data.ads.find((a) => a.id === test.ad_id);
+  const c = test.conditions || {};
+  const [f, setF] = useState({ date: test.start_date || R.today(), partial: !!c.spendFrom, budget: test.budget ?? '', days: test.planned_days || 7, method: c.method || R.TEST_METHODS[0], landingPage: c.landingPage || '', enhancements: !!c.enhancements, shopAds: !!c.shopAds });
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
+  const spendFrom = f.partial ? R.addDays(f.date, -1) : f.date;
+  const typed = data.checkpoints.filter((x) => x.test_id === test.id && x.source !== 'file');
+  const save = async () => {
+    const cond = { ...c, method: f.method, landingPage: f.landingPage, enhancements: f.enhancements, shopAds: f.shopAds }; delete cond.spendFrom; if (f.partial) cond.spendFrom = spendFrom;
+    await be.update('tests', test.id, { start_date: f.date, planned_days: +f.days || 7, budget: R.num(f.budget), conditions: cond });
+    if (test.stage === 1 && ad) await be.update('ads', ad.id, { launched_on: spendFrom, setup_era: R.eraOf(spendFrom) });
+    // Day numbers moved, so redo the check-ins that came from files.
+    for (const cp of data.checkpoints.filter((x) => x.test_id === test.id && x.source === 'file')) await be.remove('checkpoints', cp.id);
+    const fresh = await be.loadAll(); fresh.ads = fresh.ads.map(R.normalizeAd);
+    const filled = await autoCheckins(fresh);
+    await reload(); close(); say('Test updated' + (filled.length ? ' · check-ins refilled from your files' : ''));
+  };
+  return html`<${Modal} title="Edit test" sub=${ad ? ad.base_name : ''} onClose=${close}>
+    <div class="form">
+      <${Field} label="First full day of spend (day 1)"><input type="date" value=${f.date} onInput=${set('date')} /><//>
+      <label class="chk full"><input type="checkbox" checked=${f.partial} onChange=${set('partial')} /> It went live partway through the day before (${R.shortDate(R.addDays(f.date, -1))}). Count that day too.</label>
+      <${Field} label="Budget ($/day)"><input inputmode="decimal" value=${f.budget} onInput=${set('budget')} /><//>
+      <${Field} label="Test window (days)"><input inputmode="numeric" value=${f.days} onInput=${set('days')} /><//>
+      <${Field} label="How you're testing it"><select value=${f.method} onChange=${set('method')}>${R.TEST_METHODS.map((m) => html`<option>${m}</option>`)}</select><//>
+      <${Field} full label="Landing page"><input value=${f.landingPage} onInput=${set('landingPage')} /><//>
+      <label class="chk full"><input type="checkbox" checked=${f.enhancements} onChange=${set('enhancements')} /> Advantage+ creative enhancements on</label>
+      <label class="chk full"><input type="checkbox" checked=${f.shopAds} onChange=${set('shopAds')} /> Shop ads on</label>
+    </div>
+    ${typed.length > 0 && html`<div class="banner small">You typed ${typed.length} check-in${typed.length > 1 ? 's' : ''} by hand. ${typed.length > 1 ? 'They stay' : 'It stays'} as is; edit ${typed.length > 1 ? 'them' : 'it'} if the day numbers changed.</div>`}
+    <div class="row"><button class="btn primary" onClick=${save}>Save</button><button class="btn ghost" onClick=${close}>Cancel</button></div>
   <//>`;
 }
 
