@@ -32,10 +32,12 @@ export const DEFAULT_ECON = {
 };
 
 export const STAGES = [
-  { key: 'untested', label: 'Untested', hint: 'Ready, retests and ideas' },
+  { key: 'next', label: 'Up Next', hint: 'Ready to launch, in order' },
   { key: 'testing', label: 'Testing', hint: 'Live in Meta' },
   { key: 'bench', label: 'Bench', hint: 'Passed. Backups for Main' },
   { key: 'main', label: 'In Main', hint: 'Running in Main now' },
+  { key: 'ideas', label: 'Ideas', hint: 'Drafts and new uploads' },
+  { key: 'retest', label: 'Retest', hint: 'Never got a fair shot' },
   { key: 'exhausted', label: 'Exhausted', hint: 'Fatigued and off' },
   { key: 'mid', label: 'Mid-Tier', hint: 'Close but not a pass' },
   { key: 'failed', label: 'Failed', hint: 'Did not work' },
@@ -45,10 +47,12 @@ export const SHELVES = [
   { key: 'seasonal', label: 'Seasonal', hint: 'Sale and holiday ads' },
   { key: 'retired', label: 'Archived', hint: 'Hidden from everything' },
 ];
+// Up Next order. Ads queued before this existed fall back to when they were added.
+export const queueOf = (ad) => { const q = ad.tags && ad.tags.queue; return q == null ? (Date.parse(ad.created_at) || 0) : q; };
 export const stageLabel = (k) => ([...STAGES, ...SHELVES].find((s) => s.key === k) || { label: k }).label;
 // Where a filed Stage 1 result goes.
-export const stageForResult = (r) => r === 'pass' || r === 'strong_pass' ? 'bench' : r === 'fail' ? 'failed' : r === 'insufficient' || r === 'unfair' ? 'untested' : 'mid';
-// Results that mean "not judged yet": they go back to Untested as a retest.
+export const stageForResult = (r) => r === 'pass' || r === 'strong_pass' ? 'bench' : r === 'fail' ? 'failed' : r === 'insufficient' || r === 'unfair' ? 'retest' : 'mid';
+// Results that mean "not judged yet": they go to the Retest folder.
 export const isRetestResult = (r) => r === 'insufficient' || r === 'unfair';
 
 export const RESULTS = {
@@ -76,11 +80,11 @@ export const TEST_METHODS = ['Single ad (ABO)', 'Batch (CBO)', 'Straight to Main
 export function normalizeAd(ad) {
   const t = ad.tags || {};
   const out = { ...ad };
-  const map = { idea: 'untested', review: 'untested', ready: 'untested', results: stageForResult(ad.result) };
+  const map = { idea: 'ideas', review: 'ideas', ready: 'next', results: stageForResult(ad.result) };
   if (ad.stage === 'winner') out.stage = t.active === false ? 'exhausted' : 'main';
   else if (map[ad.stage]) out.stage = map[ad.stage];
-  if (ad.stage === 'ready') out.tags = { ...t, ready: true };
-  if (out.stage === 'untested' && isRetestResult(ad.result) && !t.retest) out.tags = { ...(out.tags || t), retest: true };
+  // "Untested" was split into Up Next (ready), Retest and Ideas.
+  if (ad.stage === 'untested') out.stage = t.ready ? 'next' : (t.retest || isRetestResult(ad.result)) ? 'retest' : 'ideas';
   if (ad.setup_era === 'old' || ad.setup_era === 'new') out.setup_era = eraOf(ad.launched_on);
   return out;
 }
