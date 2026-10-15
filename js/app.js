@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=16';
-import * as R from './rules.js?v=16';
-import { importHistory } from './importer.js?v=16';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=16';
+import { createBackend } from './data.js?v=17';
+import * as R from './rules.js?v=17';
+import { importHistory } from './importer.js?v=17';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=17';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -369,7 +369,7 @@ function Board(ctx) {
   const dropTo = async (e, to) => { e.preventDefault(); setDropCol(null); setDragging(false); const id = e.dataTransfer.getData('text/adlab'); if (!id) return; await moveAds([id], to, data, 'Dragged'); await reload(); say('Moved to ' + R.stageLabel(to)); };
   const dz = (to) => ({ onDragOver: (e) => { if ([...e.dataTransfer.types].includes('text/adlab')) { e.preventDefault(); setDropCol(to); } }, onDragLeave: () => setDropCol(null), onDrop: (e) => dropTo(e, to) });
   const newAd = () => setModal({ type: AdForm, props: { mode: 'new' } });
-  const upload = html`<label class="btn sm"><input type="file" multiple accept="image/*,video/*" hidden onChange=${(e) => { const fs = [...e.target.files]; e.target.value = ''; if (fs.length) setModal({ type: BulkForm, props: { files: fs } }); }} />Upload many</label><button class="btn primary sm" onClick=${newAd}>+ New ad</button>`;
+  const upload = html`<button class="btn sm" onClick=${() => setModal({ type: MetaFileModal, props: {} })}>Add Ads Manager file</button><label class="btn sm"><input type="file" multiple accept="image/*,video/*" hidden onChange=${(e) => { const fs = [...e.target.files]; e.target.value = ''; if (fs.length) setModal({ type: BulkForm, props: { files: fs } }); }} />Upload many</label><button class="btn primary sm" onClick=${newAd}>+ New ad</button>`;
   const searching = b.q.trim().length > 0;
   const results = searching ? b.apply(ads.filter(b.match), data) : [];
   return html`
@@ -569,7 +569,8 @@ function AdDetail(ctx) {
       break;
     case 'testing':
       if (!active) actions.push(A('Set start date and budget', () => open(LaunchForm), 'primary'));
-      if (active) actions.push(A('Add results', () => open(CheckinForm, { testId: active.id }), 'primary'), A('Finalize', () => open(FinalizeForm, { testId: active.id })), A('Stop early', () => open(StopForm, { testId: active.id }), 'danger'));
+      if (active) actions.push(A('Add Ads Manager file', () => setModal({ type: MetaFileModal, props: { back: ad.id } }), 'primary'));
+      if (active) actions.push(A('Type results', () => open(CheckinForm, { testId: active.id })), A('Finalize', () => open(FinalizeForm, { testId: active.id })), A('Stop early', () => open(StopForm, { testId: active.id }), 'danger'));
       break;
     case 'bench':
       actions.push(A('Put in Main', () => open(MainForm, { mode: 'start' }), 'primary'));
@@ -968,6 +969,7 @@ function Today(ctx) {
   const running = data.tests.filter((t) => t.status === 'active');
   return html`
     <div class="row"><div class="stack" style="gap:0"><span class="small" style="color:var(--accent2);letter-spacing:.16em;font-weight:600">${new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }).toUpperCase()}</span><h1 style="font-size:34px">Today</h1></div></div>
+    <${MetaDrop} ...${ctx} />
     <section class="panel"><h2>Due</h2>
       ${items.length ? html`<div class="list">${items.map((it) => html`<button class="li" style="background:none;border-left:0;border-right:0;border-bottom:0;color:inherit;text-align:left;cursor:pointer;width:100%" onClick=${it.go}><span class=${'bar ' + it.tone}></span><span class="grow"><b>${it.title}</b><br/><span class="small muted">${it.sub}</span></span><span class="mono tiny" style="color:var(--accent2)">${it.tag}</span></button>`)}</div>`
         : html`<div class="empty">Nothing due. ${running.length ? `${running.length} test${running.length > 1 ? 's' : ''} running.` : 'No tests running.'}</div>`}
@@ -1158,6 +1160,9 @@ function fatigueSignals(data, product) {
 }
 const fatigueText = (f) => `CPA ${R.money(f.prev.cpa)} → ${R.money(f.now.cpa)}, ROAS ${R.xroas(f.prev.roas)} → ${R.xroas(f.now.roas)} (last 7 days vs the 7 before)${f.now.frequency ? `, frequency ${f.now.frequency.toFixed(1)}` : ''}.`;
 
+function MetaFileModal(ctx) {
+  return html`<${Modal} title="Add Ads Manager file" sub="One file fills every test, every Main ad and Stats" onClose=${ctx.close}><${MetaDrop} ...${ctx} /><//>`;
+}
 function MetaDrop({ data, reload, say, compact }) {
   const [st, setSt] = useState(null);
   const last = data.meta_days.reduce((m, r) => (r.day > m ? r.day : m), '');
