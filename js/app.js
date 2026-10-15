@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=21';
-import * as R from './rules.js?v=21';
-import { importHistory } from './importer.js?v=21';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=21';
+import { createBackend } from './data.js?v=22';
+import * as R from './rules.js?v=22';
+import { importHistory } from './importer.js?v=22';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=22';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -435,12 +435,41 @@ const cleanName = (file, fmt) => {
   const base = file.name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
   return /\|/.test(base) ? base : `${fmt === 'video' ? 'VID' : 'IMG'} | ${base} | V1`;
 };
+// 9:16 files pair with the 1:1 file of the same name (e.g. "olive stack" + "olive stack 9x16").
+const VERT_TOKENS = /[\s._-]*(9[x_-]?16|916|stories|story|reels?|vertical|vert)\b/gi;
+const VERT_TEST = /(9[x_-]?16|916|stories|story|reels?|vertical)/i;
+const SQUARE_TOKENS = /[\s._-]*(1[x_-]?1|square|feed)\b/gi;
+const pairKey = (name) => name.toLowerCase().replace(/\.[^.]+$/, '').replace(VERT_TOKENS, '').replace(SQUARE_TOKENS, '').replace(/[\s._-]+/g, ' ').trim();
+async function aspectOf(file) {
+  try {
+    if (/^image/.test(file.type)) { const bm = await createImageBitmap(file); const r = bm.width / bm.height; bm.close && bm.close(); return r; }
+    const url = URL.createObjectURL(file); const v = document.createElement('video'); v.preload = 'metadata'; v.src = url;
+    const r = await new Promise((res) => { v.onloadedmetadata = () => res(v.videoWidth / v.videoHeight); v.onerror = () => res(null); setTimeout(() => res(null), 8000); });
+    URL.revokeObjectURL(url); return r;
+  } catch (e) { return null; }
+}
 function BulkForm(ctx) {
   const { files, data, product, close, reload, say } = ctx;
-  const [items, setItems] = useState(() => files.map((f) => { const fmt = /^video/.test(f.type) ? 'video' : 'image'; return { file: f, fmt, name: cleanName(f, fmt), url: URL.createObjectURL(f) }; }));
+  const mk = (f) => { const fmt = /^video/.test(f.type) ? 'video' : 'image'; return { file: f, fmt, name: cleanName(f, fmt).replace(VERT_TOKENS, '').replace(/\s+\|/g, ' |'), url: URL.createObjectURL(f), story: null }; };
+  const [items, setItems] = useState(() => files.map(mk));
+  const [paired, setPaired] = useState(0);
   const [angle, setAngle] = useState(''); const [concept, setConcept] = useState(''); const [ready, setReady] = useState(false);
   const [prog, setProg] = useState(null);
-  useEffect(() => () => items.forEach((i) => URL.revokeObjectURL(i.url)), []);
+  // Find 9:16 files and attach each to its 1:1 partner.
+  useEffect(() => { (async () => {
+    const withR = await Promise.all(files.map(async (f) => { const r = await aspectOf(f); return { f, r, vert: VERT_TEST.test(f.name) || (r != null && r < 0.75) }; }));
+    const mains = withR.filter((x) => !x.vert), verts = withR.filter((x) => x.vert);
+    const used = new Set(); const out = [];
+    for (const m of mains) {
+      const k = pairKey(m.f.name);
+      const partner = verts.find((v) => !used.has(v) && pairKey(v.f.name) === k) || (mains.length === 1 && verts.length === 1 && !used.has(verts[0]) ? verts[0] : null);
+      const it = mk(m.f); if (partner) { used.add(partner); it.story = partner.f; it.storyUrl = URL.createObjectURL(partner.f); }
+      out.push(it);
+    }
+    verts.filter((v) => !used.has(v)).forEach((v) => out.push(mk(v.f)));
+    if (used.size) { setItems(out); setPaired(used.size); }
+  })(); }, []);
+  const setStory = (i, fl) => setItems(items.map((x, j) => (j === i ? { ...x, story: fl, storyUrl: fl ? URL.createObjectURL(fl) : null } : x)));
   const go = async () => {
     for (let i = 0; i < items.length; i++) {
       const it = items[i]; setProg(`Uploading ${i + 1} of ${items.length}…`);
@@ -448,14 +477,19 @@ function BulkForm(ctx) {
       const media_path = await be.upload(`${stamp}.${extOf(it.file)}`, it.file);
       const tags = { ...(ready ? { ready: true } : {}) };
       if (it.fmt === 'video') { try { const pb = await videoPoster(it.file); tags.poster = await be.upload(`${stamp}.poster.jpg`, new File([pb], 'poster.jpg', { type: 'image/jpeg' })); } catch (e) { /* thumbnail is optional */ } }
+      if (it.story) tags.files = [{ path: await be.upload(`${stamp}-916.${extOf(it.story)}`, it.story), type: it.story.type, label: '9:16' }];
       await be.insert('ads', { product_id: product.id, base_name: it.name.trim() || it.file.name, format: it.fmt, angle: angle || null, concept: concept || null, offer: '$6 per shirt · 6 for $36 · Free shipping', media_path, media_type: it.file.type, stage: 'untested', version: 1, tags, history: {} });
     }
     await reload(); close(); say(`Added ${items.length} ad${items.length === 1 ? '' : 's'} to Untested`);
   };
+  const Thumb = ({ url, fmt }) => html`<span class="thumb">${fmt === 'video' ? html`<video src=${url + '#t=0.5'} muted playsinline preload="metadata"></video>` : html`<img src=${url} alt="" />`}</span>`;
   return html`<${Modal} wide title=${`Add ${items.length} ad${items.length === 1 ? '' : 's'}`} sub=${product.name + ' · they go to Untested'} onClose=${close}>
+    ${paired > 0 && html`<div class="status good small">Matched ${paired} 9:16 file${paired > 1 ? 's' : ''} to ${paired > 1 ? 'their' : 'its'} 1:1 version.</div>`}
     <div class="bulk">${items.map((it, i) => html`<div class="bitem">
-      <span class="thumb">${it.fmt === 'video' ? html`<video src=${it.url + '#t=0.5'} muted playsinline preload="metadata"></video>` : html`<img src=${it.url} alt="" />`}</span>
+      <${Thumb} url=${it.url} fmt=${it.fmt} />
       <input class="inp" value=${it.name} onInput=${(e) => setItems(items.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} aria-label="Ad name" />
+      ${it.story ? html`<span class="story"><${Thumb} url=${it.storyUrl} fmt=${/^video/.test(it.story.type) ? 'video' : 'image'} /><button class="link tiny" onClick=${() => setStory(i, null)}>9:16 ✕</button></span>`
+        : html`<label class="btn sm ghost">+ 9:16<input type="file" accept="image/*,video/*" hidden onChange=${(e) => setStory(i, e.target.files[0] || null)} /></label>`}
       <button class="link small" style="color:var(--fail)" onClick=${() => setItems(items.filter((_, j) => j !== i))} aria-label="Remove">✕</button></div>`)}</div>
     <div class="pickrow"><span class="tiny muted">Angle for all:</span>${allAngles(data).map((c) => html`<button type="button" class=${'pick' + (angle === c ? ' on' : '')} onClick=${() => setAngle(angle === c ? '' : c)}>${c}</button>`)}</div>
     <div class="form"><${Field} label="Concept for all (optional)"><input list="concept-list-bulk" value=${concept} onInput=${(e) => setConcept(e.target.value)} /><datalist id="concept-list-bulk">${allConcepts(data).map((c) => html`<option value=${c} />`)}</datalist><//>
@@ -501,7 +535,7 @@ function ConceptPanel({ ad, data, reload, say, setModal }) {
 
 function MediaGallery({ ad, setLightbox, reload, say }) {
   const tags = ad.tags || {};
-  const files = [{ path: ad.media_path, type: ad.media_type, label: 'Main', main: true }, ...((tags.files || []).map((x) => ({ ...x })))].filter((x) => x.path);
+  const files = [{ path: ad.media_path, type: ad.media_type, label: '1:1', main: true }, ...((tags.files || []).map((x) => ({ ...x })))].filter((x) => x.path);
   const [i, setI] = useState(0);
   const cur = files[Math.min(i, files.length - 1)];
   const [busy, setBusy] = useState(false);
@@ -686,7 +720,8 @@ function AdForm(ctx) {
   const init = mode === 'new'
     ? { base_name: '', short: '', variant: '', v: 1, format: 'image', angle: '', offer: '$6 per shirt · 6 for $36 · Free shipping', headline: '', primary_text: '', notes: '', concept: '' }
     : { ...src, short: '', variant: '', base_name: mode === 'version' ? bumpV(src.base_name) : src.base_name, notes: mode === 'version' ? (recycle ? 'Recycled. The fix: ' : 'What changed: ') : src.notes };
-  const [f, setF] = useState({ ...init, product_id: src ? src.product_id : product.id }); const [file, setFile] = useState(null); const [busy, setBusy] = useState(false);
+  const [f, setF] = useState({ ...init, product_id: src ? src.product_id : product.id }); const [file, setFile] = useState(null); const [story, setStory] = useState(null); const [busy, setBusy] = useState(false);
+  const hasStory = src && ((src.tags || {}).files || []).some((x) => x.label === '9:16');
   const [custom, setCustom] = useState(mode !== 'new');
   const [more, setMore] = useState(mode === 'edit' && !!(src.headline || src.primary_text || src.notes || src.concept));
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -705,6 +740,11 @@ function AdForm(ctx) {
         media_path = await be.upload(`${stamp}.${extOf(file)}`, file); media_type = file.type; delete tags.poster;
         if (/^video/.test(file.type)) { try { const pb = await videoPoster(file); tags.poster = await be.upload(`${stamp}.poster.jpg`, new File([pb], 'poster.jpg', { type: 'image/jpeg' })); } catch (e) { /* optional */ } }
       } else if (mode === 'version' && src.tags && src.tags.poster) tags.poster = src.tags.poster;
+      if (mode === 'version' && !file && src.tags && src.tags.files) tags.files = src.tags.files;
+      if (story) {
+        const sp = await be.upload(`${pidUse}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}-916.${extOf(story)}`, story);
+        tags.files = [...(tags.files || []).filter((x) => x.label !== '9:16'), { path: sp, type: story.type, label: '9:16' }];
+      }
       const row = { base_name: name.trim(), format: f.format, angle: f.angle || null, offer: f.offer, headline: f.headline, primary_text: f.primary_text, notes: f.notes, concept: f.concept || null, media_path, media_type, tags };
       if (mode === 'edit') { await be.update('ads', src.id, { ...row, product_id: f.product_id }); await reload(); close(); say(f.product_id !== src.product_id ? 'Moved to ' + ((data.products.find((p) => p.id === f.product_id) || {}).name || 'other product') : 'Saved'); return; }
       const ins = await be.insert('ads', { ...row, product_id: pidUse, stage: 'untested', version: mode === 'version' ? (src.version || 1) + 1 : 1, parent_id: mode === 'version' ? src.id : null, history: {} });
@@ -716,7 +756,8 @@ function AdForm(ctx) {
   return html`<${Modal} title=${mode === 'new' ? 'New ad' : mode === 'edit' ? 'Edit ad' : recycle ? 'Recycle with a fix' : 'New version'} sub=${mode === 'new' ? product.name : src.base_name} onClose=${close}>
     <div class="form">
       ${mode === 'edit' && html`<${Field} full label="Product (which product the ad shows)"><select value=${f.product_id} onChange=${set('product_id')}>${data.products.filter((p) => !p.archived).map((p) => html`<option value=${p.id}>${p.name}</option>`)}</select><//>`}
-      <${Field} full label=${mode === 'edit' ? 'Replace the image or video (optional)' : 'Image or video'}><input type="file" accept="image/*,video/*" onChange=${(e) => pickFile(e.target.files[0] || null)} /><//>
+      <${Field} label=${mode === 'edit' ? 'Replace 1:1 (feed, optional)' : '1:1 (feed) · main'}><input type="file" accept="image/*,video/*" onChange=${(e) => pickFile(e.target.files[0] || null)} /><//>
+      <${Field} label=${hasStory ? 'Replace 9:16 (Stories / Reels)' : '9:16 (Stories / Reels) · optional'}><input type="file" accept="image/*,video/*" onChange=${(e) => setStory(e.target.files[0] || null)} /><//>
       ${!custom ? html`
         <${Field} label="Format"><select value=${f.format} onChange=${set('format')}><option value="image">Image</option><option value="video">Video</option><option value="carousel">Carousel</option></select><//>
         <${Field} label="What it says (short)"><input value=${f.short} onInput=${set('short')} placeholder="$6 Each" /><//>
