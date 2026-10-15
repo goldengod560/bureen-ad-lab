@@ -85,6 +85,28 @@ export const anglesFor = (product) => [...ANGLES.map((a) => a.name), ...(((produ
 export const angleHint = (name) => (ANGLES.find((a) => a.name === name) || {}).hint || '';
 export const angleExamples = (name) => (ANGLES.find((a) => a.name === name) || {}).examples || [];
 
+// Concept = what the picture or video shows (the creative style). Fixed list, so styles compare.
+export const CONCEPTS = [
+  { name: 'Product stack', hint: 'Shirts folded and stacked on a clean background.', examples: ['Fold Stack B&W', 'Olive Stack', 'Dark Stack', 'Why 100% Cotton'] },
+  { name: 'Flat-lay', hint: 'Shirts laid out on a surface: graffiti, bed, floor.', examples: ['Bed (Spray)', 'Pic Color', 'Phone'] },
+  { name: 'Display walkthrough', hint: 'Video walking up to the shirt display.', examples: ['Rent', '1.5', '2.75'] },
+  { name: 'Try-on', hint: 'A person wearing it and showing the fit.', examples: ['Try-On', 'Try On', 'Model'] },
+  { name: 'Lifestyle shot', hint: 'A person in a real setting: work, gym, street.', examples: ['Shift Ready'] },
+  { name: 'Close-up', hint: 'Fabric, tag or stitching up close.', examples: ['Tag', 'Close Up Shot'] },
+  { name: 'Graphic / poster', hint: 'Mostly design and text, few real shirts.', examples: ['Poster 2', 'Image 1 (Available on Bureen)'] },
+  { name: 'Packaging / unboxing', hint: 'The box or mailer, opening the order.', examples: ['Packing orders, FedEx drop-off'] },
+  { name: 'Talking / UGC', hint: 'Someone talking to the camera, review style.', examples: ['Customer or creator talking about the shirts'] },
+];
+const CONCEPT_MAP = { 'Product stack, $6 headline': 'Product stack', 'Product stack + fabric close-up': 'Product stack', 'Pack total headline': 'Product stack',
+  'Flat-lay (graffiti / bed)': 'Flat-lay', 'Bed spray': 'Flat-lay', 'Try-On': 'Try-on' };
+// Concepts for the imported history ads (by their history number).
+const HISTORY_CONCEPTS = { h01: 'Product stack', h04: 'Product stack', h08: 'Product stack', h12: 'Product stack', h13: 'Product stack', h21: 'Product stack', h22: 'Product stack', h26: 'Product stack', h35: 'Product stack', h40: 'Product stack', h45: 'Product stack', h47: 'Product stack',
+  h11: 'Flat-lay', h14: 'Flat-lay', h18: 'Flat-lay', h25: 'Flat-lay', h32: 'Flat-lay', h43: 'Flat-lay', h46: 'Flat-lay',
+  h02: 'Display walkthrough', h05: 'Display walkthrough', h07: 'Display walkthrough', h19: 'Display walkthrough', h20: 'Display walkthrough', h23: 'Display walkthrough', h28: 'Display walkthrough', h31: 'Display walkthrough', h33: 'Display walkthrough', h39: 'Display walkthrough',
+  h06: 'Try-on', h36: 'Try-on', h44: 'Try-on', h48: 'Try-on', h29: 'Lifestyle shot', h15: 'Close-up', h42: 'Close-up', h30: 'Graphic / poster', h49: 'Graphic / poster' };
+export const conceptsFor = (product) => [...CONCEPTS.map((a) => a.name), ...(((product && product.rules) || {}).extraConcepts || [])];
+export const conceptInfo = (name) => CONCEPTS.find((a) => a.name === name) || null;
+
 // Setup eras. Results from Era 1 say little about the creative.
 export const ERAS = {
   era1: { label: 'Era 1 · no test system', short: 'Era 1', note: 'One mixed campaign, no testing. Shows what Meta chose to spend on, not a fair test.' },
@@ -105,6 +127,9 @@ export function normalizeAd(ad) {
   if (ad.stage === 'untested') out.stage = t.ready ? 'next' : (t.retest || isRetestResult(ad.result)) ? 'retest' : 'ideas';
   if (ad.setup_era === 'old' || ad.setup_era === 'new') out.setup_era = eraOf(ad.launched_on);
   if (ad.angle && ANGLE_MAP[ad.angle.trim()]) out.angle = ANGLE_MAP[ad.angle.trim()];
+  if (ad.concept && CONCEPT_MAP[ad.concept.trim()]) out.concept = CONCEPT_MAP[ad.concept.trim()];
+  const hid = ad.history && ad.history.importId;
+  if (hid && HISTORY_CONCEPTS[hid] && (!ad.concept || CONCEPT_MAP[ad.concept.trim()])) out.concept = HISTORY_CONCEPTS[hid];
   return out;
 }
 

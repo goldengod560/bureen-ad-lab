@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=29';
-import * as R from './rules.js?v=29';
-import { importHistory } from './importer.js?v=29';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=29';
+import { createBackend } from './data.js?v=30';
+import * as R from './rules.js?v=30';
+import { importHistory } from './importer.js?v=30';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=30';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -513,8 +513,8 @@ function BulkForm(ctx) {
         : html`<label class="btn sm ghost">+ 9:16<input type="file" accept="image/*,video/*" hidden onChange=${(e) => setStory(i, e.target.files[0] || null)} /></label>`}
       <button class="link small" style="color:var(--fail)" onClick=${() => setItems(items.filter((_, j) => j !== i))} aria-label="Remove">✕</button></div>`)}</div>
     <div><div class="tiny muted" style="margin-bottom:6px">Angle for all</div><${AnglePicker} value=${angle} onPick=${setAngle} product=${product} reload=${reload} say=${say} /></div>
-    <div class="form"><${Field} label="Concept for all (optional)"><input list="concept-list-bulk" value=${concept} onInput=${(e) => setConcept(e.target.value)} /><datalist id="concept-list-bulk">${allConcepts(data).map((c) => html`<option value=${c} />`)}</datalist><//>
-      <label class="chk"><input type="checkbox" checked=${ready} onChange=${(e) => setReady(e.target.checked)} /> Ready to launch: put them all in Up Next</label></div>
+    <div><div class="tiny muted" style="margin-bottom:6px">Concept for all (optional)</div><${ConceptPicker} value=${concept} onPick=${setConcept} product=${product} data=${data} reload=${reload} say=${say} /></div>
+    <div class="form"><label class="chk"><input type="checkbox" checked=${ready} onChange=${(e) => setReady(e.target.checked)} /> Ready to launch: put them all in Up Next</label></div>
     ${prog && html`<div class="status live">${prog}</div>`}
     <div class="row"><button class="btn primary" disabled=${!!prog || !items.length} onClick=${go}>Add ${items.length} ad${items.length === 1 ? '' : 's'}</button><button class="btn ghost" onClick=${close}>Cancel</button></div>
   <//>`;
@@ -554,7 +554,24 @@ function AnglePicker({ value, onPick, product, reload, say }) {
     <button type="button" class="angrow add" onClick=${async () => { const n = await addAngle(product, reload, say); if (n) onPick(n); }}><b>+ Add angle</b><span>Only for a truly new message</span></button>
   </div>`;
 }
-const allConcepts = (data) => [...new Set(data.ads.map((a) => (a.concept || '').trim()).filter(Boolean))].sort();
+const allConcepts = (data, product) => R.conceptsFor(product || (data && data.products[0]));
+async function addConcept(product, reload, say) {
+  const name = (prompt('New concept (a new kind of picture or video, not a new ad):', '') || '').trim();
+  if (!name) return null;
+  if (R.conceptsFor(product).some((a) => a.toLowerCase() === name.toLowerCase())) { say('That concept already exists'); return null; }
+  await be.update('products', product.id, { rules: { ...(product.rules || {}), extraConcepts: [...((product.rules || {}).extraConcepts || []), name] } });
+  await reload(); say('Concept added'); return name;
+}
+// One row per concept: name = what it shows, with your own ads as examples.
+function ConceptPicker({ value, onPick, product, data, reload, say }) {
+  return html`<div class="angrows">${allConcepts(data, product).map((c) => { const info = R.conceptInfo(c);
+      const mine = data.ads.filter((a) => a.concept === c && a.media_path).slice(0, 3);
+      return html`<button type="button" class=${'angrow conrow' + (value === c ? ' on' : '')} onClick=${() => onPick(value === c ? '' : c)}>
+        <b>${c}</b><span>${info ? info.hint : 'Added by you'}</span>
+        <span class="minis">${mine.map((a) => html`<${Media} path=${a.media_path} type=${a.media_type} poster=${a.tags && a.tags.poster} />`)}</span></button>`; })}
+    <button type="button" class="angrow add" onClick=${async () => { const n = await addConcept(product, reload, say); if (n) onPick(n); }}><b>+ Add concept</b><span>Only for a truly new kind of shot</span></button>
+  </div>`;
+}
 
 function ConceptPanel({ ad, data, reload, say, setModal }) {
   const [val, setVal] = useState(ad.concept || '');
@@ -569,13 +586,13 @@ function ConceptPanel({ ad, data, reload, say, setModal }) {
         <option value="">Not set</option>${[...angles, ...(ad.angle && !angles.includes(ad.angle) ? [ad.angle] : [])].map((c) => html`<option value=${c}>${c}</option>`)}</select></div>
     ${ang && html`<${AngleExplain} name=${ang} />`}
     <div class="row"><h2>Concept</h2><span class="spacer"></span>
-      <input class="inp" style="max-width:240px;min-height:34px" list="concept-list" value=${val} placeholder="Name the idea" onInput=${(e) => setVal(e.target.value)} onBlur=${save} onKeyDown=${(e) => e.key === 'Enter' && e.target.blur()} aria-label="Concept" /></div>
-    <datalist id="concept-list">${allConcepts(data).map((c) => html`<option value=${c} />`)}</datalist>
+      <select class="inp" style="max-width:240px;min-height:34px" value=${val} onChange=${async (e) => { const v = e.target.value; setVal(v); await be.update('ads', ad.id, { concept: v || null }); await reload(); say('Concept saved'); }} aria-label="Concept">
+        <option value="">Not set</option>${[...allConcepts(data, prod), ...(ad.concept && !allConcepts(data, prod).includes(ad.concept) ? [ad.concept] : [])].map((c) => html`<option value=${c}>${c}</option>`)}</select></div>
+    ${val && R.conceptInfo(val) && html`<div class="angx"><b>${val}:</b> ${R.conceptInfo(val).hint}</div>`}
     ${cs && cs.fam.length > 1 ? html`
-      <div class="small">${cs.fam.length} versions${cs.counted ? ` · Era 2 and later: ${cs.won} of ${cs.counted} worked` : ' · none tested since Era 1'}${cs.era1 ? ` · ${cs.era1} from Era 1 (not counted)` : ''}</div>
-      ${cs.fam.length >= 5 && ['ideas', 'next'].includes(ad.stage) && html`<div class="status warn small">You've run this concept ${cs.fam.length} times. Change something real (hook, first frame, offer), not just the text.</div>`}
-      <div class="fam">${cs.fam.filter((f) => f.id !== ad.id).map((f) => html`<button class="famitem" onClick=${() => setModal({ type: AdDetail, props: { adId: f.id } })}><${Media} path=${f.media_path} type=${f.media_type} /><span class="small">${f.base_name}</span><span class=${'chip t-' + (f.result ? toneOf(f.result) : 'muted')}>${R.stageLabel(f.stage)}${f.setup_era === 'era1' ? ' · Era 1' : ''}</span></button>`)}</div>`
-    : html`<div class="small muted">${ad.concept ? 'The only ad with this concept so far.' : 'Group versions of the same idea (same footage or shot, different text) so you can see how the idea has done overall.'}</div>`}
+      <div class="small">${cs.fam.length} ads with this concept${cs.counted ? ` · Era 2 and later: ${cs.won} of ${cs.counted} worked` : ' · none tested since Era 1'}${cs.era1 ? ` · ${cs.era1} from Era 1 (not counted)` : ''}</div>
+      <div class="fam">${cs.fam.filter((f) => f.id !== ad.id).map((f) => html`<button class="famitem" onClick=${() => setModal({ type: AdDetail, props: { adId: f.id } })}><${Media} path=${f.media_path} type=${f.media_type} poster=${f.tags && f.tags.poster} /><span class="small">${f.base_name}</span><span class=${'chip t-' + (f.result ? toneOf(f.result) : 'muted')}>${R.stageLabel(f.stage)}${f.setup_era === 'era1' ? ' · Era 1' : ''}</span></button>`)}</div>`
+    : html`<div class="small muted">${ad.concept ? 'The only ad with this concept so far.' : 'Pick what the picture or video shows, so you can see which kinds of shots work.'}</div>`}
   </div>`;
 }
 
@@ -827,10 +844,10 @@ function AdForm(ctx) {
         <div class="namepreview full"><span class="tiny muted">Name in Ads Manager</span><b class="mono">${name}</b><button class="link small" onClick=${() => { setF({ ...f, base_name: name.replace('…', '') }); setCustom(true); }}>Edit name</button></div>`
       : html`<${Field} full label="Name, exactly as in Ads Manager (the launch date is added when it goes live)"><input value=${f.base_name} onInput=${set('base_name')} /><//>`}
       <div class="full"><div class="tiny muted" style="margin-bottom:6px">Angle: the main message it leads with</div><${AnglePicker} value=${f.angle} onPick=${(v) => setF({ ...f, angle: v })} product=${data.products.find((p) => p.id === f.product_id) || product} reload=${reload} say=${say} /></div>
-      <button type="button" class="link small full" style="text-align:left" onClick=${() => setMore(!more)}>${more ? '− Fewer details' : '+ More details (concept, offer, headline, text, notes)'}</button>
+      <div class="full"><div class="tiny muted" style="margin-bottom:6px">Concept: what the picture or video shows</div><${ConceptPicker} value=${f.concept || ''} onPick=${(v) => setF({ ...f, concept: v })} product=${data.products.find((p) => p.id === f.product_id) || product} data=${data} reload=${reload} say=${say} />
+        ${cs && cs.counted > 0 && html`<div class="tiny muted" style="margin-top:6px">${f.concept}: ${cs.won} of ${cs.counted} worked since Era 1.</div>`}</div>
+      <button type="button" class="link small full" style="text-align:left" onClick=${() => setMore(!more)}>${more ? '− Fewer details' : '+ More details (offer, headline, text, notes)'}</button>
       ${more && html`
-        <${Field} full label="Concept (same footage or shot = same concept)"><input list="concept-list-form" value=${f.concept || ''} onInput=${set('concept')} placeholder="Display walkthrough" /><datalist id="concept-list-form">${allConcepts(data).map((c) => html`<option value=${c} />`)}</datalist><//>
-        ${cs && cs.fam.length >= 3 && html`<div class="status warn small full">This concept has ${cs.fam.length} versions already${cs.counted ? `; ${cs.won} of ${cs.counted} worked since Era 1` : ''}. Change something real, not just the text.</div>`}
         <${Field} full label="Offer"><input value=${f.offer || ''} onInput=${set('offer')} /><//>
         <${Field} full label="Headline"><input value=${f.headline || ''} onInput=${set('headline')} /><//>
         <${Field} full label="Primary text"><textarea value=${f.primary_text || ''} onInput=${set('primary_text')}></textarea><//>
@@ -1165,7 +1182,7 @@ function summarize(list, data, withEra1) {
 }
 
 function QuickSet({ list, field, data, reload, say, product: ctxProduct }) {
-  const opts = field === 'angle' ? allAngles(data, ctxProduct) : allConcepts(data);
+  const opts = field === 'angle' ? allAngles(data, ctxProduct) : allConcepts(data, ctxProduct);
   const [custom, setCustom] = useState({});
   const setIt = async (ad, v) => { if (!v) return; await be.update('ads', ad.id, { [field]: v }); await reload(); say('Saved'); };
   return html`<section class="panel"><h2>Set the ${field} here</h2><p class="small muted" style="margin:0">Pick one per ad. It moves into that ${field} right away.</p>
@@ -1237,7 +1254,7 @@ function scoreReview(ad, answers, data) {
     if (a != null && good < 1) fixes.push({ size: c.size, text: c.fix });
   }
   const cs = conceptStats(data, ad.concept);
-  if (cs && cs.fam.length >= 5) { max += 10; fixes.push({ size: 'big', text: `This concept has ${cs.fam.length} versions${cs.counted ? ` and ${cs.won} of ${cs.counted} worked since Era 1` : ''}. Change the hook, first frame or offer, not just the text.` }); }
+  if (false) { max += 10; fixes.push({ size: 'big', text: `This concept has ${cs.fam.length} versions${cs.counted ? ` and ${cs.won} of ${cs.counted} worked since Era 1` : ''}. Change the hook, first frame or offer, not just the text.` }); }
   else if (ad.concept) { max += 10; got += 10; }
   const done = list.every((c) => answers[c.k] != null);
   const score = max ? Math.round(got / max * 100) : 0;
@@ -1488,6 +1505,7 @@ function Rules(ctx) {
     const old = R.rulesOf(product); const nr = {};
     Object.keys(R.DEFAULT_RULES).forEach((k) => { nr[k] = k === 'checkins' ? rules[k] : k === 'weekendLock' ? !!rules.weekendLock : (R.num(rules[k]) ?? R.DEFAULT_RULES[k]); });
     nr.extraAngles = (product.rules || {}).extraAngles || [];
+    nr.extraConcepts = (product.rules || {}).extraConcepts || [];
     const ne = { mode: econ.mode, beRoas: R.num(econ.beRoas), aov: R.num(econ.aov), costs: econ.costs.filter((c) => c.label.trim()).map((c) => ({ label: c.label.trim(), value: R.num(c.value) || 0, pct: !!c.pct })) };
     const changes = Object.keys(nr).filter((k) => String(nr[k]) !== String(old[k])).map((k) => `${k}: ${old[k]} → ${nr[k]}`);
     const oe = R.econOf(product); if (String(oe.beRoas) !== String(ne.beRoas) || String(oe.aov) !== String(ne.aov) || oe.mode !== ne.mode) changes.push(`break-even: ${oe.mode} ${oe.beRoas}x @ $${oe.aov} → ${ne.mode} ${ne.beRoas}x @ $${ne.aov}`);
@@ -1518,6 +1536,10 @@ function Rules(ctx) {
         <div class="list">${R.ANGLES.map((x) => html`<div class="li"><span class="grow small"><b>${x.name}</b><br/><span class="muted">${x.hint} Examples: ${x.examples.join(' · ')}</span></span></div>`)}
           ${((product.rules || {}).extraAngles || []).map((x) => html`<div class="li"><span class="grow small"><b>${x}</b><br/><span class="muted">Added by you</span></span><button class="link small" style="color:var(--fail)" onClick=${async () => { if (!confirm('Remove the angle "' + x + '"? Ads keep it until you change them.')) return; await be.update('products', product.id, { rules: { ...(product.rules || {}), extraAngles: ((product.rules || {}).extraAngles || []).filter((y) => y !== x) } }); await reload(); say('Angle removed'); }}>Remove</button></div>`)}</div>
         <div class="row"><button class="btn sm" onClick=${() => addAngle(product, reload, say)}>+ Add angle</button></div></section>
+      <section class="panel"><h2>Concepts</h2><p class="small muted" style="margin:0">What the picture or video shows. A short fixed list keeps results comparable.</p>
+        <div class="list">${R.CONCEPTS.map((x) => html`<div class="li"><span class="grow small"><b>${x.name}</b><br/><span class="muted">${x.hint} Your ads: ${x.examples.join(' · ')}</span></span></div>`)}
+          ${((product.rules || {}).extraConcepts || []).map((x) => html`<div class="li"><span class="grow small"><b>${x}</b><br/><span class="muted">Added by you</span></span><button class="link small" style="color:var(--fail)" onClick=${async () => { if (!confirm('Remove the concept "' + x + '"?')) return; await be.update('products', product.id, { rules: { ...(product.rules || {}), extraConcepts: ((product.rules || {}).extraConcepts || []).filter((y) => y !== x) } }); await reload(); say('Concept removed'); }}>Remove</button></div>`)}</div>
+        <div class="row"><button class="btn sm" onClick=${() => addConcept(product, reload, say)}>+ Add concept</button></div></section>
       ${RULE_ROWS.map(([title, rows]) => html`<section class="panel"><h2>${title}</h2>${rows.map(([k, l, u]) => html`<div class="rulerow"><label for=${'r-' + k}>${l}</label><input id=${'r-' + k} inputmode=${k === 'checkins' ? 'text' : 'decimal'} value=${rules[k]} onInput=${(e) => setRules({ ...rules, [k]: e.target.value })} /><span class="tiny muted">${u}</span></div>`)}
         ${title === 'Capacity & timing' && html`<label class="chk"><input type="checkbox" checked=${rules.weekendLock} onChange=${(e) => setRules({ ...rules, weekendLock: e.target.checked })} /> Weekend lock warnings (Friday night to Sunday)</label>`}</section>`)}
     </div>`;

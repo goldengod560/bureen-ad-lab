@@ -331,3 +331,7 @@ table.stats tr.click{cursor:pointer} table.stats tr.click:hover td{background:va
 .angrow.on span{color:var(--ink)}
 .angrow.add{border-style:dashed;background:none}
 @media (max-width:600px){.angrow{grid-template-columns:1fr;gap:2px}}
+.conrow{grid-template-columns:150px 1fr auto}
+.conrow .minis{display:flex;gap:3px}
+.conrow .minis .thumb{width:26px;height:26px;border-radius:4px}
+@media (max-width:600px){.conrow{grid-template-columns:1fr auto}.conrow span:not(.minis){grid-column:1}.conrow .minis{grid-row:1/3;grid-column:2;align-self:center}}
