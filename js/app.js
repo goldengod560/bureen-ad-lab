@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=20';
-import * as R from './rules.js?v=20';
-import { importHistory } from './importer.js?v=20';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=20';
+import { createBackend } from './data.js?v=21';
+import * as R from './rules.js?v=21';
+import { importHistory } from './importer.js?v=21';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=21';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -672,7 +672,7 @@ function TestPanel({ data, test, rules, econ, setModal }) {
     ${cps.length > 0 && html`<div class="tscroll"><table class="t"><thead><tr><th>Check-in</th><th>Spend</th><th>Buys</th><th>CPA</th><th>ROAS</th><th>CTR</th><th></th></tr></thead><tbody>
       ${cps.map((cp) => { const mm = R.metrics(cp, econ.aov); return html`<tr><td>Day ${cp.day}</td><td>${R.money(mm.spend)}</td><td>${mm.purchases}</td><td>${R.money(mm.cpa)}</td><td>${R.xroas(mm.roas)}</td><td>${R.pct(mm.ctr)}</td><td>${test.status === 'active' && html`<button class="link small" onClick=${() => setModal({ type: CheckinForm, props: { adId: test.ad_id, testId: test.id, day: cp.day } })}>Edit</button>`}</td></tr>`; })}
     </tbody></table></div>`}
-    ${(c.landingPage || c.enhancements != null || c.method) && html`<div class="tiny muted">Conditions: ${[c.method, c.landingPage, c.enhancements ? 'creative enhancements ON' : c.enhancements === false ? 'enhancements off' : null, c.shopAds ? 'Shop ads ON' : null, c.emergency ? 'emergency, no test' : null].filter(Boolean).join(' · ')}</div>`}
+    ${(c.landingPage || c.enhancements != null || c.method) && html`<div class="tiny muted">Conditions: ${[c.method, c.landingPage, c.enhancements ? 'creative enhancements ON' : c.enhancements === false ? 'enhancements off' : null, c.shopAds ? 'Shop ads ON' : null, c.productMismatch ? 'product in ad ≠ page' : null, c.emergency ? 'emergency, no test' : null].filter(Boolean).join(' · ')}</div>`}
   </div>`;
 }
 
@@ -686,7 +686,7 @@ function AdForm(ctx) {
   const init = mode === 'new'
     ? { base_name: '', short: '', variant: '', v: 1, format: 'image', angle: '', offer: '$6 per shirt · 6 for $36 · Free shipping', headline: '', primary_text: '', notes: '', concept: '' }
     : { ...src, short: '', variant: '', base_name: mode === 'version' ? bumpV(src.base_name) : src.base_name, notes: mode === 'version' ? (recycle ? 'Recycled. The fix: ' : 'What changed: ') : src.notes };
-  const [f, setF] = useState(init); const [file, setFile] = useState(null); const [busy, setBusy] = useState(false);
+  const [f, setF] = useState({ ...init, product_id: src ? src.product_id : product.id }); const [file, setFile] = useState(null); const [busy, setBusy] = useState(false);
   const [custom, setCustom] = useState(mode !== 'new');
   const [more, setMore] = useState(mode === 'edit' && !!(src.headline || src.primary_text || src.notes || src.concept));
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -706,7 +706,7 @@ function AdForm(ctx) {
         if (/^video/.test(file.type)) { try { const pb = await videoPoster(file); tags.poster = await be.upload(`${stamp}.poster.jpg`, new File([pb], 'poster.jpg', { type: 'image/jpeg' })); } catch (e) { /* optional */ } }
       } else if (mode === 'version' && src.tags && src.tags.poster) tags.poster = src.tags.poster;
       const row = { base_name: name.trim(), format: f.format, angle: f.angle || null, offer: f.offer, headline: f.headline, primary_text: f.primary_text, notes: f.notes, concept: f.concept || null, media_path, media_type, tags };
-      if (mode === 'edit') { await be.update('ads', src.id, row); await reload(); close(); say('Saved'); return; }
+      if (mode === 'edit') { await be.update('ads', src.id, { ...row, product_id: f.product_id }); await reload(); close(); say(f.product_id !== src.product_id ? 'Moved to ' + ((data.products.find((p) => p.id === f.product_id) || {}).name || 'other product') : 'Saved'); return; }
       const ins = await be.insert('ads', { ...row, product_id: pidUse, stage: 'untested', version: mode === 'version' ? (src.version || 1) + 1 : 1, parent_id: mode === 'version' ? src.id : null, history: {} });
       await reload(); say(mode === 'version' ? 'New version added to Untested' : 'Added to Untested');
       setModal({ type: AdDetail, props: { adId: ins.id } });
@@ -715,6 +715,7 @@ function AdForm(ctx) {
   };
   return html`<${Modal} title=${mode === 'new' ? 'New ad' : mode === 'edit' ? 'Edit ad' : recycle ? 'Recycle with a fix' : 'New version'} sub=${mode === 'new' ? product.name : src.base_name} onClose=${close}>
     <div class="form">
+      ${mode === 'edit' && html`<${Field} full label="Product (which product the ad shows)"><select value=${f.product_id} onChange=${set('product_id')}>${data.products.filter((p) => !p.archived).map((p) => html`<option value=${p.id}>${p.name}</option>`)}</select><//>`}
       <${Field} full label=${mode === 'edit' ? 'Replace the image or video (optional)' : 'Image or video'}><input type="file" accept="image/*,video/*" onChange=${(e) => pickFile(e.target.files[0] || null)} /><//>
       ${!custom ? html`
         <${Field} label="Format"><select value=${f.format} onChange=${set('format')}><option value="image">Image</option><option value="video">Video</option><option value="carousel">Carousel</option></select><//>
@@ -754,7 +755,7 @@ function LaunchForm(ctx) {
   const spendFrom = f.partial ? R.addDays(f.date, -1) : f.date;
   const dayNow = Math.max(0, R.daysBetween(f.date, R.today()) + 1);
   const go = async () => {
-    await be.insert('tests', { ad_id: ad.id, product_id: ad.product_id, stage: 1, start_date: f.date, planned_days: +f.days || rules.plannedDays, budget: +f.budget || null, status: 'active', conditions: { method: f.method, landingPage: f.landingPage, enhancements: f.enhancements, shopAds: f.shopAds, ...(f.partial ? { spendFrom } : {}) } });
+    await be.insert('tests', { ad_id: ad.id, product_id: ad.product_id, stage: 1, start_date: f.date, planned_days: +f.days || rules.plannedDays, budget: +f.budget || null, status: 'active', conditions: { method: f.method, landingPage: f.landingPage, enhancements: f.enhancements, shopAds: f.shopAds, productMismatch: !!f.mismatch, ...(f.partial ? { spendFrom } : {}) } });
     await be.update('ads', ad.id, { stage: 'testing', launched_on: spendFrom, setup_era: R.eraOf(spendFrom), tags: { ...(ad.tags || {}), ready: false } });
     await be.insert('decisions', { product_id: ad.product_id, ad_id: ad.id, kind: 'launch', choice: `Launched at $${f.budget}/day`, day: spendFrom });
     await reload(); close(); say(dayNow > 1 ? `Test tracked. Today is day ${Math.min(dayNow, +f.days || rules.plannedDays)}.` : 'Test started. Name now shows the launch date.');
@@ -771,6 +772,7 @@ function LaunchForm(ctx) {
       <${Field} full label="Landing page"><input value=${f.landingPage} onInput=${set('landingPage')} /><//>
       <label class="chk full"><input type="checkbox" checked=${f.enhancements} onChange=${set('enhancements')} /> Advantage+ creative enhancements on</label>
       <label class="chk full"><input type="checkbox" checked=${f.shopAds} onChange=${set('shopAds')} /> Shop ads on</label>
+      <label class="chk full"><input type="checkbox" checked=${f.mismatch} onChange=${set('mismatch')} /> The ad shows a different product than the page it links to</label>
     </div>
     <div class="row"><button class="btn primary" onClick=${go}>Start test</button><button class="btn ghost" onClick=${close}>Cancel</button></div>
   <//>`;
@@ -780,12 +782,12 @@ function EditTestForm(ctx) {
   const { data, testId, close, reload, say } = ctx;
   const test = data.tests.find((t) => t.id === testId); const ad = data.ads.find((a) => a.id === test.ad_id);
   const c = test.conditions || {};
-  const [f, setF] = useState({ date: test.start_date || R.today(), partial: !!c.spendFrom, budget: test.budget ?? '', days: test.planned_days || 7, method: c.method || R.TEST_METHODS[0], landingPage: c.landingPage || '', enhancements: !!c.enhancements, shopAds: !!c.shopAds });
+  const [f, setF] = useState({ mismatch: !!c.productMismatch, date: test.start_date || R.today(), partial: !!c.spendFrom, budget: test.budget ?? '', days: test.planned_days || 7, method: c.method || R.TEST_METHODS[0], landingPage: c.landingPage || '', enhancements: !!c.enhancements, shopAds: !!c.shopAds });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
   const spendFrom = f.partial ? R.addDays(f.date, -1) : f.date;
   const typed = data.checkpoints.filter((x) => x.test_id === test.id && x.source !== 'file');
   const save = async () => {
-    const cond = { ...c, method: f.method, landingPage: f.landingPage, enhancements: f.enhancements, shopAds: f.shopAds }; delete cond.spendFrom; if (f.partial) cond.spendFrom = spendFrom;
+    const cond = { ...c, method: f.method, landingPage: f.landingPage, enhancements: f.enhancements, shopAds: f.shopAds, productMismatch: !!f.mismatch }; delete cond.spendFrom; if (f.partial) cond.spendFrom = spendFrom;
     await be.update('tests', test.id, { start_date: f.date, planned_days: +f.days || 7, budget: R.num(f.budget), conditions: cond });
     if (test.stage === 1 && ad) await be.update('ads', ad.id, { launched_on: spendFrom, setup_era: R.eraOf(spendFrom) });
     // Day numbers moved, so redo the check-ins that came from files.
@@ -804,6 +806,7 @@ function EditTestForm(ctx) {
       <${Field} full label="Landing page"><input value=${f.landingPage} onInput=${set('landingPage')} /><//>
       <label class="chk full"><input type="checkbox" checked=${f.enhancements} onChange=${set('enhancements')} /> Advantage+ creative enhancements on</label>
       <label class="chk full"><input type="checkbox" checked=${f.shopAds} onChange=${set('shopAds')} /> Shop ads on</label>
+      <label class="chk full"><input type="checkbox" checked=${f.mismatch} onChange=${set('mismatch')} /> The ad shows a different product than the page it links to</label>
     </div>
     ${typed.length > 0 && html`<div class="banner small">You typed ${typed.length} check-in${typed.length > 1 ? 's' : ''} by hand. ${typed.length > 1 ? 'They stay' : 'It stays'} as is; edit ${typed.length > 1 ? 'them' : 'it'} if the day numbers changed.</div>`}
     <div class="row"><button class="btn primary" onClick=${save}>Save</button><button class="btn ghost" onClick=${close}>Cancel</button></div>
