@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=13';
-import * as R from './rules.js?v=13';
-import { importHistory } from './importer.js?v=13';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=13';
+import { createBackend } from './data.js?v=14';
+import * as R from './rules.js?v=14';
+import { importHistory } from './importer.js?v=14';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=14';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -15,13 +15,41 @@ const displayName = (ad) => ad.base_name + (ad.launched_on ? ' | ' + R.shortDate
 const toneOf = (result) => (R.RESULTS[result] || {}).tone || 'muted';
 const extOf = (file) => (file.name.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '');
 let toastTimer;
+const posterTried = new Set();
 
 function Toast({ msg }) { return msg ? html`<div class="toast" role="status">${msg}</div>` : null; }
 
-function Media({ path, type, cls, onOpen, big }) {
+// A still frame from a video, used as its thumbnail (videos otherwise show as black squares).
+async function videoPoster(src) {
+  const url = typeof src === 'string' ? src : URL.createObjectURL(src);
+  const v = document.createElement('video'); v.muted = true; v.playsInline = true; v.preload = 'auto';
+  if (typeof src === 'string') v.crossOrigin = 'anonymous';
+  v.src = url;
+  try {
+    await new Promise((res, rej) => { v.onloadeddata = res; v.onerror = () => rej(new Error('Could not read the video')); setTimeout(() => rej(new Error('Timed out')), 20000); });
+    await new Promise((res) => { v.onseeked = res; v.currentTime = Math.min(1, (v.duration || 3) / 3); setTimeout(res, 6000); });
+    const w = 480, h = Math.round(w * (v.videoHeight || 480) / (v.videoWidth || 480));
+    const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').drawImage(v, 0, 0, w, h);
+    const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.82));
+    if (!blob) throw new Error('No frame');
+    return blob;
+  } finally { if (typeof src !== 'string') URL.revokeObjectURL(url); }
+}
+const safeName = (s) => String(s || 'ad').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 120);
+async function downloadMedia(path, name) {
+  const url = await be.mediaUrl(path); if (!url) throw new Error('File not found');
+  const blob = await (await fetch(url)).blob();
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = safeName(name) + '.' + (path.split('.').pop() || 'bin');
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+function Media({ path, type, cls, onOpen, big, poster }) {
   const [url, setUrl] = useState(null);
-  useEffect(() => { let on = true; if (path) be.mediaUrl(path).then((u) => on && setUrl(u)).catch(() => {}); else setUrl(null); return () => { on = false; }; }, [path]);
   const isVid = /^video\//.test(type || '');
+  const usePoster = !big && isVid && poster;
+  const src = usePoster ? poster : path;
+  useEffect(() => { let on = true; if (src) be.mediaUrl(src).then((u) => on && setUrl(u)).catch(() => {}); else setUrl(null); return () => { on = false; }; }, [src]);
+  if (usePoster) return html`<span class=${'thumb ' + (cls || '')}>${url ? html`<img src=${url} alt="" loading="lazy" />` : html`<span>…</span>`}<span class="play"><svg width="8" height="8" viewBox="0 0 10 10"><path d="M2 1l7 4-7 4z" fill="#fff"/></svg></span></span>`;
   const inner = !path ? html`<span>No image</span>` : !url ? html`<span>…</span>`
     : isVid ? html`<video src=${url + '#t=0.1'} muted playsinline preload="metadata" controls=${!!big}></video>${!big && html`<span class="play"><svg width="8" height="8" viewBox="0 0 10 10"><path d="M2 1l7 4-7 4z" fill="#fff"/></svg></span>`}`
     : html`<img src=${url} alt="" loading="lazy" />`;
@@ -52,7 +80,8 @@ function App() {
   const [data, setData] = useState(null);
   const [pid, setPid] = useState(() => { try { return localStorage.getItem('adlab-pid'); } catch (e) { return null; } });
   const [view, setView] = useState('board');
-  const [stage, setStage] = useState('testing');
+  const [stage, setStageRaw] = useState(() => lsGet('adlab-stage', 'untested'));
+  const setStage = (k) => { setStageRaw(k); lsSet('adlab-stage', k); };
   const [modal, setModal] = useState(null);
   const [lightbox, setLightbox] = useState(null);
   const [toast, setToast] = useState('');
@@ -83,6 +112,26 @@ function App() {
     return () => window.removeEventListener('unhandledrejection', h);
   }, []);
   useEffect(() => { try { if (pid) localStorage.setItem('adlab-pid', pid); } catch (e) {} }, [pid]);
+  // Make thumbnails for videos that don't have one yet, quietly in the background.
+  useEffect(() => {
+    if (!data) return;
+    const todo = data.ads.filter((a) => a.media_path && /^video/.test(a.media_type || '') && !(a.tags && a.tags.poster) && !posterTried.has(a.id));
+    if (!todo.length) return;
+    let stop = false;
+    (async () => {
+      let made = 0;
+      for (const ad of todo.slice(0, 12)) {
+        if (stop) break; posterTried.add(ad.id);
+        try {
+          const url = await be.mediaUrl(ad.media_path); const blob = await videoPoster(url);
+          const poster = await be.upload(ad.media_path.replace(/\.[^.]+$/, '') + '.poster.jpg', new File([blob], 'poster.jpg', { type: 'image/jpeg' }));
+          await be.update('ads', ad.id, { tags: { ...(ad.tags || {}), poster } }); made++;
+        } catch (e) { /* some browsers can't read some videos; skip */ }
+      }
+      if (made && !stop) reload();
+    })();
+    return () => { stop = true; };
+  }, [data && data.ads.length]);
 
   if (!be.configured) return html`<div class="login"><div class="panel"><div class="brand"><i></i>BUREEN<b>AD LAB</b></div>
     <p>The app isn't connected to its database yet. Add the Supabase URL and anon key to <code>js/config.js</code>.</p>
@@ -101,7 +150,7 @@ function App() {
 
   const activeStage1 = data.tests.filter((t) => t.status === 'active' && t.stage === 1);
   const rules0 = R.rulesOf(product);
-  const NAV = [['today', 'Today'], ['board', 'Board'], ['stats', 'Stats'], ['angles', 'Angles'], ['rules', 'Rules'], ['learn', 'Learnings'], ['more', 'More']];
+  const NAV = [['today', 'Today'], ['board', 'Board'], ['archive', 'Archive'], ['stats', 'Stats'], ['angles', 'Angles'], ['rules', 'Rules'], ['learn', 'Learnings'], ['more', 'More']];
 
   return html`
     <header class="top">
@@ -117,8 +166,9 @@ function App() {
     <main class="wrap">
       ${data.missingTables && data.missingTables.length > 0 && html`<div class="banner"><b>One setup step left.</b> Stats needs two new database tables. In Supabase, open SQL Editor, paste <code>schema.sql</code> from the repo and press Run.</div>`}
       ${R.isWeekendLock() && html`<div class="banner"><b>Weekend lock.</b> Your rule: no new ads, reactivations or budget changes Friday night through Sunday.</div>`}
-      ${view !== 'more' && view !== 'today' && view !== 'stats' && html`<${ProductTabs} ...${ctx} setPid=${setPid} />`}
-      ${view === 'board' && html`<${Board} ...${ctx} stage=${stage} setStage=${setStage} />`}
+      ${['board', 'archive', 'angles', 'rules', 'learn'].includes(view) && html`<${ProductTabs} ...${ctx} setPid=${setPid} />`}
+      ${view === 'board' && html`<${Board} key=${product.id} ...${ctx} stage=${stage} setStage=${setStage} />`}
+      ${view === 'archive' && html`<${Archive} key=${product.id} ...${ctx} />`}
       ${view === 'today' && html`<${Today} ...${ctx} setPid=${setPid} />`}
       ${view === 'stats' && html`<${Stats} ...${ctx} />`}
       ${view === 'angles' && html`<${Angles} key=${product.id} ...${ctx} />`}
@@ -126,7 +176,7 @@ function App() {
       ${view === 'learn' && html`<${Learn} ...${ctx} />`}
       ${view === 'more' && html`<${More} ...${ctx} />`}
     </main>
-    <nav class="bnav" aria-label="Main">${[['today', 'Today'], ['board', 'Board'], ['stats', 'Stats'], ['angles', 'Angles'], ['more', 'More']].map(([k, l]) => html`<button class=${view === k || (k === 'more' && (view === 'learn' || view === 'rules')) ? 'on' : ''} onClick=${() => setView(k)}>${l}</button>`)}</nav>
+    <nav class="bnav" aria-label="Main">${[['today', 'Today'], ['board', 'Board'], ['archive', 'Archive'], ['stats', 'Stats'], ['more', 'More']].map(([k, l]) => html`<button class=${view === k || (k === 'more' && (view === 'learn' || view === 'rules' || view === 'angles')) ? 'on' : ''} onClick=${() => setView(k)}>${l}</button>`)}</nav>
     ${modal && html`<${modal.type} ...${ctx} ...${modal.props} close=${() => setModal(null)} />`}
     <${Lightbox} item=${lightbox} onClose=${() => setLightbox(null)} />
     <${Toast} msg=${toast} />`;
@@ -154,70 +204,68 @@ function ProductTabs({ data, products, product, setPid, setModal }) {
 }
 
 // ---------- board ----------
-const histStats = (ad) => { const h = ad.history || {}; return h.roas != null ? `${R.xroas(h.roas)} · ${R.money(h.cpa)} CPA · ${R.money0(h.spend)}` : null; };
-const lastTestLine = (t) => t && t.result_reason ? t.result_reason : '';
+const PIPELINE = ['untested', 'testing', 'bench', 'main'];
+const FOLDERS = ['exhausted', 'mid', 'failed', 'seasonal', 'retired'];
+const lsGet = (k, d) => { try { return localStorage.getItem(k) || d; } catch (e) { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+const shortMoney = (n) => (n == null ? '—' : n >= 1000 ? '$' + (n / 1000).toFixed(1) + 'k' : '$' + Math.round(n));
+
+function quickStats(ad, data) {
+  const n = adNumbers(ad, data);
+  if (!n.spend) return null;
+  return { spend: n.spend, buys: n.buys, roas: n.rev / n.spend, cpa: n.buys ? n.spend / n.buys : null };
+}
+
+// One stat line and at most one tag per card.
 function cardInfo(ad, ctx) {
-  const { data, product } = ctx;
-  const tests = data.tests.filter((t) => t.ad_id === ad.id).sort(byCreated);
-  const t = tests[tests.length - 1];
-  const rules = R.rulesOf(product), econ = R.econOf(product);
+  const { data } = ctx;
+  const product = data.products.find((p) => p.id === ad.product_id) || ctx.product;
   const tags = ad.tags || {};
-  const stats = histStats(ad);
-  const resLabel = (R.RESULTS[ad.result] || {}).label;
-  switch (ad.stage) {
-    case 'testing': {
-      if (!t) return { line: 'No test record', chip: 'Testing', tone: 'live', glow: 'live' };
-      const st = R.testStatus(t, data.checkpoints.filter((c) => c.test_id === t.id), rules, econ.aov);
-      if (st.due.length) return { line: `Day ${st.day} of ${st.planned}. Day ${st.due[st.due.length - 1]} results due.`, chip: 'Results due', tone: 'mid', glow: 'live' };
-      if (st.final) return { line: st.text, chip: 'Finalize', tone: 'live', glow: 'live' };
-      if (st.early) return { line: st.text, chip: 'Early stop?', tone: 'fail', glow: 'live' };
-      return { line: st.text, chip: `Day ${Math.min(st.day, st.planned)}/${st.planned}`, tone: 'live', glow: 'live' };
-    }
-    case 'untested': return { line: (ad.notes || '').split('\n')[0] || (tags.retest && stats) || ad.angle || ad.concept || 'Idea', chip: tags.ready ? 'Ready' : tags.retest ? 'Retest' : ad.parent_id ? 'Recycled' : 'Idea', tone: tags.ready ? 'live' : tags.retest ? 'ins' : 'muted', glow: tags.ready ? 'live' : null };
-    case 'bench': return { line: stats || lastTestLine(t), chip: ad.result === 'strong_pass' ? 'Strong pass' : null, tone: 'pass', glow: 'pass' };
-    case 'main': {
-      const s2 = tests.find((x) => x.stage === 2 && x.status === 'active');
-      if (s2) { const d = R.testDay(s2); return { line: `Day ${d} in Main. Judge after ${rules.stage2Min} to ${rules.stage2Max} days.` + (stats ? ' · ' + stats : ''), chip: `Day ${Math.min(d, rules.stage2Max)}/${rules.stage2Max} in Main`, tone: 'live', glow: 'live' }; }
-      return { line: (tags.fatiguing ? 'Fatiguing' : 'Running') + (stats ? ' · ' + stats : ''), chip: tags.fatiguing ? 'Fatiguing' : 'Running', tone: tags.fatiguing ? 'mid' : 'pass', glow: tags.fatiguing ? 'mid' : 'pass' };
-    }
-    case 'exhausted': return { line: [tags.offReason ? 'Off: ' + tags.offReason : 'Off', stats].filter(Boolean).join(' · '), chip: null, tone: 'muted' };
-    case 'seasonal': return { line: stats || ad.notes || '', chip: tags.season || 'Seasonal', tone: 'ins' };
-    default: return { line: stats || lastTestLine(t), chip: null, tone: toneOf(ad.result) };
+  const q = quickStats(ad, data);
+  const stats = q ? `${R.xroas(q.roas)} · ${R.money(q.cpa)} CPA · ${shortMoney(q.spend)}` : null;
+  if (ad.stage === 'testing') {
+    const t = data.tests.filter((x) => x.ad_id === ad.id && x.status === 'active')[0];
+    if (!t) return { line: 'Live in Meta', chip: 'Testing', tone: 'live', glow: 'live' };
+    const st = R.testStatus(t, data.checkpoints.filter((c) => c.test_id === t.id), R.rulesOf(product), R.econOf(product).aov);
+    const line = st.m ? `Day ${Math.min(st.day, st.planned)}/${st.planned} · ${R.xroas(st.m.roas)} · ${st.m.purchases} buys` : `Day ${Math.min(st.day, st.planned)} of ${st.planned}`;
+    if (st.due.length) return { line, chip: 'Results due', tone: 'mid', glow: 'live' };
+    if (st.final) return { line, chip: 'Finalize', tone: 'live', glow: 'live' };
+    if (st.early) return { line, chip: 'Early stop?', tone: 'fail', glow: 'live' };
+    return { line, chip: null, glow: 'live' };
   }
+  if (ad.stage === 'main') {
+    const trial = data.tests.some((x) => x.ad_id === ad.id && x.stage === 2 && x.status === 'active');
+    return { line: stats || 'In Main', chip: trial ? 'On trial' : tags.fatiguing ? 'Fatiguing' : null, tone: trial ? 'live' : 'mid', glow: tags.fatiguing ? 'mid' : 'pass' };
+  }
+  if (ad.stage === 'untested') return { line: stats || ad.angle || 'Not tested yet', chip: tags.ready ? 'Ready' : tags.retest ? 'Retest' : null, tone: tags.ready ? 'live' : 'ins', glow: tags.ready ? 'live' : null };
+  if (ad.stage === 'bench') return { line: stats || 'Passed', chip: ad.result === 'strong_pass' ? 'Strong' : null, tone: 'pass', glow: 'pass' };
+  if (ad.stage === 'seasonal') return { line: stats || '', chip: tags.season || null, tone: 'ins' };
+  return { line: stats || '', chip: null };
 }
 
 function Card(props) {
-  const { ad, setModal } = props; const ci = cardInfo(ad, props);
-  return html`<button type="button" class=${'card' + (ci.glow ? ' glow-' + ci.glow : '')} onClick=${() => setModal({ type: AdDetail, props: { adId: ad.id } })}>
-    <${Media} path=${ad.media_path} type=${ad.media_type} />
-    <span class="t"><span class="nm">${displayName(ad)}</span><span class="ln">${ci.line}</span>
-      <span class="chips">${ci.chip && html`<span class=${'chip t-' + ci.tone}>${ci.chip}</span>`}${ad.stage === 'untested' && ad.tags && ad.tags.review && html`<span class=${'chip t-' + (ad.tags.review.score >= 80 ? 'pass' : ad.tags.review.score >= 60 ? 'mid' : 'fail')}>Check ${ad.tags.review.score}</span>`}${ad.setup_era === 'era1' && !['failed', 'mid'].includes(ad.stage) && html`<span class="chip t-muted" title=${R.ERAS.era1.note}>Era 1</span>`}</span></span>
+  const { ad, setModal, select, selected, onToggle, showStage } = props;
+  const ci = cardInfo(ad, props);
+  const t = ad.tags || {};
+  const click = () => (select ? onToggle(ad.id) : setModal({ type: AdDetail, props: { adId: ad.id } }));
+  const drag = (e) => { e.dataTransfer.setData('text/adlab', ad.id); e.dataTransfer.effectAllowed = 'move'; props.onDragState && props.onDragState(true); };
+  return html`<button type="button" class=${'tcard' + (ci.glow ? ' glow-' + ci.glow : '') + (selected ? ' sel' : '')} onClick=${click}
+      draggable=${!select} onDragStart=${drag} onDragEnd=${() => props.onDragState && props.onDragState(false)}>
+    <span class="ti"><${Media} path=${ad.media_path} type=${ad.media_type} poster=${t.poster} />
+      ${(showStage || ci.chip) && html`<span class=${'chip t-' + (showStage ? 'muted' : ci.tone || 'muted')}>${showStage ? R.stageLabel(ad.stage) : ci.chip}</span>`}
+      ${select && html`<span class=${'check' + (selected ? ' on' : '')}>${selected ? '✓' : ''}</span>`}</span>
+    <span class="tn">${displayName(ad)}</span>
+    ${ci.line && html`<span class="tl">${ci.line}</span>`}
   </button>`;
 }
 
-// Sub-groups inside a column. null = no grouping.
+// Sub-groups inside a folder. null = no grouping.
 const GROUPS = {
   untested: [['Ready to launch', (a) => a.tags && a.tags.ready], ['Retest', (a) => a.tags && a.tags.retest], ['Ideas', () => true]],
   main: [['On trial', (a, c) => c.data.tests.some((t) => t.ad_id === a.id && t.stage === 2 && t.status === 'active')], ['Running', () => true]],
   mid: [['Era 2 and later', (a) => a.setup_era !== 'era1'], ['Era 1 · weak evidence', () => true]],
   failed: [['Era 2 and later', (a) => a.setup_era !== 'era1'], ['Era 1 · never a fair shot', () => true]],
 };
-function StageList({ stageKey, list, ctx }) {
-  const [open, setOpen] = useState({});
-  if (!list.length) return html`<div class="empty">Nothing here</div>`;
-  const groups = GROUPS[stageKey];
-  if (!groups) return list.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${ctx} />`);
-  const left = [...list];
-  return groups.map(([label, fn]) => {
-    const g = left.filter((a) => fn(a, ctx)); g.forEach((a) => left.splice(left.indexOf(a), 1));
-    if (!g.length) return null;
-    const shown = open[label] ? g : g.slice(0, 3);
-    return html`<div class="grp"><span>${label}</span><span>${g.length}</span></div>
-      ${shown.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${ctx} />`)}
-      ${g.length > 3 && html`<button class="link small" style="align-self:flex-start" onClick=${() => setOpen({ ...open, [label]: !open[label] })}>${open[label] ? 'Show less' : `Show all ${g.length}`}</button>`}`;
-  });
-}
-
 function benchHealth(data, product) {
   const rules = R.rulesOf(product);
   const ads = data.ads.filter((a) => a.product_id === product.id);
@@ -227,45 +275,194 @@ function benchHealth(data, product) {
   return { bench, target: rules.benchTarget, main: main.length, fatiguing, low: bench < rules.benchTarget, urgent: fatiguing.length > 0 && bench < Math.max(1, rules.benchTarget) };
 }
 
-function ShelfPanel({ shelf, list, ctx, close }) {
-  return html`<section class="panel"><div class="row"><h2>${R.stageLabel(shelf)}</h2><span class="muted small">${R.SHELVES.find((s) => s.key === shelf).hint}</span><span class="spacer"></span><button class="btn sm ghost" onClick=${close}>Close</button></div>
-    <div class="shelf">${list.length ? list.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${ctx} />`) : html`<div class="empty">Nothing here</div>`}</div></section>`;
+function SummaryStrip({ data, product }) {
+  const econ = R.econOf(product), bev = R.breakEven(econ), rules = R.rulesOf(product);
+  const live = data.tests.filter((t) => t.status === 'active' && t.stage === 1).length;
+  const bh = benchHealth(data, product);
+  return html`<div class="strip">
+    <span>Break-even <b>${R.xroas(bev.roas)}</b></span>
+    <span>Testing <b>${live}/${rules.slots}</b> slots</span>
+    <span>In Main <b>${bh.main}</b>${bh.fatiguing.length ? html` <em class="warn">${bh.fatiguing.length} fatiguing</em>` : ''}</span>
+    <span class=${bh.urgent ? 'warn' : ''}>Bench <b>${bh.bench}/${bh.target}</b>${bh.urgent ? ' · low' : ''}</span>
+  </div>`;
+}
+
+// Search, sort, filter. Shared by Board and Archive.
+const SORTS = [['new', 'Newest'], ['roas', 'Best ROAS'], ['spend', 'Most spend'], ['name', 'Name']];
+function useBrowse(key) {
+  const [q, setQ] = useState('');
+  const [sort, setSort] = useState(() => lsGet('adlab-sort-' + key, 'new'));
+  const [fmt, setFmt] = useState('all');
+  const [angle, setAngle] = useState('');
+  useEffect(() => lsSet('adlab-sort-' + key, sort), [sort]);
+  const apply = (list, data) => {
+    let out = list;
+    if (fmt !== 'all') out = out.filter((a) => (fmt === 'video' ? a.format === 'video' || /^video/.test(a.media_type || '') : a.format !== 'video' && !/^video/.test(a.media_type || '')));
+    if (angle) out = out.filter((a) => (a.angle || '') === angle);
+    const qs = (a) => quickStats(a, data) || {};
+    const by = { new: (a, b) => String(b.launched_on || b.created_at || '').localeCompare(String(a.launched_on || a.created_at || '')),
+      roas: (a, b) => (qs(b).roas ?? -1) - (qs(a).roas ?? -1), spend: (a, b) => (qs(b).spend ?? 0) - (qs(a).spend ?? 0), name: (a, b) => a.base_name.localeCompare(b.base_name) };
+    return [...out].sort(by[sort]);
+  };
+  const match = (a) => { const s = q.trim().toLowerCase(); return !s || [a.base_name, a.angle, a.concept, a.notes].some((x) => String(x || '').toLowerCase().includes(s)); };
+  return { q, setQ, sort, setSort, fmt, setFmt, angle, setAngle, apply, match };
+}
+function Toolbar({ b, data, sel, setSel, extra }) {
+  const [open, setOpen] = useState(false);
+  const active = b.sort !== 'new' || b.fmt !== 'all' || b.angle;
+  return html`<div class=${'toolbar' + (open ? ' open' : '')}>
+    <input class="inp search" type="search" placeholder="Search ads" value=${b.q} onInput=${(e) => b.setQ(e.target.value)} aria-label="Search ads" />
+    <button class=${'btn sm phone-only' + (active ? ' on' : '')} onClick=${() => setOpen(!open)}>Filter${active ? ' •' : ''}</button>
+    <select class="inp" value=${b.sort} onChange=${(e) => b.setSort(e.target.value)} aria-label="Sort">${SORTS.map(([k, l]) => html`<option value=${k}>${l}</option>`)}</select>
+    <select class="inp" value=${b.fmt} onChange=${(e) => b.setFmt(e.target.value)} aria-label="Format"><option value="all">Images + videos</option><option value="image">Images</option><option value="video">Videos</option></select>
+    <select class="inp" value=${b.angle} onChange=${(e) => b.setAngle(e.target.value)} aria-label="Angle"><option value="">All angles</option>${allAngles(data).map((a) => html`<option value=${a}>${a}</option>`)}</select>
+    <button class=${'btn sm' + (sel ? ' on' : '')} onClick=${() => setSel(sel ? null : [])}>${sel ? 'Cancel select' : 'Select'}</button>
+    ${extra}
+  </div>`;
+}
+
+async function moveAds(ids, to, data, note) {
+  for (const id of ids) {
+    const ad = data.ads.find((a) => a.id === id); if (!ad || ad.stage === to) continue;
+    await be.update('ads', id, { stage: to });
+    try { await be.insert('decisions', { product_id: ad.product_id, ad_id: id, kind: 'move', choice: `Moved to ${R.stageLabel(to)}`, reason: note || '' }); } catch (e) { /* log only */ }
+  }
+}
+function SelectBar({ sel, setSel, ctx }) {
+  const { data, reload, say } = ctx;
+  const [to, setTo] = useState('');
+  if (!sel) return null;
+  const go = async () => { if (!to || !sel.length) return; await moveAds(sel, to, data, 'Moved several at once'); await reload(); say(`Moved ${sel.length} to ${R.stageLabel(to)}`); setSel(null); };
+  return html`<div class="selbar"><b>${sel.length} selected</b>
+    <select class="inp" value=${to} onChange=${(e) => setTo(e.target.value)}><option value="">Move to…</option>${[...R.STAGES, ...R.SHELVES].map((s) => html`<option value=${s.key}>${s.label}</option>`)}</select>
+    <button class="btn primary sm" disabled=${!to || !sel.length} onClick=${go}>Move</button><button class="btn ghost sm" onClick=${() => setSel(null)}>Cancel</button></div>`;
+}
+
+function useDropFiles(onFiles) {
+  const [over, setOver] = useState(false);
+  useEffect(() => {
+    let depth = 0;
+    const hasFiles = (e) => [...(e.dataTransfer && e.dataTransfer.types || [])].includes('Files');
+    const enter = (e) => { if (!hasFiles(e)) return; depth++; setOver(true); };
+    const leave = (e) => { if (!hasFiles(e)) return; depth = Math.max(0, depth - 1); if (!depth) setOver(false); };
+    const overH = (e) => { if (hasFiles(e)) e.preventDefault(); };
+    const drop = (e) => { if (!hasFiles(e)) return; e.preventDefault(); depth = 0; setOver(false); const fs = [...e.dataTransfer.files].filter((f) => /^(image|video)\//.test(f.type)); if (fs.length) onFiles(fs); };
+    window.addEventListener('dragenter', enter); window.addEventListener('dragleave', leave); window.addEventListener('dragover', overH); window.addEventListener('drop', drop);
+    return () => { window.removeEventListener('dragenter', enter); window.removeEventListener('dragleave', leave); window.removeEventListener('dragover', overH); window.removeEventListener('drop', drop); };
+  }, []);
+  return over;
 }
 
 function Board(ctx) {
-  const { data, product, stage, setStage, setModal } = ctx;
-  const [shelf, setShelf] = useState(null);
+  const { data, product, stage, setStage, setModal, reload, say } = ctx;
+  const b = useBrowse('board');
+  const [sel, setSel] = useState(null);
+  const [dragging, setDragging] = useState(false);
+  const [dropCol, setDropCol] = useState(null);
+  const over = useDropFiles((files) => setModal({ type: BulkForm, props: { files } }));
   const ads = data.ads.filter((a) => a.product_id === product.id);
-  const by = (k) => ads.filter((a) => a.stage === k).sort((a, b) => (b.launched_on || b.created_at || '').localeCompare(a.launched_on || a.created_at || ''));
-  const econ = R.econOf(product), bev = R.breakEven(econ);
-  const live = data.tests.filter((t) => t.status === 'active' && t.product_id === product.id && t.stage === 1);
-  const bh = benchHealth(data, product);
-  const cur = R.STAGES.find((s) => s.key === stage) || R.STAGES[1];
+  const by = (k) => b.apply(ads.filter((a) => a.stage === k), data);
+  const cur = PIPELINE.includes(stage) ? stage : 'untested';
+  const toggle = (id) => setSel(sel.includes(id) ? sel.filter((x) => x !== id) : [...sel, id]);
+  const cctx = { ...ctx, select: !!sel, selected: false, onToggle: toggle, onDragState: setDragging };
+  const cardCtx = (ad) => ({ ...cctx, selected: !!sel && sel.includes(ad.id) });
+  const dropTo = async (e, to) => { e.preventDefault(); setDropCol(null); setDragging(false); const id = e.dataTransfer.getData('text/adlab'); if (!id) return; await moveAds([id], to, data, 'Dragged'); await reload(); say('Moved to ' + R.stageLabel(to)); };
+  const dz = (to) => ({ onDragOver: (e) => { if ([...e.dataTransfer.types].includes('text/adlab')) { e.preventDefault(); setDropCol(to); } }, onDragLeave: () => setDropCol(null), onDrop: (e) => dropTo(e, to) });
   const newAd = () => setModal({ type: AdForm, props: { mode: 'new' } });
+  const upload = html`<label class="btn sm"><input type="file" multiple accept="image/*,video/*" hidden onChange=${(e) => { const fs = [...e.target.files]; e.target.value = ''; if (fs.length) setModal({ type: BulkForm, props: { files: fs } }); }} />Upload many</label><button class="btn primary sm" onClick=${newAd}>+ New ad</button>`;
+  const searching = b.q.trim().length > 0;
+  const results = searching ? b.apply(ads.filter(b.match), data) : [];
   return html`
-    <section class="tiles" aria-label="Summary">
-      <div class="tile"><div class="k">Break-even</div><div class="v">${R.xroas(bev.roas)}</div><div class="s">${R.money(bev.cpa)} CPA at ${R.money(econ.aov)} avg order</div></div>
-      <div class="tile"><div class="k">Testing now</div><div class="v">${live.length}</div><div class="s">${by('untested').filter((a) => a.tags && a.tags.ready).length} ready to launch</div></div>
-      <div class="tile"><div class="k">In Main</div><div class="v">${bh.main}</div><div class="s">${bh.fatiguing.length ? bh.fatiguing.length + ' fatiguing' : 'none fatiguing'}</div></div>
-      <div class=${'tile' + (bh.urgent ? ' warn' : '')}><div class="k">Bench</div><div class="v">${bh.bench} <small>/ ${bh.target}</small></div><div class="s">${bh.urgent ? 'Low, and Main is fatiguing' : bh.low ? 'Under your target' : 'Backups ready'}</div></div>
-    </section>
-    <div class="row board-new">${R.SHELVES.map((s) => html`<button class=${'btn sm ghost' + (shelf === s.key ? ' on' : '')} onClick=${() => setShelf(shelf === s.key ? null : s.key)}>${s.label} · ${by(s.key).length}</button>`)}<span class="spacer"></span><button class="btn primary" onClick=${newAd}>+ New ad</button></div>
-    ${shelf && html`<div class="lap-only"><${ShelfPanel} shelf=${shelf} list=${by(shelf)} ctx=${ctx} close=${() => setShelf(null)} /></div>`}
-    <div class="board-scroll"><div class="board">
-      ${R.STAGES.map((s) => { const list = by(s.key);
-        return html`<section class=${'col ' + s.key} aria-label=${s.label}><h2>${s.label}<span>${list.length}</span></h2><div class="hint">${s.hint}</div>
-          <${StageList} stageKey=${s.key} list=${list} ctx=${ctx} /></section>`; })}
-    </div></div>
-    <div class="stagepick" role="tablist" aria-label="Stages">
-      ${R.STAGES.map((s) => html`<button role="tab" aria-selected=${s.key === stage} class=${s.key === stage ? 'on' : ''} onClick=${() => setStage(s.key)}><b>${s.label}</b><span>${by(s.key).length}</span></button>`)}
-      <button onClick=${newAd}><b>+ New</b><span>ad</span></button>
+    <${SummaryStrip} data=${data} product=${product} />
+    <${Toolbar} b=${b} data=${data} sel=${sel} setSel=${setSel} extra=${upload} />
+    ${dragging && html`<div class="droprow"><span class="small muted">Drop on a folder:</span>${FOLDERS.map((f) => html`<span class=${'dropchip' + (dropCol === f ? ' on' : '')} ...${dz(f)}>${R.stageLabel(f)}</span>`)}</div>`}
+    ${searching ? html`<section class="panel"><div class="row"><h2>Search: ${results.length} ad${results.length === 1 ? '' : 's'}</h2><span class="muted small">across every folder</span></div>
+        ${results.length ? html`<div class="agrid">${results.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${cardCtx(ad)} showStage />`)}</div>` : html`<div class="empty">No ads match "${b.q}"</div>`}</section>`
+    : html`
+    <div class="board">
+      ${PIPELINE.map((k) => { const s = R.STAGES.find((x) => x.key === k);
+        return html`<section class=${'col ' + k + (dropCol === k ? ' dropping' : '')} aria-label=${s.label} ...${dz(k)}><h2>${s.label}<span>${by(k).length}</span></h2><div class="hint">${s.hint}</div>
+          <${CardGroupsSel} stageKey=${k} list=${by(k)} ctx=${cctx} cardCtx=${cardCtx} limit=${4} /></section>`; })}
     </div>
-    <div class="phonelist">
-      <div class="row"><h2 style="font-size:20px">${cur.label}</h2><span class="spacer"></span><span class="muted small">${cur.hint}</span></div>
-      <${StageList} stageKey=${cur.key} list=${by(cur.key)} ctx=${ctx} />
-      <div class="row" style="margin-top:6px">${R.SHELVES.map((s) => html`<button class="btn sm ghost" onClick=${() => setShelf(shelf === s.key ? null : s.key)}>${s.label} · ${by(s.key).length}</button>`)}</div>
-      ${shelf && html`<${ShelfPanel} shelf=${shelf} list=${by(shelf)} ctx=${ctx} close=${() => setShelf(null)} />`}
-    </div>`;
+    <div class="stagepick" role="tablist" aria-label="Stages">
+      ${PIPELINE.map((k) => html`<button role="tab" aria-selected=${k === cur} class=${k === cur ? 'on' : ''} onClick=${() => setStage(k)}><b>${R.stageLabel(k)}</b><span>${by(k).length}</span></button>`)}
+    </div>
+    <div class="phonelist"><${CardGroupsSel} stageKey=${cur} list=${by(cur)} ctx=${cctx} cardCtx=${cardCtx} limit=${4} /></div>`}
+    <${SelectBar} sel=${sel} setSel=${setSel} ctx=${ctx} />
+    ${over && html`<div class="dropover"><div>Drop to add as new ads</div></div>`}`;
+}
+function CardGroupsSel({ stageKey, list, ctx, cardCtx, limit, grid }) {
+  const [open, setOpen] = useState({});
+  if (!list.length) return html`<div class="empty">Nothing here</div>`;
+  const groups = GROUPS[stageKey] || [['', () => true]];
+  const left = [...list];
+  return groups.map(([label, fn]) => {
+    const g = left.filter((a) => fn(a, ctx)); g.forEach((a) => left.splice(left.indexOf(a), 1));
+    if (!g.length) return null;
+    const shown = open[label] ? g : g.slice(0, limit);
+    return html`${label && groups.length > 1 && html`<div class="grp"><span>${label}</span><span>${g.length}</span></div>`}
+      <div class=${grid || 'cgrid'}>${shown.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${cardCtx(ad)} />`)}</div>
+      ${g.length > limit && html`<button class="link small" style="align-self:flex-start" onClick=${() => setOpen({ ...open, [label]: !open[label] })}>${open[label] ? 'Show less' : `Show all ${g.length}`}</button>`}`;
+  });
+}
+
+function Archive(ctx) {
+  const { data, product } = ctx;
+  const b = useBrowse('archive');
+  const [folder, setFolder] = useState(() => lsGet('adlab-folder', 'exhausted'));
+  const [sel, setSel] = useState(null);
+  useEffect(() => lsSet('adlab-folder', folder), [folder]);
+  const ads = data.ads.filter((a) => a.product_id === product.id);
+  const count = (k) => ads.filter((a) => a.stage === k).length;
+  const toggle = (id) => setSel(sel.includes(id) ? sel.filter((x) => x !== id) : [...sel, id]);
+  const cctx = { ...ctx, select: !!sel, onToggle: toggle };
+  const cardCtx = (ad) => ({ ...cctx, selected: !!sel && sel.includes(ad.id) });
+  const searching = b.q.trim().length > 0;
+  const list = searching ? b.apply(ads.filter((a) => FOLDERS.includes(a.stage) && b.match(a)), data) : b.apply(ads.filter((a) => a.stage === folder), data);
+  const hint = { exhausted: 'Worked, then fatigued. Revive one to the Bench after a long rest.', mid: 'Close but not a pass. Best ones to recycle with a fix.', failed: 'Did not work.', seasonal: 'Sale and holiday ads.', retired: 'Hidden from everything else.' };
+  return html`
+    <div class="row"><h1 style="font-size:30px">Archive</h1></div>
+    <div class="folders">${FOLDERS.map((f) => html`<button class=${'folder' + (folder === f && !searching ? ' on' : '')} onClick=${() => { setFolder(f); b.setQ(''); }}><b>${R.stageLabel(f)}</b><span>${count(f)}</span></button>`)}</div>
+    <${Toolbar} b=${b} data=${data} sel=${sel} setSel=${setSel} />
+    ${searching ? html`<div class="small muted">${list.length} match${list.length === 1 ? '' : 'es'} across the archive</div>` : html`<div class="small muted">${hint[folder]}</div>`}
+    ${searching ? html`<div class="agrid">${list.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${cardCtx(ad)} showStage />`)}</div>`
+      : html`<div class="stack"><${CardGroupsSel} key=${folder} stageKey=${folder} list=${list} ctx=${cctx} cardCtx=${cardCtx} limit=${12} grid="agrid" /></div>`}
+    <${SelectBar} sel=${sel} setSel=${setSel} ctx=${ctx} />`;
+}
+
+// ---------- bulk upload ----------
+const cleanName = (file, fmt) => {
+  const base = file.name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return /\|/.test(base) ? base : `${fmt === 'video' ? 'VID' : 'IMG'} | ${base} | V1`;
+};
+function BulkForm(ctx) {
+  const { files, data, product, close, reload, say } = ctx;
+  const [items, setItems] = useState(() => files.map((f) => { const fmt = /^video/.test(f.type) ? 'video' : 'image'; return { file: f, fmt, name: cleanName(f, fmt), url: URL.createObjectURL(f) }; }));
+  const [angle, setAngle] = useState(''); const [concept, setConcept] = useState(''); const [ready, setReady] = useState(false);
+  const [prog, setProg] = useState(null);
+  useEffect(() => () => items.forEach((i) => URL.revokeObjectURL(i.url)), []);
+  const go = async () => {
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i]; setProg(`Uploading ${i + 1} of ${items.length}…`);
+      const stamp = `${product.id}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const media_path = await be.upload(`${stamp}.${extOf(it.file)}`, it.file);
+      const tags = { ...(ready ? { ready: true } : {}) };
+      if (it.fmt === 'video') { try { const pb = await videoPoster(it.file); tags.poster = await be.upload(`${stamp}.poster.jpg`, new File([pb], 'poster.jpg', { type: 'image/jpeg' })); } catch (e) { /* thumbnail is optional */ } }
+      await be.insert('ads', { product_id: product.id, base_name: it.name.trim() || it.file.name, format: it.fmt, angle: angle || null, concept: concept || null, offer: '$6 per shirt · 6 for $36 · Free shipping', media_path, media_type: it.file.type, stage: 'untested', version: 1, tags, history: {} });
+    }
+    await reload(); close(); say(`Added ${items.length} ad${items.length === 1 ? '' : 's'} to Untested`);
+  };
+  return html`<${Modal} wide title=${`Add ${items.length} ad${items.length === 1 ? '' : 's'}`} sub=${product.name + ' · they go to Untested'} onClose=${close}>
+    <div class="bulk">${items.map((it, i) => html`<div class="bitem">
+      <span class="thumb">${it.fmt === 'video' ? html`<video src=${it.url + '#t=0.5'} muted playsinline preload="metadata"></video>` : html`<img src=${it.url} alt="" />`}</span>
+      <input class="inp" value=${it.name} onInput=${(e) => setItems(items.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} aria-label="Ad name" />
+      <button class="link small" style="color:var(--fail)" onClick=${() => setItems(items.filter((_, j) => j !== i))} aria-label="Remove">✕</button></div>`)}</div>
+    <div class="pickrow"><span class="tiny muted">Angle for all:</span>${allAngles(data).map((c) => html`<button type="button" class=${'pick' + (angle === c ? ' on' : '')} onClick=${() => setAngle(angle === c ? '' : c)}>${c}</button>`)}</div>
+    <div class="form"><${Field} label="Concept for all (optional)"><input list="concept-list-bulk" value=${concept} onInput=${(e) => setConcept(e.target.value)} /><datalist id="concept-list-bulk">${allConcepts(data).map((c) => html`<option value=${c} />`)}</datalist><//>
+      <label class="chk"><input type="checkbox" checked=${ready} onChange=${(e) => setReady(e.target.checked)} /> Mark all ready to launch</label></div>
+    ${prog && html`<div class="status live">${prog}</div>`}
+    <div class="row"><button class="btn primary" disabled=${!!prog || !items.length} onClick=${go}>Add ${items.length} ad${items.length === 1 ? '' : 's'}</button><button class="btn ghost" onClick=${close}>Cancel</button></div>
+  <//>`;
 }
 
 // ---------- ad detail ----------
@@ -296,10 +493,45 @@ function ConceptPanel({ ad, data, reload, say, setModal }) {
     <datalist id="concept-list">${allConcepts(data).map((c) => html`<option value=${c} />`)}</datalist>
     ${cs && cs.fam.length > 1 ? html`
       <div class="small">${cs.fam.length} versions${cs.counted ? ` · Era 2 and later: ${cs.won} of ${cs.counted} worked` : ' · none tested since Era 1'}${cs.era1 ? ` · ${cs.era1} from Era 1 (not counted)` : ''}</div>
-      ${cs.fam.length >= 5 && html`<div class="status warn small">You've run this concept ${cs.fam.length} times. Change something real (hook, first frame, offer), not just the text.</div>`}
+      ${cs.fam.length >= 5 && ad.stage === 'untested' && html`<div class="status warn small">You've run this concept ${cs.fam.length} times. Change something real (hook, first frame, offer), not just the text.</div>`}
       <div class="fam">${cs.fam.filter((f) => f.id !== ad.id).map((f) => html`<button class="famitem" onClick=${() => setModal({ type: AdDetail, props: { adId: f.id } })}><${Media} path=${f.media_path} type=${f.media_type} /><span class="small">${f.base_name}</span><span class=${'chip t-' + (f.result ? toneOf(f.result) : 'muted')}>${R.stageLabel(f.stage)}${f.setup_era === 'era1' ? ' · Era 1' : ''}</span></button>`)}</div>`
     : html`<div class="small muted">${ad.concept ? 'The only ad with this concept so far.' : 'Group versions of the same idea (same footage or shot, different text) so you can see how the idea has done overall.'}</div>`}
   </div>`;
+}
+
+function MediaGallery({ ad, setLightbox, reload, say }) {
+  const tags = ad.tags || {};
+  const files = [{ path: ad.media_path, type: ad.media_type, label: 'Main', main: true }, ...((tags.files || []).map((x) => ({ ...x })))].filter((x) => x.path);
+  const [i, setI] = useState(0);
+  const cur = files[Math.min(i, files.length - 1)];
+  const [busy, setBusy] = useState(false);
+  const add = async (fl) => {
+    if (!fl) return; setBusy(true);
+    try {
+      const label = prompt('Label for this file (for example 9:16 or Story):', '') || '';
+      const path = await be.upload(`${ad.product_id}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${extOf(fl)}`, fl);
+      await be.update('ads', ad.id, { tags: { ...tags, files: [...(tags.files || []), { path, type: fl.type, label }] } }); await reload(); say('File added'); setI(files.length);
+    } catch (e) { say('Could not add: ' + e.message); }
+    setBusy(false);
+  };
+  const removeCur = async () => { if (cur.main) return; await be.update('ads', ad.id, { tags: { ...tags, files: (tags.files || []).filter((x) => x.path !== cur.path) } }); setI(0); await reload(); say('File removed'); };
+  const makeMain = async () => {
+    if (cur.main) return;
+    const rest = (tags.files || []).filter((x) => x.path !== cur.path);
+    const old = ad.media_path ? [{ path: ad.media_path, type: ad.media_type, label: 'Old main' }] : [];
+    const t = { ...tags, files: [...old, ...rest] }; delete t.poster;
+    await be.update('ads', ad.id, { media_path: cur.path, media_type: cur.type, tags: t }); setI(0); await reload(); say('Set as main');
+  };
+  const copyName = async () => { try { await navigator.clipboard.writeText(ad.launched_on ? displayName(ad) : ad.base_name); say('Name copied'); } catch (e) { say('Could not copy'); } };
+  return html`<div class="stack" style="gap:8px">
+    ${cur ? html`<${Media} big path=${cur.path} type=${cur.type} onOpen=${(url, video) => setLightbox({ url, video })} />` : html`<div class="bigmedia empty">No image yet</div>`}
+    ${files.length > 1 && html`<div class="gallery">${files.map((x, j) => html`<button class=${'gthumb' + (j === i ? ' on' : '')} onClick=${() => setI(j)} title=${x.label}><${Media} path=${x.path} type=${x.type} poster=${x.main ? tags.poster : null} /><span>${x.label || 'File ' + (j + 1)}</span></button>`)}</div>`}
+    <div class="row">
+      ${cur && html`<button class="btn sm" onClick=${() => downloadMedia(cur.path, ad.base_name + (cur.main ? '' : ' - ' + (cur.label || 'extra'))).catch((e) => say('Download failed: ' + e.message))}>Download</button>`}
+      <button class="btn sm" onClick=${copyName}>Copy name</button>
+      <label class="btn sm ghost">${busy ? 'Adding…' : '+ Add file'}<input type="file" accept="image/*,video/*" hidden onChange=${(e) => { add(e.target.files[0]); e.target.value = ''; }} /></label>
+      ${cur && !cur.main && html`<button class="btn sm ghost" onClick=${makeMain}>Make main</button><button class="btn sm ghost danger" onClick=${removeCur}>Remove</button>`}
+    </div></div>`;
 }
 
 function AdDetail(ctx) {
@@ -366,7 +598,7 @@ function AdDetail(ctx) {
   return html`<${Modal} wide title=${displayName(ad)} sub=${product.name + ' · ' + (ad.format || 'image')} onClose=${close}>
     <div class="detail">
       <div class="stack">
-        <${Media} big path=${ad.media_path} type=${ad.media_type} onOpen=${(url, video) => setLightbox({ url, video })} />
+        <${MediaGallery} ad=${ad} ...${ctx} />
         <div class="row"><button class="btn sm" onClick=${() => setModal({ type: AdForm, props: { mode: 'edit', adId: ad.id } })}>Edit</button>
           <button class="btn sm" onClick=${() => setModal({ type: AdForm, props: { mode: 'version', adId: ad.id } })}>New version</button>
           <span class="spacer"></span>
@@ -380,8 +612,8 @@ function AdDetail(ctx) {
           ${ad.stage === 'exhausted' && tags.offReason && html`<span class="chip t-muted">Off · ${tags.offReason}</span>`}
           ${ad.stage === 'untested' && tags.ready && html`<span class="chip t-live">Ready</span>`}
           ${ad.stage === 'untested' && tags.retest && html`<span class="chip t-ins">Retest</span>`}
-          ${ad.result && ad.result !== 'winner' && html`<span class=${'chip t-' + toneOf(ad.result)}>${(R.RESULTS[ad.result] || {}).label || ad.result}</span>`}
-          ${era && html`<span class=${'chip t-' + (ad.setup_era === 'era1' ? 'mid' : 'muted')} title=${era.note}>${era.label}</span>`}
+          ${ad.result && ['untested', 'mid', 'failed', 'bench'].includes(ad.stage) && !R.RESULTS[ad.result].main && html`<span class=${'chip t-' + toneOf(ad.result)}>${(R.RESULTS[ad.result] || {}).label || ad.result}</span>`}
+          ${era && ad.setup_era !== 'era1' && html`<span class="chip t-muted" title=${era.note}>${era.short}</span>`}
           ${hist.oldPage && ad.setup_era !== 'era1' && html`<span class="chip t-mid">Old landing page</span>`}
           ${ad.launched_on && html`<span class="chip t-muted">Live ${ad.launched_on}</span>`}
         </div>
@@ -395,8 +627,7 @@ function AdDetail(ctx) {
         <div class="row"><label class="f" style="flex-direction:row;align-items:center;gap:8px">Move to
           <select class="inp" style="width:auto;min-height:36px" value=${ad.stage} onChange=${(e) => move(e.target.value, 'Moved by hand')}>
             ${[...R.STAGES, ...R.SHELVES].map((s) => html`<option value=${s.key}>${s.label}</option>`)}</select></label></div>
-        ${(ad.headline || ad.primary_text || ad.angle || ad.offer || ad.notes) && html`<div class="panel">
-          ${ad.angle && html`<div class="small"><span class="muted">Angle:</span> ${ad.angle}</div>`}
+        ${(ad.headline || ad.primary_text || ad.offer || ad.notes) && html`<div class="panel">
           ${ad.offer && html`<div class="small"><span class="muted">Offer:</span> ${ad.offer}</div>`}
           ${ad.headline && html`<div class="small"><span class="muted">Headline:</span> ${ad.headline}</div>`}
           ${ad.primary_text && html`<div class="small" style="white-space:pre-wrap"><span class="muted">Primary text:</span> ${ad.primary_text}</div>`}
@@ -443,44 +674,61 @@ function TestPanel({ data, test, rules, econ, setModal }) {
 }
 
 // ---------- forms ----------
+const FMT_PREFIX = { image: 'IMG', video: 'VID', carousel: 'CAR' };
+const buildName = (f) => [FMT_PREFIX[f.format] || 'IMG', f.short.trim() || '…', f.variant.trim(), 'V' + (f.v || 1)].filter(Boolean).join(' | ');
 function AdForm(ctx) {
   const { data, product, mode, adId, recycle, close, reload, say, setModal } = ctx;
   const src = adId ? data.ads.find((a) => a.id === adId) : null;
   const bumpV = (n) => /V\d+\s*$/i.test(n) ? n.replace(/V(\d+)\s*$/i, (_, d) => 'V' + (+d + 1)) : n + ' | V2';
-  const init = mode === 'new' ? { base_name: `IMG | ${product.name.split(' ')[0]} | | V1`, format: 'image', angle: '', offer: '$6 per shirt · 6 for $36 · Free shipping', headline: '', primary_text: '', notes: '', concept: '' }
-    : { ...src, base_name: mode === 'version' ? bumpV(src.base_name) : src.base_name, notes: mode === 'version' ? (recycle ? 'Recycled. The fix: ' : 'What changed: ') : src.notes };
+  const init = mode === 'new'
+    ? { base_name: '', short: '', variant: '', v: 1, format: 'image', angle: '', offer: '$6 per shirt · 6 for $36 · Free shipping', headline: '', primary_text: '', notes: '', concept: '' }
+    : { ...src, short: '', variant: '', base_name: mode === 'version' ? bumpV(src.base_name) : src.base_name, notes: mode === 'version' ? (recycle ? 'Recycled. The fix: ' : 'What changed: ') : src.notes };
   const [f, setF] = useState(init); const [file, setFile] = useState(null); const [busy, setBusy] = useState(false);
+  const [custom, setCustom] = useState(mode !== 'new');
+  const [more, setMore] = useState(mode === 'edit' && !!(src.headline || src.primary_text || src.notes || src.concept));
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const name = custom ? f.base_name : buildName(f);
   const cs = conceptStats(data, f.concept);
+  const pickFile = (fl) => { setFile(fl); if (fl) { const fmt = /^video/.test(fl.type) ? 'video' : 'image'; setF((o) => ({ ...o, format: fmt, short: o.short || fl.name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').trim() })); } };
   const save = async () => {
-    if (!f.base_name.trim()) { say('Give the ad a name.'); return; }
+    if (!name.trim() || name.includes('…')) { say('Give the ad a short name.'); return; }
     setBusy(true);
     try {
       const pidUse = src ? src.product_id : product.id;
       let media_path = mode === 'new' ? null : src.media_path, media_type = mode === 'new' ? null : src.media_type;
-      if (file) { media_path = await be.upload(`${pidUse}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${extOf(file)}`, file); media_type = file.type; }
-      const row = { base_name: f.base_name.trim(), format: f.format, angle: f.angle, offer: f.offer, headline: f.headline, primary_text: f.primary_text, notes: f.notes, concept: f.concept || null, media_path, media_type };
+      const tags = mode === 'edit' ? { ...(src.tags || {}) } : {};
+      if (file) {
+        const stamp = `${pidUse}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        media_path = await be.upload(`${stamp}.${extOf(file)}`, file); media_type = file.type; delete tags.poster;
+        if (/^video/.test(file.type)) { try { const pb = await videoPoster(file); tags.poster = await be.upload(`${stamp}.poster.jpg`, new File([pb], 'poster.jpg', { type: 'image/jpeg' })); } catch (e) { /* optional */ } }
+      } else if (mode === 'version' && src.tags && src.tags.poster) tags.poster = src.tags.poster;
+      const row = { base_name: name.trim(), format: f.format, angle: f.angle || null, offer: f.offer, headline: f.headline, primary_text: f.primary_text, notes: f.notes, concept: f.concept || null, media_path, media_type, tags };
       if (mode === 'edit') { await be.update('ads', src.id, row); await reload(); close(); say('Saved'); return; }
-      const ins = await be.insert('ads', { ...row, product_id: pidUse, stage: 'untested', version: mode === 'version' ? (src.version || 1) + 1 : 1, parent_id: mode === 'version' ? src.id : null, tags: {}, history: {} });
-      await reload(); say(mode === 'version' ? 'New version added to Ideas' : 'Added to Ideas');
+      const ins = await be.insert('ads', { ...row, product_id: pidUse, stage: 'untested', version: mode === 'version' ? (src.version || 1) + 1 : 1, parent_id: mode === 'version' ? src.id : null, history: {} });
+      await reload(); say(mode === 'version' ? 'New version added to Untested' : 'Added to Untested');
       setModal({ type: AdDetail, props: { adId: ins.id } });
     } catch (e) { say('Could not save: ' + e.message); }
     setBusy(false);
   };
   return html`<${Modal} title=${mode === 'new' ? 'New ad' : mode === 'edit' ? 'Edit ad' : recycle ? 'Recycle with a fix' : 'New version'} sub=${mode === 'new' ? product.name : src.base_name} onClose=${close}>
     <div class="form">
-      <${Field} full label="Name, exactly as in Ads Manager (the launch date is added for you)"><input value=${f.base_name} onInput=${set('base_name')} /><//>
-      <${Field} label="Image or video">
-        <input type="file" accept="image/*,video/*" onChange=${(e) => setFile(e.target.files[0] || null)} /><//>
-      <${Field} label="Format"><select value=${f.format} onChange=${set('format')}><option value="image">Image</option><option value="video">Video</option><option value="carousel">Carousel</option></select><//>
-      <${Field} label="Concept (same footage or shot = same concept)"><input list="concept-list-form" value=${f.concept || ''} onInput=${set('concept')} placeholder="Display walkthrough" /><datalist id="concept-list-form">${allConcepts(data).map((c) => html`<option value=${c} />`)}</datalist><//>
-      ${cs && cs.fam.length >= 3 && html`<div class="status warn small full">This concept has ${cs.fam.length} versions already${cs.counted ? `; ${cs.won} of ${cs.counted} worked since Era 1` : ''}. Change something real, not just the text.</div>`}
-      <${Field} label="Angle"><input list="angle-list-form" value=${f.angle || ''} onInput=${set('angle')} placeholder="$6 per shirt" /><datalist id="angle-list-form">${allAngles(data).map((c) => html`<option value=${c} />`)}</datalist><//>
-      ${allAngles(data).length > 0 && html`<div class="pickrow full"><span class="tiny muted">Tap an angle:</span>${allAngles(data).map((c) => html`<button type="button" class=${'pick' + (f.angle === c ? ' on' : '')} onClick=${() => setF({ ...f, angle: c })}>${c}</button>`)}</div>`}
-      <${Field} full label="Offer"><input value=${f.offer || ''} onInput=${set('offer')} /><//>
-      <${Field} full label="Headline"><input value=${f.headline || ''} onInput=${set('headline')} /><//>
-      <${Field} full label="Primary text"><textarea value=${f.primary_text || ''} onInput=${set('primary_text')}></textarea><//>
-      <${Field} full label="Notes"><textarea value=${f.notes || ''} onInput=${set('notes')}></textarea><//>
+      <${Field} full label=${mode === 'edit' ? 'Replace the image or video (optional)' : 'Image or video'}><input type="file" accept="image/*,video/*" onChange=${(e) => pickFile(e.target.files[0] || null)} /><//>
+      ${!custom ? html`
+        <${Field} label="Format"><select value=${f.format} onChange=${set('format')}><option value="image">Image</option><option value="video">Video</option><option value="carousel">Carousel</option></select><//>
+        <${Field} label="What it says (short)"><input value=${f.short} onInput=${set('short')} placeholder="$6 Each" /><//>
+        <${Field} label="Variant (optional)"><input value=${f.variant} onInput=${set('variant')} placeholder="Olive" /><//>
+        <div class="namepreview full"><span class="tiny muted">Name in Ads Manager</span><b class="mono">${name}</b><button class="link small" onClick=${() => { setF({ ...f, base_name: name.replace('…', '') }); setCustom(true); }}>Edit name</button></div>`
+      : html`<${Field} full label="Name, exactly as in Ads Manager (the launch date is added when it goes live)"><input value=${f.base_name} onInput=${set('base_name')} /><//>`}
+      <div class="full"><div class="tiny muted" style="margin-bottom:6px">Angle</div><div class="pickrow">${allAngles(data).map((c) => html`<button type="button" class=${'pick' + (f.angle === c ? ' on' : '')} onClick=${() => setF({ ...f, angle: f.angle === c ? '' : c })}>${c}</button>`)}
+        <input class="inp pickinput" list="angle-list-form" value=${allAngles(data).includes(f.angle) ? '' : f.angle || ''} onInput=${set('angle')} placeholder="New angle…" /><datalist id="angle-list-form">${allAngles(data).map((c) => html`<option value=${c} />`)}</datalist></div></div>
+      <button type="button" class="link small full" style="text-align:left" onClick=${() => setMore(!more)}>${more ? '− Fewer details' : '+ More details (concept, offer, headline, text, notes)'}</button>
+      ${more && html`
+        <${Field} full label="Concept (same footage or shot = same concept)"><input list="concept-list-form" value=${f.concept || ''} onInput=${set('concept')} placeholder="Display walkthrough" /><datalist id="concept-list-form">${allConcepts(data).map((c) => html`<option value=${c} />`)}</datalist><//>
+        ${cs && cs.fam.length >= 3 && html`<div class="status warn small full">This concept has ${cs.fam.length} versions already${cs.counted ? `; ${cs.won} of ${cs.counted} worked since Era 1` : ''}. Change something real, not just the text.</div>`}
+        <${Field} full label="Offer"><input value=${f.offer || ''} onInput=${set('offer')} /><//>
+        <${Field} full label="Headline"><input value=${f.headline || ''} onInput=${set('headline')} /><//>
+        <${Field} full label="Primary text"><textarea value=${f.primary_text || ''} onInput=${set('primary_text')}></textarea><//>
+        <${Field} full label="Notes"><textarea value=${f.notes || ''} onInput=${set('notes')}></textarea><//>`}
     </div>
     <div class="row"><button class="btn primary" disabled=${busy} onClick=${save}>${busy ? 'Saving…' : 'Save'}</button><button class="btn ghost" onClick=${close}>Cancel</button></div>
   <//>`;
@@ -1131,6 +1379,36 @@ function Learn(ctx) {
 }
 
 // ---------- more ----------
+function ZipAll({ data }) {
+  const [st, setSt] = useState(null);
+  const go = async () => {
+    if (!window.JSZip) { setSt('The zip tool did not load. Refresh and try again.'); return; }
+    const zip = new window.JSZip(); const used = new Set();
+    const jobs = [];
+    for (const ad of data.ads) {
+      const prod = (data.products.find((p) => p.id === ad.product_id) || {}).name || 'Other';
+      const files = [ad.media_path ? { path: ad.media_path, label: '' } : null, ...(((ad.tags || {}).files) || []).map((x) => ({ path: x.path, label: x.label || 'extra' }))].filter(Boolean);
+      files.forEach((x) => jobs.push({ ad, prod, ...x }));
+    }
+    let n = 0;
+    for (const j of jobs) {
+      n++; setSt(`Downloading ${n} of ${jobs.length}…`);
+      try {
+        const url = await be.mediaUrl(j.path); const blob = await (await fetch(url)).blob();
+        let name = `${safeName(j.prod)}/${R.stageLabel(j.ad.stage)}/${safeName(j.ad.base_name)}${j.label ? ' - ' + safeName(j.label) : ''}.${j.path.split('.').pop()}`;
+        while (used.has(name)) name = name.replace(/(\.[^.]+)$/, ' (2)$1'); used.add(name);
+        zip.file(name, blob);
+      } catch (e) { /* skip missing files */ }
+    }
+    setSt('Making the zip…');
+    const out = await zip.generateAsync({ type: 'blob' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(out); a.download = `bureen-ad-media-${R.today()}.zip`; document.body.appendChild(a); a.click(); a.remove();
+    setSt(`Done: ${jobs.length} files.`);
+  };
+  return html`<section class="panel"><h2>Download all media</h2><p class="small muted" style="margin:0">Every image and video, in folders by product and stage. A backup like your OneDrive.</p>
+    <div class="row"><button class="btn" onClick=${go}>Download zip</button></div>${st && html`<div class="status live small">${st}</div>`}</section>`;
+}
+
 function More(ctx) {
   const { data, reload, say, setView } = ctx;
   const [prog, setProg] = useState(null);
@@ -1149,6 +1427,8 @@ function More(ctx) {
   return html`
     <h1 style="font-size:30px">More</h1>
     <div class="grid2">
+      <section class="panel"><h2>Angles</h2><p class="small muted" style="margin:0">How each angle and concept has done, with every ad that ran it.</p><div class="row"><button class="btn" onClick=${() => setView('angles')}>Open Angles</button></div></section>
+      <${ZipAll} data=${data} />
       <section class="panel"><h2>Rules</h2><p class="small muted" style="margin:0">Testing rules, break-even and costs per product.</p><div class="row"><button class="btn" onClick=${() => setView('rules')}>Open Rules</button></div></section>
       <section class="panel"><h2>Learnings</h2><p class="small muted" style="margin:0">Learnings, changes and every decision, per product.</p><div class="row"><button class="btn" onClick=${() => setView('learn')}>Open Learnings</button></div></section>
       <section class="panel"><h2>Import your ad history</h2>

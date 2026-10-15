@@ -1,4 +1,10 @@
 // One-time import of Bureen's ad history from the zip Claude prepared (history.json + media/).
+async function uploadPoster(zip, a, be, pid) {
+  if (!a.poster || !zip.file(a.poster)) return null;
+  const blob = await zip.file(a.poster).async('blob');
+  return be.upload(`${pid}/history-${a.history.importId}.poster.jpg`, new File([blob], 'poster.jpg', { type: 'image/jpeg' }));
+}
+
 export async function importHistory(file, be, data, onProgress) {
   if (!window.JSZip) throw new Error('Zip reader did not load. Refresh and try again.');
   const zip = await window.JSZip.loadAsync(file);
@@ -28,7 +34,7 @@ export async function importHistory(file, be, data, onProgress) {
       }
       if (ver > oldVer && !touched) {
         // A newer history file re-sorts ads it brought in before.
-        Object.assign(patch, { stage: a.stage, result: a.result || null, tags: a.tags || {}, concept: a.concept || null, angle: a.angle || null, setup_era: a.setup_era || null, notes: a.notes || null, history: { ...a.history, bundleVersion: ver } });
+        Object.assign(patch, { stage: a.stage, result: a.result || null, tags: a.tags || {}, concept: old.concept || a.concept || null, angle: old.angle || a.angle || null, setup_era: a.setup_era || null, notes: a.notes || null, history: { ...a.history, bundleVersion: ver } });
         resorted++;
       } else if (ver > oldVer) {
         // You've moved this ad yourself: keep its folder, only fill in what's missing.
@@ -37,6 +43,10 @@ export async function importHistory(file, be, data, onProgress) {
         if (a.setup_era && (!old.setup_era || old.setup_era === 'old' || old.setup_era === 'new')) patch.setup_era = a.setup_era;
         patch.history = { ...(old.history || {}), bundleVersion: ver };
         resorted++;
+      }
+      if (!(old.tags && old.tags.poster) || patch.tags) {
+        const poster = await uploadPoster(zip, a, be, old.product_id);
+        if (poster) patch.tags = { ...(patch.tags || old.tags || {}), poster };
       }
       if (Object.keys(patch).length) await be.update('ads', old.id, patch);
       continue;
@@ -49,10 +59,11 @@ export async function importHistory(file, be, data, onProgress) {
       media_path = await be.upload(`${product.id}/history-${a.history.importId}.${a.media.split('.').pop()}`, f);
       media_type = a.media_type;
     }
+    const poster = await uploadPoster(zip, a, be, product.id);
     await be.insert('ads', {
       product_id: product.id, base_name: a.base_name, concept: a.concept || null, format: a.format, angle: a.angle || null,
       offer: a.offer || null, notes: a.notes || null, stage: a.stage, result: a.result || null, launched_on: a.launched_on || null,
-      setup_era: a.setup_era || null, tags: a.tags || {}, history: { ...a.history, bundleVersion: ver }, media_path, media_type, version: 1,
+      setup_era: a.setup_era || null, tags: { ...(a.tags || {}), ...(poster ? { poster } : {}) }, history: { ...a.history, bundleVersion: ver }, media_path, media_type, version: 1,
     });
     added++;
   }
