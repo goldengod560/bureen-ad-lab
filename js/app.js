@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=28';
-import * as R from './rules.js?v=28';
-import { importHistory } from './importer.js?v=28';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=28';
+import { createBackend } from './data.js?v=29';
+import * as R from './rules.js?v=29';
+import { importHistory } from './importer.js?v=29';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=29';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -547,12 +547,12 @@ function AngleGuide() {
   return html`<div class="angguide">${R.ANGLES.map((a) => html`<${AngleExplain} name=${a.name} />`)}</div>`;
 }
 function AnglePicker({ value, onPick, product, reload, say }) {
-  const [guide, setGuide] = useState(false);
-  return html`<div class="stack" style="gap:6px"><div class="pickrow">${allAngles(null, product).map((c) => html`<button type="button" title=${R.angleHint(c)} class=${'pick' + (value === c ? ' on' : '')} onClick=${() => onPick(value === c ? '' : c)}>${c}</button>`)}
-    <button type="button" class="pick ghost" onClick=${async () => { const n = await addAngle(product, reload, say); if (n) onPick(n); }}>+ Add angle</button></div>
-    ${value && html`<${AngleExplain} name=${value} />`}
-    <button type="button" class="link tiny" style="align-self:flex-start" onClick=${() => setGuide(!guide)}>${guide ? 'Hide the angle guide' : 'Not sure? See every angle with examples'}</button>
-    ${guide && html`<${AngleGuide} />`}</div>`;
+  // One row per angle: name = examples. Tap a row to pick it.
+  return html`<div class="angrows">${allAngles(null, product).map((c) => { const ex = R.angleExamples(c);
+      return html`<button type="button" class=${'angrow' + (value === c ? ' on' : '')} onClick=${() => onPick(value === c ? '' : c)}>
+        <b>${c}</b><span>${ex.length ? '= ' + ex.slice(0, 2).join(' · ') : R.angleHint(c) || 'Added by you'}</span></button>`; })}
+    <button type="button" class="angrow add" onClick=${async () => { const n = await addAngle(product, reload, say); if (n) onPick(n); }}><b>+ Add angle</b><span>Only for a truly new message</span></button>
+  </div>`;
 }
 const allConcepts = (data) => [...new Set(data.ads.map((a) => (a.concept || '').trim()).filter(Boolean))].sort();
 
