@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=14';
-import * as R from './rules.js?v=14';
-import { importHistory } from './importer.js?v=14';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=14';
+import { createBackend } from './data.js?v=15';
+import * as R from './rules.js?v=15';
+import { importHistory } from './importer.js?v=15';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=15';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -225,7 +225,7 @@ function cardInfo(ad, ctx) {
   const stats = q ? `${R.xroas(q.roas)} · ${R.money(q.cpa)} CPA · ${shortMoney(q.spend)}` : null;
   if (ad.stage === 'testing') {
     const t = data.tests.filter((x) => x.ad_id === ad.id && x.status === 'active')[0];
-    if (!t) return { line: 'Live in Meta', chip: 'Testing', tone: 'live', glow: 'live' };
+    if (!t) return { line: 'Open it to add the start date', chip: 'Needs start date', tone: 'mid', glow: 'live' };
     const st = R.testStatus(t, data.checkpoints.filter((c) => c.test_id === t.id), R.rulesOf(product), R.econOf(product).aov);
     const line = st.m ? `Day ${Math.min(st.day, st.planned)}/${st.planned} · ${R.xroas(st.m.roas)} · ${st.m.purchases} buys` : `Day ${Math.min(st.day, st.planned)} of ${st.planned}`;
     if (st.due.length) return { line, chip: 'Results due', tone: 'mid', glow: 'live' };
@@ -568,6 +568,7 @@ function AdDetail(ctx) {
       actions.push(A('Straight to Main (no test)', () => open(MainForm, { mode: 'start', emergency: true }), 'ghost'));
       break;
     case 'testing':
+      if (!active) actions.push(A('Set start date and budget', () => open(LaunchForm), 'primary'));
       if (active) actions.push(A('Add results', () => open(CheckinForm, { testId: active.id }), 'primary'), A('Finalize', () => open(FinalizeForm, { testId: active.id })), A('Stop early', () => open(StopForm, { testId: active.id }), 'danger'));
       break;
     case 'bench':
@@ -625,7 +626,7 @@ function AdDetail(ctx) {
             <div class="metric"><small>All files</small><b>${R.money0(all.spend)}</b></div><div class="metric"><small>ROAS</small><b>${R.xroas(all.roas)}</b></div><div class="metric"><small>Buys</small><b>${Math.round(all.purchases)}</b></div></div></div>`; })()}
         ${actions.length > 0 && html`<div class="row">${actions}</div>`}
         <div class="row"><label class="f" style="flex-direction:row;align-items:center;gap:8px">Move to
-          <select class="inp" style="width:auto;min-height:36px" value=${ad.stage} onChange=${(e) => move(e.target.value, 'Moved by hand')}>
+          <select class="inp" style="width:auto;min-height:36px" value=${ad.stage} onChange=${(e) => (e.target.value === 'testing' && !active ? open(LaunchForm) : move(e.target.value, 'Moved by hand'))}>
             ${[...R.STAGES, ...R.SHELVES].map((s) => html`<option value=${s.key}>${s.label}</option>`)}</select></label></div>
         ${(ad.headline || ad.primary_text || ad.offer || ad.notes) && html`<div class="panel">
           ${ad.offer && html`<div class="small"><span class="muted">Offer:</span> ${ad.offer}</div>`}
@@ -740,23 +741,28 @@ function LaunchForm(ctx) {
   const rules = R.rulesOf(product);
   const live = data.tests.filter((t) => t.status === 'active' && t.stage === 1);
   const spendLive = live.reduce((s, t) => s + (+t.budget || 0), 0);
-  const [f, setF] = useState({ date: R.today(), budget: rules.stage1Budget, days: rules.plannedDays, method: R.TEST_METHODS[0], landingPage: 'Current page (Mar 2026+)', enhancements: false, shopAds: false });
+  const [f, setF] = useState({ date: R.today(), partial: false, budget: rules.stage1Budget, days: rules.plannedDays, method: R.TEST_METHODS[0], landingPage: 'Current page (Mar 2026+)', enhancements: false, shopAds: false });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
   const warns = [];
   if (live.length >= rules.slots) warns.push(`${live.length} Stage 1 tests are already live (your limit is ${rules.slots}).`);
   if (spendLive + (+f.budget || 0) > rules.testingCap) warns.push(`Testing spend would be $${spendLive + (+f.budget || 0)}/day, over your $${rules.testingCap} cap.`);
   if (rules.weekendLock && R.isWeekendLock()) warns.push('Weekend lock is on (Friday night to Sunday).');
   if (f.enhancements) warns.push('Creative enhancements ON: Meta will change your ad, so the result says less about your creative.');
+  // Day 1 is the first full day. A partial day before it still counts toward spend and purchases.
+  const spendFrom = f.partial ? R.addDays(f.date, -1) : f.date;
+  const dayNow = Math.max(0, R.daysBetween(f.date, R.today()) + 1);
   const go = async () => {
-    await be.insert('tests', { ad_id: ad.id, product_id: ad.product_id, stage: 1, start_date: f.date, planned_days: +f.days || rules.plannedDays, budget: +f.budget || null, status: 'active', conditions: { method: f.method, landingPage: f.landingPage, enhancements: f.enhancements, shopAds: f.shopAds } });
-    await be.update('ads', ad.id, { stage: 'testing', launched_on: f.date, setup_era: R.eraOf(f.date), tags: { ...(ad.tags || {}), ready: false } });
-    await be.insert('decisions', { product_id: ad.product_id, ad_id: ad.id, kind: 'launch', choice: `Launched at $${f.budget}/day`, day: f.date });
-    await reload(); close(); say('Test started. Name now shows the launch date.');
+    await be.insert('tests', { ad_id: ad.id, product_id: ad.product_id, stage: 1, start_date: f.date, planned_days: +f.days || rules.plannedDays, budget: +f.budget || null, status: 'active', conditions: { method: f.method, landingPage: f.landingPage, enhancements: f.enhancements, shopAds: f.shopAds, ...(f.partial ? { spendFrom } : {}) } });
+    await be.update('ads', ad.id, { stage: 'testing', launched_on: spendFrom, setup_era: R.eraOf(spendFrom), tags: { ...(ad.tags || {}), ready: false } });
+    await be.insert('decisions', { product_id: ad.product_id, ad_id: ad.id, kind: 'launch', choice: `Launched at $${f.budget}/day`, day: spendFrom });
+    await reload(); close(); say(dayNow > 1 ? `Test tracked. Today is day ${Math.min(dayNow, +f.days || rules.plannedDays)}.` : 'Test started. Name now shows the launch date.');
   };
   return html`<${Modal} title="It went live in Meta" sub=${ad.base_name} onClose=${close}>
     ${warns.length > 0 && html`<div class="banner"><ul style="margin:0;padding-left:18px">${warns.map((w) => html`<li>${w}</li>`)}</ul></div>`}
     <div class="form">
-      <${Field} label="First day it spent money"><input type="date" value=${f.date} onInput=${set('date')} /><//>
+      <${Field} label="First full day of spend (day 1)"><input type="date" value=${f.date} onInput=${set('date')} /><//>
+      <label class="chk full"><input type="checkbox" checked=${f.partial} onChange=${set('partial')} /> It went live partway through the day before (${R.shortDate(R.addDays(f.date, -1))}). Count that day's spend and sales too.</label>
+      ${dayNow > 1 && html`<div class="status live small full">Today is day ${dayNow} of this test.${f.partial ? ` Name date will be ${R.shortDate(spendFrom)}.` : ''}</div>`}
       <${Field} label="Budget ($/day)"><input inputmode="decimal" value=${f.budget} onInput=${set('budget')} /><//>
       <${Field} label="Test window (days)"><input inputmode="numeric" value=${f.days} onInput=${set('days')} /><//>
       <${Field} label="How you're testing it"><select value=${f.method} onChange=${set('method')}>${R.TEST_METHODS.filter((m) => !m.startsWith('Straight')).map((m) => html`<option>${m}</option>`)}</select><//>
@@ -1110,7 +1116,7 @@ async function autoCheckins(data) {
     const ad = data.ads.find((a) => a.id === t.ad_id); const p = data.products.find((x) => x.id === t.product_id);
     if (!ad || !p) continue;
     const rules = R.rulesOf(p); const planned = t.planned_days || rules.plannedDays;
-    const rows = rowsForAd(ad, data.meta_days).filter((r) => r.day >= t.start_date);
+    const rows = rowsForAd(ad, data.meta_days).filter((r) => r.day >= ((t.conditions || {}).spendFrom || t.start_date));
     if (!rows.length) continue;
     const maxDay = rows.map((r) => r.day).sort().pop();
     const want = [...new Set([...R.checkinDays(rules).map((d) => Math.min(d, planned)), planned])];
