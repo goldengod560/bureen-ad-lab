@@ -69,20 +69,21 @@ export const RESULTS = {
 
 // The angle list: the main message an ad leads with. Same for every product, so results compare.
 export const ANGLES = [
-  { name: 'Price per shirt', hint: 'Leads with the per-shirt price: "$6 a shirt", "$8 a shirt"' },
-  { name: 'Pack total', hint: 'Leads with the bundle total: "6 for $36"' },
-  { name: 'Discount / sale', hint: '% off, holiday or sale pricing' },
-  { name: 'Quality', hint: 'Material, softness, cotton, how it holds up' },
-  { name: 'Brand / Why Sada', hint: 'Reasons to pick Sada, or a brand look with no price' },
-  { name: 'Fit', hint: 'Big sizes, how it fits, fit testimonials' },
-  { name: 'Lifestyle', hint: 'A person in real life: work, gym, everyday' },
-  { name: 'Curiosity', hint: 'A hook that makes people stop: "For only that price???"' },
-  { name: 'Urgency', hint: '"Going fast", limited stock or time' },
+  { name: 'Price per shirt', hint: 'Leads with the price of one shirt.', examples: ['"ONLY $6 EACH."', '"$6 PER SHIRT. Why pay more?"', '"$8 per tee + free shipping" (Long Sleeve)'] },
+  { name: 'Pack total', hint: 'Leads with the price of the whole pack.', examples: ['"6 TEES. $36."', '"6 TEES. ONE DRAWER."', '"$36 6-Pack"'] },
+  { name: 'Discount / sale', hint: 'Leads with money off or a sale.', examples: ['"Black Friday 18% off"', '"Winter sale: 15% off"', '"Buy 3, save 15%"'] },
+  { name: 'Quality', hint: 'Leads with how good the shirt is: material, feel, how it holds up.', examples: ['"Why 100% cotton?"', '"Soft. Breathable."', '"The $6 tee that doesn\'t look $6"'] },
+  { name: 'Brand', hint: 'Leads with Sada itself: why pick the brand, or a brand look with no price.', examples: ['"Why Sada?"', '"Available on Bureen"', 'Sada logo poster, shirts on graffiti, no price'] },
+  { name: 'Fit', hint: 'Leads with how it fits or the sizes.', examples: ['"Sada got the big sizes on lock"', 'Someone showing how it fits on the body', '"Fits right, even after washing"'] },
+  { name: 'Lifestyle', hint: 'Leads with a person living their day in it.', examples: ['"Shift ready. Comfort that shows up."', 'Someone at work, the gym or out', '"Your everyday rotation"'] },
+  { name: 'Curiosity', hint: 'Leads with a hook that makes people stop and wonder.', examples: ['"FOR ONLY THAT PRICE???"', '"Rent\'s wild, food crazy… our tees? $6."', 'A question or surprise before the offer'] },
+  { name: 'Urgency', hint: 'Leads with "act now": running out or ending soon.', examples: ['"Going fast. Act now."', '"Last day for free shipping"', '"Restock won\'t last"'] },
 ];
 const ANGLE_MAP = { '$6 per shirt': 'Price per shirt', '$8 per shirt + free shipping': 'Price per shirt', 'Pack value ($36 / 6 tees)': 'Pack total', 'Quality / 100% cotton': 'Quality',
-  'No price (brand / product only)': 'Brand / Why Sada', 'Why Sada': 'Brand / Why Sada', 'Fit / big sizes (testimonial)': 'Fit', 'Price shock / curiosity': 'Curiosity', 'Urgency (going fast)': 'Urgency' };
+  'No price (brand / product only)': 'Brand', 'Why Sada': 'Brand', 'Brand / Why Sada': 'Brand', 'Fit / big sizes (testimonial)': 'Fit', 'Price shock / curiosity': 'Curiosity', 'Urgency (going fast)': 'Urgency' };
 export const anglesFor = (product) => [...ANGLES.map((a) => a.name), ...(((product && product.rules) || {}).extraAngles || [])];
 export const angleHint = (name) => (ANGLES.find((a) => a.name === name) || {}).hint || '';
+export const angleExamples = (name) => (ANGLES.find((a) => a.name === name) || {}).examples || [];
 
 // Setup eras. Results from Era 1 say little about the creative.
 export const ERAS = {

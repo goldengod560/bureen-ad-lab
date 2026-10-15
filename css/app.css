@@ -320,3 +320,5 @@ table.stats tr.click{cursor:pointer} table.stats tr.click:hover td{background:va
 }
 
 .pick.ghost{border-style:dashed;color:var(--muted)}
+.angx{font-size:12.5px;line-height:1.45;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:7px 10px}
+.angguide{display:flex;flex-direction:column;gap:6px;max-height:300px;overflow:auto}

@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=27';
-import * as R from './rules.js?v=27';
-import { importHistory } from './importer.js?v=27';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=27';
+import { createBackend } from './data.js?v=28';
+import * as R from './rules.js?v=28';
+import { importHistory } from './importer.js?v=28';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=28';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -538,10 +538,21 @@ async function addAngle(product, reload, say) {
   await be.update('products', product.id, { rules: { ...(product.rules || {}), extraAngles: [...((product.rules || {}).extraAngles || []), name] } });
   await reload(); say('Angle added'); return name;
 }
+function AngleExplain({ name }) {
+  const hint = R.angleHint(name), ex = R.angleExamples(name);
+  if (!hint) return null;
+  return html`<div class="angx"><b>${name}:</b> ${hint}${ex.length ? html`<br/><span class="muted">Examples: ${ex.join(' · ')}</span>` : ''}</div>`;
+}
+function AngleGuide() {
+  return html`<div class="angguide">${R.ANGLES.map((a) => html`<${AngleExplain} name=${a.name} />`)}</div>`;
+}
 function AnglePicker({ value, onPick, product, reload, say }) {
-  return html`<div class="pickrow">${allAngles(null, product).map((c) => html`<button type="button" title=${R.angleHint(c)} class=${'pick' + (value === c ? ' on' : '')} onClick=${() => onPick(value === c ? '' : c)}>${c}</button>`)}
-    <button type="button" class="pick ghost" onClick=${async () => { const n = await addAngle(product, reload, say); if (n) onPick(n); }}>+ Add angle</button>
-    ${value && R.angleHint(value) && html`<div class="tiny muted full" style="width:100%">${R.angleHint(value)}</div>`}</div>`;
+  const [guide, setGuide] = useState(false);
+  return html`<div class="stack" style="gap:6px"><div class="pickrow">${allAngles(null, product).map((c) => html`<button type="button" title=${R.angleHint(c)} class=${'pick' + (value === c ? ' on' : '')} onClick=${() => onPick(value === c ? '' : c)}>${c}</button>`)}
+    <button type="button" class="pick ghost" onClick=${async () => { const n = await addAngle(product, reload, say); if (n) onPick(n); }}>+ Add angle</button></div>
+    ${value && html`<${AngleExplain} name=${value} />`}
+    <button type="button" class="link tiny" style="align-self:flex-start" onClick=${() => setGuide(!guide)}>${guide ? 'Hide the angle guide' : 'Not sure? See every angle with examples'}</button>
+    ${guide && html`<${AngleGuide} />`}</div>`;
 }
 const allConcepts = (data) => [...new Set(data.ads.map((a) => (a.concept || '').trim()).filter(Boolean))].sort();
 
@@ -556,7 +567,7 @@ function ConceptPanel({ ad, data, reload, say, setModal }) {
   return html`<div class="panel"><div class="row"><h2>Angle</h2><span class="spacer"></span>
       <select class="inp" style="max-width:240px;min-height:34px" value=${ang} onChange=${async (e) => { const v = e.target.value; setAng(v); await be.update('ads', ad.id, { angle: v || null }); await reload(); say('Angle saved'); }} aria-label="Angle">
         <option value="">Not set</option>${[...angles, ...(ad.angle && !angles.includes(ad.angle) ? [ad.angle] : [])].map((c) => html`<option value=${c}>${c}</option>`)}</select></div>
-    ${ang && R.angleHint(ang) && html`<div class="tiny muted" style="margin-top:-6px">${R.angleHint(ang)}</div>`}
+    ${ang && html`<${AngleExplain} name=${ang} />`}
     <div class="row"><h2>Concept</h2><span class="spacer"></span>
       <input class="inp" style="max-width:240px;min-height:34px" list="concept-list" value=${val} placeholder="Name the idea" onInput=${(e) => setVal(e.target.value)} onBlur=${save} onKeyDown=${(e) => e.key === 'Enter' && e.target.blur()} aria-label="Concept" /></div>
     <datalist id="concept-list">${allConcepts(data).map((c) => html`<option value=${c} />`)}</datalist>
@@ -1504,7 +1515,7 @@ function Rules(ctx) {
         <div class="status small">From these costs: ${R.money(bev.calc.cpa)} CPA, ${R.xroas(bev.calc.roas)} ROAS. Cost per order ${R.money(bev.calc.cost)}.</div>
       </section>
       <section class="panel"><h2>Angles</h2><p class="small muted" style="margin:0">The main message each ad leads with. A short fixed list keeps results comparable.</p>
-        <div class="list">${R.ANGLES.map((x) => html`<div class="li"><span class="grow small"><b>${x.name}</b><br/><span class="muted">${x.hint}</span></span></div>`)}
+        <div class="list">${R.ANGLES.map((x) => html`<div class="li"><span class="grow small"><b>${x.name}</b><br/><span class="muted">${x.hint} Examples: ${x.examples.join(' · ')}</span></span></div>`)}
           ${((product.rules || {}).extraAngles || []).map((x) => html`<div class="li"><span class="grow small"><b>${x}</b><br/><span class="muted">Added by you</span></span><button class="link small" style="color:var(--fail)" onClick=${async () => { if (!confirm('Remove the angle "' + x + '"? Ads keep it until you change them.')) return; await be.update('products', product.id, { rules: { ...(product.rules || {}), extraAngles: ((product.rules || {}).extraAngles || []).filter((y) => y !== x) } }); await reload(); say('Angle removed'); }}>Remove</button></div>`)}</div>
         <div class="row"><button class="btn sm" onClick=${() => addAngle(product, reload, say)}>+ Add angle</button></div></section>
       ${RULE_ROWS.map(([title, rows]) => html`<section class="panel"><h2>${title}</h2>${rows.map(([k, l, u]) => html`<div class="rulerow"><label for=${'r-' + k}>${l}</label><input id=${'r-' + k} inputmode=${k === 'checkins' ? 'text' : 'decimal'} value=${rules[k]} onInput=${(e) => setRules({ ...rules, [k]: e.target.value })} /><span class="tiny muted">${u}</span></div>`)}
