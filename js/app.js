@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=30';
-import * as R from './rules.js?v=30';
-import { importHistory } from './importer.js?v=30';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=30';
+import { createBackend } from './data.js?v=32';
+import * as R from './rules.js?v=32';
+import { importHistory } from './importer.js?v=32';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=32';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -546,13 +546,31 @@ function AngleExplain({ name }) {
 function AngleGuide() {
   return html`<div class="angguide">${R.ANGLES.map((a) => html`<${AngleExplain} name=${a.name} />`)}</div>`;
 }
-function AnglePicker({ value, onPick, product, reload, say }) {
-  // One row per angle: name = examples. Tap a row to pick it.
-  return html`<div class="angrows">${allAngles(null, product).map((c) => { const ex = R.angleExamples(c);
-      return html`<button type="button" class=${'angrow' + (value === c ? ' on' : '')} onClick=${() => onPick(value === c ? '' : c)}>
-        <b>${c}</b><span>${ex.length ? '= ' + ex.slice(0, 2).join(' · ') : R.angleHint(c) || 'Added by you'}</span></button>`; })}
-    <button type="button" class="angrow add" onClick=${async () => { const n = await addAngle(product, reload, say); if (n) onPick(n); }}><b>+ Add angle</b><span>Only for a truly new message</span></button>
+// A dropdown whose options show a short explanation. Closed, it shows just the choice.
+function RowSelect({ value, placeholder, options, onPick, onAdd, addLabel }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', h); document.addEventListener('touchstart', h);
+    return () => { document.removeEventListener('mousedown', h); document.removeEventListener('touchstart', h); };
+  }, [open]);
+  const cur = options.find((o) => o.name === value);
+  return html`<div class="rsel" ref=${ref}>
+    <button type="button" class=${'rsel-btn' + (value ? '' : ' empty')} onClick=${() => setOpen(!open)}>
+      <span>${value || placeholder}</span><span class="caret">▾</span></button>
+    ${cur && cur.desc && !open && html`<div class="rsel-desc">${cur.desc}</div>`}
+    ${open && html`<div class="rsel-list">
+      ${options.map((o) => html`<button type="button" class=${'rsel-opt' + (o.name === value ? ' on' : '')} onClick=${() => { onPick(o.name === value ? '' : o.name); setOpen(false); }}>
+        <span class="t"><b>${o.name}</b><span>${o.desc}</span></span>${o.extra || ''}</button>`)}
+      ${onAdd && html`<button type="button" class="rsel-opt add" onClick=${async () => { setOpen(false); const n = await onAdd(); if (n) onPick(n); }}><span class="t"><b>${addLabel}</b></span></button>`}
+    </div>`}
   </div>`;
+}
+function AnglePicker({ value, onPick, product, reload, say }) {
+  const options = allAngles(null, product).map((c) => { const ex = R.angleExamples(c); return { name: c, desc: ex.length ? ex.slice(0, 2).join(' · ') : (R.angleHint(c) || 'Added by you') }; });
+  return html`<${RowSelect} value=${value} placeholder="Choose the angle…" options=${options} onPick=${onPick} onAdd=${() => addAngle(product, reload, say)} addLabel="+ Add angle" />`;
 }
 const allConcepts = (data, product) => R.conceptsFor(product || (data && data.products[0]));
 async function addConcept(product, reload, say) {
@@ -562,15 +580,10 @@ async function addConcept(product, reload, say) {
   await be.update('products', product.id, { rules: { ...(product.rules || {}), extraConcepts: [...((product.rules || {}).extraConcepts || []), name] } });
   await reload(); say('Concept added'); return name;
 }
-// One row per concept: name = what it shows, with your own ads as examples.
 function ConceptPicker({ value, onPick, product, data, reload, say }) {
-  return html`<div class="angrows">${allConcepts(data, product).map((c) => { const info = R.conceptInfo(c);
-      const mine = data.ads.filter((a) => a.concept === c && a.media_path).slice(0, 3);
-      return html`<button type="button" class=${'angrow conrow' + (value === c ? ' on' : '')} onClick=${() => onPick(value === c ? '' : c)}>
-        <b>${c}</b><span>${info ? info.hint : 'Added by you'}</span>
-        <span class="minis">${mine.map((a) => html`<${Media} path=${a.media_path} type=${a.media_type} poster=${a.tags && a.tags.poster} />`)}</span></button>`; })}
-    <button type="button" class="angrow add" onClick=${async () => { const n = await addConcept(product, reload, say); if (n) onPick(n); }}><b>+ Add concept</b><span>Only for a truly new kind of shot</span></button>
-  </div>`;
+  const options = allConcepts(data, product).map((c) => { const info = R.conceptInfo(c); const mine = data.ads.filter((a) => a.concept === c && a.media_path).slice(0, 3);
+    return { name: c, desc: info ? info.hint : 'Added by you', extra: html`<span class="minis">${mine.map((a) => html`<${Media} path=${a.media_path} type=${a.media_type} poster=${a.tags && a.tags.poster} />`)}</span>` }; });
+  return html`<${RowSelect} value=${value} placeholder="Choose the concept…" options=${options} onPick=${onPick} onAdd=${() => addConcept(product, reload, say)} addLabel="+ Add concept" />`;
 }
 
 function ConceptPanel({ ad, data, reload, say, setModal }) {
@@ -843,9 +856,9 @@ function AdForm(ctx) {
         <${Field} label="Variant (optional)"><input value=${f.variant} onInput=${set('variant')} placeholder="Olive" /><//>
         <div class="namepreview full"><span class="tiny muted">Name in Ads Manager</span><b class="mono">${name}</b><button class="link small" onClick=${() => { setF({ ...f, base_name: name.replace('…', '') }); setCustom(true); }}>Edit name</button></div>`
       : html`<${Field} full label="Name, exactly as in Ads Manager (the launch date is added when it goes live)"><input value=${f.base_name} onInput=${set('base_name')} /><//>`}
-      <div class="full"><div class="tiny muted" style="margin-bottom:6px">Angle: the main message it leads with</div><${AnglePicker} value=${f.angle} onPick=${(v) => setF({ ...f, angle: v })} product=${data.products.find((p) => p.id === f.product_id) || product} reload=${reload} say=${say} /></div>
-      <div class="full"><div class="tiny muted" style="margin-bottom:6px">Concept: what the picture or video shows</div><${ConceptPicker} value=${f.concept || ''} onPick=${(v) => setF({ ...f, concept: v })} product=${data.products.find((p) => p.id === f.product_id) || product} data=${data} reload=${reload} say=${say} />
-        ${cs && cs.counted > 0 && html`<div class="tiny muted" style="margin-top:6px">${f.concept}: ${cs.won} of ${cs.counted} worked since Era 1.</div>`}</div>
+      <div class="full pickpair"><div><div class="tiny muted" style="margin-bottom:6px">Angle: what it says</div><${AnglePicker} value=${f.angle} onPick=${(v) => setF({ ...f, angle: v })} product=${data.products.find((p) => p.id === f.product_id) || product} reload=${reload} say=${say} /></div>
+      <div><div class="tiny muted" style="margin-bottom:6px">Concept: what it shows</div><${ConceptPicker} value=${f.concept || ''} onPick=${(v) => setF({ ...f, concept: v })} product=${data.products.find((p) => p.id === f.product_id) || product} data=${data} reload=${reload} say=${say} />
+        ${cs && cs.counted > 0 && html`<div class="tiny muted" style="margin-top:6px">${f.concept}: ${cs.won} of ${cs.counted} worked since Era 1.</div>`}</div></div>
       <button type="button" class="link small full" style="text-align:left" onClick=${() => setMore(!more)}>${more ? '− Fewer details' : '+ More details (offer, headline, text, notes)'}</button>
       ${more && html`
         <${Field} full label="Offer"><input value=${f.offer || ''} onInput=${set('offer')} /><//>
