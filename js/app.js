@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=32';
-import * as R from './rules.js?v=32';
-import { importHistory } from './importer.js?v=32';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=32';
+import { createBackend } from './data.js?v=33';
+import * as R from './rules.js?v=33';
+import { importHistory } from './importer.js?v=33';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=33';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -216,6 +216,16 @@ function quickStats(ad, data) {
   return { spend: n.spend, buys: n.buys, roas: n.rev / n.spend, cpa: n.buys ? n.spend / n.buys : null };
 }
 
+// Running totals for a live test from the Ads Manager files, from the day it went live.
+function liveFor(t, ad, data) {
+  if (!ad || !t || !t.start_date || t.status !== 'active') return null;
+  const from = (t.conditions || {}).spendFrom || t.start_date;
+  const rows = rowsForAd(ad, data.meta_days || []).filter((r) => r.day >= from);
+  if (!rows.length) return null;
+  const s = sumRows(rows), through = rows.reduce((a, r) => (r.day > a ? r.day : a), '');
+  return { m: R.metrics({ spend: s.spend, purchases: s.purchases, revenue: s.revenue, impressions: s.impressions || null, link_clicks: s.link_clicks || null, adds_to_cart: s.adds_to_cart || null, hook_plays: s.hook_plays || null, frequency: s.frequency }), day: R.daysBetween(t.start_date, through) + 1, through };
+}
+
 // One stat line and at most one tag per card.
 function cardInfo(ad, ctx) {
   const { data } = ctx;
@@ -226,11 +236,12 @@ function cardInfo(ad, ctx) {
   if (ad.stage === 'testing') {
     const t = data.tests.filter((x) => x.ad_id === ad.id && x.status === 'active')[0];
     if (!t) return { line: 'Open it to add the start date', chip: 'Needs start date', tone: 'mid', glow: 'live' };
-    const st = R.testStatus(t, data.checkpoints.filter((c) => c.test_id === t.id), R.rulesOf(product), R.econOf(product).aov);
+    const st = R.testStatus(t, data.checkpoints.filter((c) => c.test_id === t.id), R.rulesOf(product), R.econOf(product).aov, liveFor(t, ad, data));
     const line = st.m ? `Day ${Math.min(st.day, st.planned)}/${st.planned} · ${R.xroas(st.m.roas)} · ${st.m.purchases} buys` : `Day ${Math.min(st.day, st.planned)} of ${st.planned}`;
-    if (st.due.length) return { line, chip: 'Results due', tone: 'mid', glow: 'live' };
+    if (st.early) return { line, chip: 'Pause?', tone: 'fail', glow: 'live' };
     if (st.final) return { line, chip: 'Finalize', tone: 'live', glow: 'live' };
-    if (st.early) return { line, chip: 'Early stop?', tone: 'fail', glow: 'live' };
+    if (st.due.length) return { line, chip: 'Results due', tone: 'mid', glow: 'live' };
+    if (st.onTrack) return { line, chip: 'On track', tone: 'pass', glow: 'live' };
     return { line, chip: null, glow: 'live' };
   }
   if (ad.stage === 'main') {
@@ -775,7 +786,8 @@ function AdDetail(ctx) {
 
 function TestPanel({ data, test, rules, econ, setModal }) {
   const cps = data.checkpoints.filter((c) => c.test_id === test.id).sort((a, b) => a.day - b.day);
-  const st = R.testStatus(test, cps, rules, econ.aov);
+  const ad = data.ads.find((a) => a.id === test.ad_id);
+  const st = R.testStatus(test, cps, rules, econ.aov, test.stage === 1 ? liveFor(test, ad, data) : null);
   const m = st.m, dg = R.diagnose(m);
   const be = R.breakEven(econ);
   const c = test.conditions || {};
@@ -783,7 +795,7 @@ function TestPanel({ data, test, rules, econ, setModal }) {
     <div class="row"><h2>${test.stage === 2 ? 'Stage 2 · Main' : 'Stage 1 test'}</h2><span class="spacer"></span>
       <span class="muted small">${test.start_date ? 'Day 1: ' + test.start_date : ''}${(test.conditions || {}).spendFrom ? ' (live from ' + test.conditions.spendFrom + ')' : ''}${test.budget ? ' · $' + test.budget + '/day' : ''}</span>
       <button class="link small" onClick=${() => setModal({ type: EditTestForm, props: { testId: test.id, adId: test.ad_id } })}>Edit</button></div>
-    ${test.status === 'active' && test.stage === 1 && html`<div class=${'status ' + (st.final ? 'good' : st.early ? 'bad' : st.behind ? 'warn' : 'live')}>${st.text}</div>`}
+    ${test.status === 'active' && test.stage === 1 && html`<div class=${'status ' + (st.final || st.onTrack ? 'good' : st.early ? 'bad' : st.behind ? 'warn' : 'live')}>${st.text}</div>`}
     ${test.status !== 'active' && test.result && html`<div class=${'status ' + (toneOf(test.result) === 'pass' ? 'good' : toneOf(test.result) === 'fail' ? 'bad' : 'warn')}><b>${(R.RESULTS[test.result] || {}).label || test.result}</b>${test.result_reason ? ' · ' + test.result_reason : ''}${test.override_reason ? html`<br/><span class="small">Your call: ${test.override_reason}</span>` : ''}</div>`}
     ${m && html`<div class="metrics">
       <div class="metric"><small>Spend</small><b>${R.money(m.spend)}</b></div><div class="metric"><small>Buys</small><b>${m.purchases}</b></div>
@@ -1040,7 +1052,7 @@ function StopForm(ctx) {
     <div class="form">
       <${Field} label="Date you turned it off"><input type="date" value=${day} onInput=${(e) => setDay(e.target.value)} /><//>
       <div class="status live small">${dayN ? `That's day ${dayN} of the test.` : ''}${t ? ` Up to then: ${R.money(t.spend)} spent, ${Math.round(t.purchases)} buys, ${R.xroas(t.roas)} ROAS.` : ' Add your Ads Manager file first to save the final numbers.'}</div>
-      <${Field} full label="Why"><select value=${why} onChange=${(e) => setWhy(e.target.value)}><option value="early">Early-stop rule (files as Fail)</option><option value="outside">Stock, site, tracking or Meta problem (files as Not a fair test)</option></select><//>
+      <${Field} full label="Why"><select value=${why} onChange=${(e) => setWhy(e.target.value)}><option value="early">Bad numbers (files as Fail)</option><option value="outside">Stock, site, tracking or Meta problem (files as Not a fair test)</option></select><//>
       <${Field} full label="Note"><input value=${note} onInput=${(e) => setNote(e.target.value)} /><//>
     </div>
     <div class="row"><button class="btn primary" onClick=${go}>Stop and file</button><button class="btn ghost" onClick=${close}>Cancel</button></div>
@@ -1131,8 +1143,8 @@ function Today(ctx) {
     const ad = data.ads.find((a) => a.id === t.ad_id); const p = products.find((x) => x.id === t.product_id); if (!ad || !p) continue;
     const rules = R.rulesOf(p);
     if (t.stage === 2) { const d = R.daysBetween(t.start_date, R.today()); if (d >= rules.stage2Min) items.push({ tone: 'blue', title: `Judge in Main: ${ad.base_name}`, sub: `${d} days in Main · ${p.name}`, tag: 'TODAY', go: () => setModal({ type: MainForm, props: { adId: ad.id, mode: 'record', testId: t.id } }) }); continue; }
-    const st = R.testStatus(t, data.checkpoints.filter((c) => c.test_id === t.id), rules, R.econOf(p).aov);
-    if (st.early) items.push({ tone: 'red', title: `Early-stop rule met: ${ad.base_name}`, sub: st.text, tag: 'DECIDE', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) });
+    const st = R.testStatus(t, data.checkpoints.filter((c) => c.test_id === t.id), rules, R.econOf(p).aov, liveFor(t, ad, data));
+    if (st.early) items.push({ tone: 'red', title: `Pause? ${displayName(ad)}`, sub: st.text, tag: 'DECIDE', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) });
     if (st.final) items.push({ tone: 'blue', title: `Finalize: ${displayName(ad)}`, sub: `${p.name} · window complete`, tag: 'TODAY', go: () => setModal({ type: FinalizeForm, props: { testId: t.id } }) });
     else if (st.due.length) items.push({ tone: 'amber', title: `Day ${st.due[st.due.length - 1]} results: ${displayName(ad)}`, sub: `${p.name} · day ${st.day} of ${st.planned}`, tag: 'DUE', go: () => setModal({ type: CheckinForm, props: { testId: t.id } }) });
   }

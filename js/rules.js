@@ -221,21 +221,41 @@ export const shortDate = (s) => s ? `${String(s).slice(5, 7)}-${String(s).slice(
 export function testDay(test) { return test && test.start_date ? Math.max(0, daysBetween(test.start_date, today()) + 1) : 0; }
 
 // Status of a running Stage 1 test. Early numbers are status updates, never a verdict.
-export function testStatus(test, cps, rules, aov) {
+// live = running totals from the Ads Manager files ({ m, day, through }). When the files are newer
+// than the last check-in, the status uses them, so the card always shows the latest numbers.
+export function testStatus(test, cps, rules, aov, live) {
   const planned = test.planned_days || rules.plannedDays;
   const sorted = [...cps].sort((a, b) => a.day - b.day);
   const last = sorted[sorted.length - 1];
-  const m = last ? metrics(last, aov) : null;
   const day = testDay(test);
   const due = checkinDays(rules).map((d) => Math.min(d, planned)).filter((d, i, a) => a.indexOf(d) === i)
     .filter((d) => day >= d && !sorted.some((c) => c.day >= d));
-  if (!last) return { m, day, planned, due, final: false, text: day ? `Day ${day} of ${planned}. No numbers yet.` : 'Not started.' };
-  if (last.day < planned) {
-    if (last.day >= rules.earlyDay && m.spend >= rules.earlySpend && m.purchases <= rules.earlyMaxPurchases) {
-      return { m, day, planned, due, final: false, early: true, text: `Early-stop rule met on day ${last.day}: $${m.spend.toFixed(0)} spent, ${m.purchases} purchase${m.purchases === 1 ? '' : 's'}. You decide.` };
+  const useLive = live && live.m && live.m.spend > 0 && (!last || (last.day < planned && live.day > last.day));
+  const m = useLive ? live.m : last ? metrics(last, aov) : null;
+  const atDay = useLive ? Math.max(live.day, 1) : last ? last.day : 0;
+  const src = useLive ? ` (your files through ${shortDate(live.through)})` : '';
+  if (!m) return { m, day, planned, due, final: false, text: day ? `Day ${day} of ${planned}. No numbers yet.` : 'Not started.' };
+  if (useLive || last.day < planned) {
+    const s = (n) => (n === 1 ? '' : 's');
+    if (atDay >= rules.earlyDay && m.spend >= rules.earlySpend && m.purchases <= rules.earlyMaxPurchases) {
+      return { m, day, planned, due, final: false, early: true, live: useLive, text: `Pause it? Early-stop rule met on day ${atDay}: $${m.spend.toFixed(0)} spent, ${m.purchases} purchase${s(m.purchases)}${src}. You decide.` };
     }
-    const pace = Math.round(m.purchases / Math.max(last.day, 1) * planned * 10) / 10;
-    return { m, day, planned, due, final: false, behind: pace < rules.minPurchases, text: `Status, not a verdict. Day ${last.day} of ${planned}, on pace for about ${pace} purchases.` };
+    // Under the fail line after a fair amount of spend: say so, and show what it would take to still pass.
+    if (atDay >= rules.earlyDay && m.spend >= rules.earlySpend && (m.roas ?? 0) < rules.failRoas) {
+      const left = Math.max(0, planned - atDay);
+      const daily = num(test.budget) || m.spend / Math.max(atDay, 1);
+      const endSpend = m.spend + left * daily;
+      const avgOrder = m.aov || aov || 36;
+      const need = Math.max(rules.minPurchases, Math.ceil(endSpend / rules.passACpa), Math.ceil(endSpend * rules.passARoas / avgOrder));
+      const more = Math.max(0, need - m.purchases);
+      const reach = left ? ` To still pass it needs about ${more} more buy${s(more)} in ${left} day${s(left)}.` : '';
+      return { m, day, planned, due, final: false, early: true, under: true, live: useLive, need: more, left,
+        text: `Pause it? ${xroas(m.roas)} after $${m.spend.toFixed(0)}, under your ${rules.failRoas}x fail line${src}.${reach} You decide.` };
+    }
+    const pace = Math.round(m.purchases / Math.max(atDay, 1) * planned * 10) / 10;
+    const onTrack = m.roas != null && m.purchases && m.roas >= rules.passARoas && m.cpa <= rules.passACpa;
+    return { m, day, planned, due, final: false, live: useLive, onTrack, behind: pace < rules.minPurchases,
+      text: `Status, not a verdict. Day ${atDay} of ${planned}: ${xroas(m.roas)}, ${m.purchases} buy${s(m.purchases)}, on pace for about ${pace}${src}.${onTrack ? ' On track for a pass so far.' : ''}` };
   }
   const c = classify(m, rules, last);
   return { m, day, planned, due, final: true, ...c, text: `Window complete. Your rules say: ${RESULTS[c.result].label}.` };
