@@ -1,5 +1,5 @@
 // Data layer. Talks to Supabase, or to an in-browser mock when ?mock=1 (for testing without an account).
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js?v=33';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js?v=34';
 
 const TABLES = ['products', 'ads', 'tests', 'checkpoints', 'events', 'decisions', 'learnings', 'meta_days', 'shop_days'];
 const UPSERT_KEYS = { meta_days: 'ad_name,adset,campaign,day', shop_days: 'day' };
@@ -38,6 +38,8 @@ function supabaseBackend() {
         out[t] = rows;
       }));
       out.missingTables = missing;
+      // Store-wide economics live on your account (no extra table needed).
+      try { const { data } = await client.auth.getUser(); out.store = (data.user && data.user.user_metadata && data.user.user_metadata.store_econ) || null; } catch (e) { out.store = null; }
       return out;
     },
     async insert(t, row) { return check(await client.from(T(t)).insert(row).select().single()); },
@@ -46,6 +48,7 @@ function supabaseBackend() {
     async upsert(t, rows) {
       for (let i = 0; i < rows.length; i += 500) check(await client.from(T(t)).upsert(rows.slice(i, i + 500), { onConflict: UPSERT_KEYS[t] }));
     },
+    async saveStore(store) { check(await client.auth.updateUser({ data: { store_econ: store } })); },
     async syncShopify(days) {
       const { data, error } = await client.functions.invoke('shopify-sync', { body: days ? { days } : {} });
       if (error) {
@@ -109,6 +112,7 @@ function mockBackend() {
       save();
     },
     async syncShopify() { throw new Error('Shopify sync is not available in test mode.'); },
+    async saveStore(store) { db.store = store; save(); },
     async reset() { localStorage.removeItem(KEY); try { await idbDo('readwrite', (st) => st.clear()); } catch (e) {} },
   };
 }

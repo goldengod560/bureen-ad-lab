@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=33';
-import * as R from './rules.js?v=33';
-import { importHistory } from './importer.js?v=33';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=33';
+import { createBackend } from './data.js?v=34';
+import * as R from './rules.js?v=34';
+import { importHistory } from './importer.js?v=34';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=34';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -89,7 +89,7 @@ function App() {
 
   const say = (m) => { setToast(m); clearTimeout(toastTimer); toastTimer = setTimeout(() => setToast(''), 2800); };
   const [loadErr, setLoadErr] = useState(null);
-  const reload = async () => { try { const d = await be.loadAll(); d.ads = d.ads.map(R.normalizeAd); setData(d); setLoadErr(null); } catch (e) { setLoadErr(e.message); say('Could not load: ' + e.message); } };
+  const reload = async () => { try { const d = await be.loadAll(); d.ads = d.ads.map(R.normalizeAd); R.setStoreEcon(d.store); setData(d); setLoadErr(null); } catch (e) { setLoadErr(e.message); say('Could not load: ' + e.message); } };
 
   useEffect(() => {
     if (!be.configured) { setSession(null); return; }
@@ -295,11 +295,11 @@ function benchHealth(data, product) {
 }
 
 function SummaryStrip({ data, product }) {
-  const econ = R.econOf(product), bev = R.breakEven(econ), rules = R.rulesOf(product);
+  const econ = R.econOf(product), b1 = R.beAt(econ, econ.price), rules = R.rulesOf(product);
   const live = data.tests.filter((t) => t.status === 'active' && t.stage === 1).length;
   const bh = benchHealth(data, product);
   return html`<div class="strip">
-    <span>Break-even <b>${R.xroas(bev.roas)}</b></span>
+    <span>${b1 ? html`Break-even <b>${R.xroas(b1.roas)}</b> at $${econ.price}` : html`Break-even <em class="warn">costs not set</em>`}</span>
     <span>Up Next <b>${data.ads.filter((a) => a.product_id === product.id && a.stage === 'next').length}</b></span>
     <span>Testing <b>${live}/${rules.slots}</b> slots</span>
     <span>In Main <b>${bh.main}</b>${bh.fatiguing.length ? html` <em class="warn">${bh.fatiguing.length} fatiguing</em>` : ''}</span>
@@ -760,7 +760,8 @@ function AdDetail(ctx) {
         ${(() => { const rows = rowsForAd(ad, data.meta_days); if (!rows.length) return null; const t = sumRows(rows.filter((r) => r.day >= R.addDays(R.today(), -7))), all = sumRows(rows);
           return html`<div class="panel"><h2>From your Ads Manager files</h2><div class="metrics">
             <div class="metric"><small>Last 7 days</small><b>${R.money0(t.spend)}</b></div><div class="metric"><small>7d ROAS</small><b>${R.xroas(t.roas)}</b></div><div class="metric"><small>7d CPA</small><b>${R.money(t.cpa)}</b></div>
-            <div class="metric"><small>All files</small><b>${R.money0(all.spend)}</b></div><div class="metric"><small>ROAS</small><b>${R.xroas(all.roas)}</b></div><div class="metric"><small>Buys</small><b>${Math.round(all.purchases)}</b></div></div></div>`; })()}
+            <div class="metric"><small>All files</small><b>${R.money0(all.spend)}</b></div><div class="metric"><small>ROAS</small><b>${R.xroas(all.roas)}</b></div><div class="metric"><small>Buys</small><b>${Math.round(all.purchases)}</b></div></div>
+            ${ad.stage !== 'testing' && html`<${ProfitLine} econ=${R.econOf(product)} m=${{ purchases: all.purchases, roas: all.roas, cpa: all.cpa, aov: all.purchases ? all.revenue / all.purchases : null }} product=${product} />`}</div>`; })()}
         ${actions.length > 0 && html`<div class="row">${actions}</div>`}
         <div class="row"><label class="f" style="flex-direction:row;align-items:center;gap:8px">Move to
           <select class="inp" style="width:auto;min-height:36px" value=${ad.stage} onChange=${(e) => (e.target.value === 'testing' && !active ? open(LaunchForm) : move(e.target.value, 'Moved by hand'))}>
@@ -784,12 +785,22 @@ function AdDetail(ctx) {
   <//>`;
 }
 
+// Profit view: real numbers vs. break-even at this ad's own average order. Separate from the test rule.
+function ProfitLine({ econ, m, product }) {
+  if (!m || !m.purchases) return null;
+  if (!econ.set) return html`<div class="status small">Break-even: costs not set for ${product ? product.name : 'this product'}. Add them in Rules.</div>`;
+  const v = R.vsBreakEven(econ, m); if (!v || v.missing) return null;
+  return html`<div class=${'status small ' + (v.band === 'above' ? 'good' : v.band === 'below' ? 'bad' : 'warn')}>
+    <b>${v.label}</b> (${v.diff >= 0 ? '+' : ''}${v.diff.toFixed(1)}%) · ${R.money(v.perOrder >= 0 ? v.perOrder : -v.perOrder)} ${v.perOrder >= 0 ? 'profit' : 'loss'} per order after ads<br/>
+    <span class="tiny">Break-even at its ${R.money(v.V)} average order: ${R.xroas(v.be.roas)} · ${R.money(v.be.cpa)} CPA. It's at ${R.xroas(m.roas)} · ${R.money(m.cpa)}.${v.estimated ? ' Estimated break-even based on assumed product mix.' : ''}</span></div>`;
+}
+
 function TestPanel({ data, test, rules, econ, setModal }) {
   const cps = data.checkpoints.filter((c) => c.test_id === test.id).sort((a, b) => a.day - b.day);
   const ad = data.ads.find((a) => a.id === test.ad_id);
   const st = R.testStatus(test, cps, rules, econ.aov, test.stage === 1 ? liveFor(test, ad, data) : null);
   const m = st.m, dg = R.diagnose(m);
-  const be = R.breakEven(econ);
+  const vb = m ? R.vsBreakEven(econ, m) : null;
   const c = test.conditions || {};
   return html`<div class=${'panel' + (test.status === 'active' ? ' accent' : '')}>
     <div class="row"><h2>${test.stage === 2 ? 'Stage 2 · Main' : 'Stage 1 test'}</h2><span class="spacer"></span>
@@ -800,9 +811,10 @@ function TestPanel({ data, test, rules, econ, setModal }) {
     ${m && html`<div class="metrics">
       <div class="metric"><small>Spend</small><b>${R.money(m.spend)}</b></div><div class="metric"><small>Buys</small><b>${m.purchases}</b></div>
       <div class=${'metric ' + (m.cpa != null ? (m.cpa <= rules.passACpa ? 'good' : 'bad') : '')}><small>CPA</small><b>${R.money(m.cpa)}</b></div>
-      <div class=${'metric ' + (m.roas != null ? (m.roas >= (be.roas || rules.passARoas) ? 'good' : m.roas < rules.failRoas ? 'bad' : '') : '')}><small>ROAS${m.revenueEstimated ? '*' : ''}</small><b>${R.xroas(m.roas)}</b></div>
+      <div class=${'metric ' + (m.roas != null ? (vb && vb.band === 'above' ? 'good' : vb && vb.band === 'below' ? 'bad' : '') : '')}><small>ROAS${m.revenueEstimated ? '*' : ''}</small><b>${R.xroas(m.roas)}</b></div>
       <div class="metric"><small>Avg order</small><b>${R.money(m.aov)}</b></div><div class="metric"><small>CTR</small><b>${R.pct(m.ctr)}</b></div>
-      ${m.hookRate != null && html`<div class="metric"><small>Hook rate</small><b>${R.pct(m.hookRate)}</b></div>`}<div class="metric"><small>Freq</small><b>${m.frequency ?? '—'}</b></div></div>`}
+      ${m.hookRate != null && html`<div class="metric"><small>Hook rate</small><b>${R.pct(m.hookRate)}</b></div>`}<div class="metric"><small>Freq</small><b>${m.frequency != null ? Number(m.frequency).toFixed(2) : '—'}</b></div></div>`}
+    ${test.stage === 1 && html`<${ProfitLine} econ=${econ} m=${m} product=${data.products.find((p) => p.id === test.product_id)} />`}
     ${m && m.aov != null && m.aov < econ.aov * 0.9 && html`<div class="status warn">Orders on this ad average ${R.money(m.aov)}, under your ${R.money(econ.aov)} average. The offer may be pulling order size down.</div>`}
     ${dg && dg.steps.length > 0 && html`<div class="stack" style="gap:6px">${dg.steps.map((s) => html`<div class="meter"><span>${s.label}</span><span class="trk"><i style=${`width:${Math.min(100, s.value * (s.key === 'stop' ? 30 : s.key === 'cart' ? 3 : 1.6))}%;background:${s.ok ? 'var(--pass)' : 'var(--mid)'}`}></i></span><span class="mono" style="text-align:right">${s.value.toFixed(1)}%</span></div>`)}
       ${dg.advice && html`<span class="small" style="color:var(--mid)">${dg.advice}</span>`}</div>`}
@@ -1015,7 +1027,8 @@ function FinalizeForm(ctx) {
   return html`<${Modal} title="Finalize the test" onClose=${close}>
     ${early && html`<div class="banner">The planned window isn't finished (last check-in was day ${last.day}). Finalizing now is your call.</div>`}
     ${!m && html`<div class="banner">No numbers yet. Add results first.</div>`}
-    ${m && html`<div class="status ${toneOf(c.result) === 'pass' ? 'good' : toneOf(c.result) === 'fail' ? 'bad' : 'warn'}"><b>Your rules say: ${R.RESULTS[c.result].label}</b><ul style="margin:6px 0 0;padding-left:18px">${c.evidence.map((x) => html`<li>${x}</li>`)}</ul><div class="small" style="margin-top:6px">Files into: <b>${R.stageLabel(R.stageForResult(pick))}</b></div></div>`}
+    ${m && html`<div class="status ${toneOf(c.result) === 'pass' ? 'good' : toneOf(c.result) === 'fail' ? 'bad' : 'warn'}"><b>Test rule says: ${R.RESULTS[c.result].label}</b><ul style="margin:6px 0 0;padding-left:18px">${c.evidence.map((x) => html`<li>${x}</li>`)}</ul><div class="small" style="margin-top:6px">Files into: <b>${R.stageLabel(R.stageForResult(pick))}</b></div></div>`}
+    <${ProfitLine} econ=${econ} m=${m} product=${product} />
     ${events.length > 0 && html`<div class="banner">Changes logged during this test: ${events.map((e) => `${e.day} ${e.kind}`).join('; ')}. If they distorted it, file it as "Not a fair test".</div>`}
     <div class="form">
       <${Field} label="File it as"><select value=${pick} onChange=${(e) => setPick(e.target.value)}>${Object.entries(R.RESULTS).filter(([, v]) => !v.main).map(([k, v]) => html`<option value=${k}>${v.label}${k === c.result ? ' (your rules)' : ''}</option>`)}</select><//>
@@ -1127,7 +1140,7 @@ function ExhaustForm(ctx) {
 function ProductForm({ data, close, reload, say }) {
   const [name, setName] = useState(''); const [kind, setKind] = useState('other');
   const crew = data.products.find((p) => p.kind === 'crew');
-  const go = async () => { if (!name.trim()) return; await be.insert('products', { name: name.trim(), kind, sort: data.products.length + 1, rules: crew ? crew.rules || {} : {}, economics: crew ? crew.economics || {} : {} }); await reload(); close(); say('Product added. Set its costs in Rules.'); };
+  const go = async () => { if (!name.trim()) return; await be.insert('products', { name: name.trim(), kind, sort: data.products.length + 1, rules: crew ? crew.rules || {} : {}, economics: {} }); await reload(); close(); say('Product added. Set its costs in Rules.'); };
   return html`<${Modal} title="Add product" onClose=${close}><div class="form">
     <${Field} label="Name"><input value=${name} onInput=${(e) => setName(e.target.value)} placeholder="Hoodie" /><//>
     <${Field} label="Style"><select value=${kind} onChange=${(e) => setKind(e.target.value)}><option value="crew">Crew neck</option><option value="vneck">V-neck</option><option value="long">Long sleeve</option><option value="thermal">Thermal</option><option value="tank">Tank top</option><option value="other">Other</option></select><//></div>
@@ -1440,9 +1453,10 @@ function periodTotals(data, start, end, econ) {
   const revenue = shop.reduce((s, d) => s + (+d.gross || 0) - (+d.refunds || 0), 0);
   const orders = shop.reduce((s, d) => s + (+d.orders || 0), 0), units = shop.reduce((s, d) => s + (+d.units || 0), 0);
   const m = sumRows(meta);
-  const flat = econ.costs.filter((c) => !c.pct).reduce((s, c) => s + (R.num(c.value) || 0), 0);
-  const pct = econ.costs.filter((c) => c.pct).reduce((s, c) => s + (R.num(c.value) || 0), 0) / 100;
-  const profit = shop.length ? revenue * (1 - pct) - (units || orders) * flat - m.spend : null;
+  // Store-wide: product cost from the store's cost % (or Crew's ratio until it's entered), plus per-order costs.
+  const st = R.storeEcon(), sb = R.storeBE(econ);
+  const perOrder = (R.num(st.ship) || 0) + (R.num(st.pack) || 0) + (R.num(st.feeFixed) || 0) + (R.num(st.other) || 0);
+  const profit = shop.length && !sb.missing ? revenue * (1 - sb.pct / 100 - (R.num(st.feePct) || 0) / 100) - orders * perOrder - m.spend : null;
   return { revenue, orders, units, spend: m.spend, metaRev: m.revenue, metaBuys: m.purchases, mer: m.spend ? revenue / m.spend : null, roas: m.roas,
     aov: orders ? revenue / orders : null, cpa: orders && m.spend ? m.spend / orders : null, profit, hasShop: shop.length > 0, hasMeta: meta.length > 0 };
 }
@@ -1459,7 +1473,8 @@ function Stats(ctx) {
   const [tab, setTab] = useState('ads');
   const [all, setAll] = useState(false);
   useEffect(() => { try { localStorage.setItem('adlab-range', rk); } catch (e) {} }, [rk]);
-  const econ = R.econOf(product), bev = R.breakEven(econ);
+  const crewE = R.econOf(data.products.find((p) => p.kind === 'crew'));
+  const econ = crewE, bev = R.storeBE(crewE);
   const { start, end, n } = rangeDays(rk);
   const pStart = R.addDays(start, -n), pEnd = R.addDays(start, -1);
   const cur = periodTotals(data, start, end, econ), prev = periodTotals(data, pStart, pEnd, econ);
@@ -1477,7 +1492,8 @@ function Stats(ctx) {
   const by = (keyFn) => { const m = new Map(); adRows.forEach((r) => { const k = keyFn(r) || 'Not in Ad Lab'; if (!m.has(k)) m.set(k, []); m.get(k).push(...r.rows); }); return [...m.entries()].map(([k, rows]) => ({ k, t: sumRows(rows) })).sort((a, b) => b.t.spend - a.t.spend); };
   const angleRows = by((r) => r.ad && (r.ad.angle || 'No angle set'));
   const campRows = (() => { const m = new Map(); inRange.forEach((r) => { const k = r.campaign || '—'; if (!m.has(k)) m.set(k, []); m.get(k).push(r); }); return [...m.entries()].map(([k, rows]) => ({ k, t: sumRows(rows) })).sort((a, b) => b.t.spend - a.t.spend); })();
-  const tone = (roas) => (roas == null ? '' : roas >= (bev.roas || 2.7) ? 'good' : roas < 2 ? 'bad' : '');
+  // Each ad is judged against break-even at its own average order, using its product's costs.
+  const tone = (t, ad) => { const p = ad && data.products.find((x) => x.id === ad.product_id); const v = R.vsBreakEven(R.econOf(p || product), { purchases: t.purchases, roas: t.roas, cpa: t.cpa, aov: t.purchases ? t.revenue / t.purchases : null }); return !v || v.missing ? '' : v.band === 'above' ? 'good' : v.band === 'below' ? 'bad' : ''; };
   const shown = all ? adRows : adRows.slice(0, 10);
   const noData = !data.shop_days.length && !data.meta_days.length;
   return html`
@@ -1488,14 +1504,14 @@ function Stats(ctx) {
     <section class="tiles k6">
       <div class="tile"><div class="k">Revenue</div><div class="v">${cur.hasShop ? R.money0(cur.revenue) : '—'}</div><div class="s"><${Delta} now=${cur.revenue} prev=${prev.revenue} /> vs prior ${n} days</div></div>
       <div class="tile"><div class="k">Ad spend</div><div class="v">${cur.hasMeta ? R.money0(cur.spend) : '—'}</div><div class="s"><${Delta} now=${cur.spend} prev=${prev.spend} good="flat" /> Meta</div></div>
-      <div class=${'tile ' + (cur.mer != null && cur.mer < (bev.roas || 0) ? 'warn' : '')}><div class="k">MER (blended ROAS)</div><div class="v">${R.xroas(cur.mer)}</div><div class="s">Break-even ${R.xroas(bev.roas)} · <${Delta} now=${cur.mer} prev=${prev.mer} /></div></div>
-      <div class="tile"><div class="k">Profit (est.)</div><div class="v">${cur.profit == null ? '—' : R.money0(cur.profit)}</div><div class="s">After product, shipping, fees and ads</div></div>
+      <div class=${'tile ' + (cur.mer != null && cur.mer < (bev.roas || 0) ? 'warn' : '')}><div class="k">MER (blended ROAS)</div><div class="v">${R.xroas(cur.mer)}</div><div class="s">Store break-even ${R.xroas(bev.roas)}${bev.estimated ? ' (est.)' : ''} · <${Delta} now=${cur.mer} prev=${prev.mer} /></div></div>
+      <div class="tile"><div class="k">Profit (est.)</div><div class="v">${cur.profit == null ? '—' : R.money0(cur.profit)}</div><div class="s">After product, postage, fees and ads${bev.estimated ? ' · uses Crew\'s cost ratio' : ''}</div></div>
       <div class="tile"><div class="k">Orders · AOV</div><div class="v">${cur.hasShop ? cur.orders : '—'} <small>· ${R.money(cur.aov)}</small></div><div class="s"><${Delta} now=${cur.orders} prev=${prev.orders} /> orders</div></div>
       <div class="tile"><div class="k">Meta ROAS · CPA</div><div class="v">${R.xroas(cur.roas)} <small>· ${R.money(cur.cpa)}</small></div><div class="s">${Math.round(cur.metaBuys)} Meta-reported buys</div></div>
     </section>
     <div class="grid2">
       <section class="panel"><h2>Revenue and ad spend</h2><${LineChart} labels=${labels} fmt=${(v, ax) => (ax ? '$' + Math.round(v) : R.money0(v))} series=${[{ name: 'Revenue (Shopify)', color: '#3D8BFF', values: revS }, { name: 'Ad spend (Meta)', color: '#C2669E', values: spS }]} /></section>
-      <section class="panel"><h2>MER by day</h2><${LineChart} labels=${labels} fmt=${(v) => v.toFixed(2) + 'x'} refLine=${bev.roas ? { value: bev.roas, label: 'Break-even ' + R.xroas(bev.roas) } : null} series=${[{ name: 'MER', color: '#3D8BFF', values: merS }]} /></section>
+      <section class="panel"><h2>MER by day</h2><${LineChart} labels=${labels} fmt=${(v) => v.toFixed(2) + 'x'} refLine=${bev.roas ? { value: bev.roas, label: 'Store break-even ' + R.xroas(bev.roas) + (bev.estimated ? ' (est.)' : '') } : null} series=${[{ name: 'MER', color: '#3D8BFF', values: merS }]} /></section>
     </div>
     <section class="panel">
       <div class="row"><h2>Breakdown</h2><span class="spacer"></span><div class="seg wide">${[['ads', 'By ad'], ['angle', 'By angle'], ['camp', 'By campaign']].map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => setTab(k)}>${l}</button>`)}</div></div>
@@ -1503,9 +1519,9 @@ function Stats(ctx) {
         <thead><tr><th>${tab === 'ads' ? 'Ad' : tab === 'angle' ? 'Angle' : 'Campaign'}</th><th>Spend</th><th>Buys</th><th>ROAS</th><th>CPA</th><th>CTR</th><th>Freq</th></tr></thead>
         <tbody>${(tab === 'ads' ? shown.map((r) => ({ k: r.name, t: r.t, ad: r.ad })) : tab === 'angle' ? angleRows : campRows).map((r) => html`<tr class=${r.ad ? 'click' : ''} onClick=${() => r.ad && setModal({ type: AdDetail, props: { adId: r.ad.id } })}>
           <td><span class="cellname">${r.ad && html`<${Media} path=${r.ad.media_path} type=${r.ad.media_type} />`}<span>${r.k}${r.ad ? html`<br/><span class="tiny muted">${R.stageLabel(r.ad.stage)}${r.ad.angle ? ' · ' + r.ad.angle : ''}</span>` : ''}</span></span></td>
-          <td>${R.money0(r.t.spend)}</td><td>${Math.round(r.t.purchases)}</td><td class=${tone(r.t.roas)}>${R.xroas(r.t.roas)}</td><td>${R.money(r.t.cpa)}</td><td>${R.pct(r.t.ctr)}</td><td>${r.t.frequency ? r.t.frequency.toFixed(1) : '—'}</td></tr>`)}</tbody></table></div>
+          <td>${R.money0(r.t.spend)}</td><td>${Math.round(r.t.purchases)}</td><td class=${tone(r.t, r.ad)}>${R.xroas(r.t.roas)}</td><td>${R.money(r.t.cpa)}</td><td>${R.pct(r.t.ctr)}</td><td>${r.t.frequency ? r.t.frequency.toFixed(1) : '—'}</td></tr>`)}</tbody></table></div>
         ${tab === 'ads' && adRows.length > 10 && html`<button class="link small" onClick=${() => setAll(!all)}>${all ? 'Show top 10' : `Show all ${adRows.length}`}</button>`}`}
-      <p class="tiny muted" style="margin:0">ROAS and buys here are what Meta reports. MER uses real Shopify revenue. Profit uses ${product.name}'s cost lines per pack sold.</p>
+      <p class="tiny muted" style="margin:0">ROAS and buys here are what Meta reports. MER uses real Shopify revenue. ROAS color: each ad vs. break-even at its own average order.</p>
     </section>`}`;
 }
 
@@ -1513,7 +1529,7 @@ function Stats(ctx) {
 const RULE_ROWS = [
   ['Budgets', [['stage1Budget', 'Stage 1 budget per ad set', '$/day'], ['boostedBudget', 'Boosted budget', '$/day'], ['boostAt', 'Boost when 30-day blended ROAS is at least', 'x']]],
   ['Test window', [['plannedDays', 'Test window', 'days'], ['checkins', 'Check-in days', 'day']]],
-  ['Pass, Mid, Fail', [['minPurchases', 'Minimum purchases', 'buys'], ['passARoas', 'Pass A: ROAS at least', 'x'], ['passACpa', 'Pass A: CPA at most', '$'], ['passBRoas', 'Pass B: ROAS at least', 'x'], ['passBCpa', 'Pass B: CPA at most', '$'], ['failRoas', 'Fail below ROAS', 'x'], ['strongPct', 'Strong pass: CPA at most', '% of line'], ['collapseDays', 'Back-half collapse window', 'days']]],
+  ['Testing target (your rule, not break-even)', [['minPurchases', 'Minimum purchases', 'buys'], ['passARoas', 'Pass A: ROAS at least', 'x'], ['passACpa', 'Pass A: CPA at most', '$'], ['passBRoas', 'Pass B: ROAS at least', 'x'], ['passBCpa', 'Pass B: CPA at most', '$'], ['failRoas', 'Fail below ROAS', 'x'], ['strongPct', 'Strong pass: CPA at most', '% of line'], ['collapseDays', 'Back-half collapse window', 'days']]],
   ['Early stop', [['earlyDay', 'From day', 'day'], ['earlySpend', 'Spend at least', '$'], ['earlyMaxPurchases', 'Purchases at most', 'buys']]],
   ['Capacity & timing', [['slots', 'Test slots at once', 'slots'], ['testingCap', 'Testing cap, all products', '$/day'], ['stage2Min', 'Stage 2 minimum', 'days'], ['stage2Max', 'Stage 2 maximum', 'days'], ['raiseStep', 'Budget raise step', '%'], ['benchTarget', 'Tested backups to keep on the Bench', 'ads']]],
 ];
@@ -1521,20 +1537,37 @@ const RULE_ROWS = [
 function Rules(ctx) {
   const { product, reload, say } = ctx;
   const [rules, setRules] = useState(() => { const r = R.rulesOf(product); const o = {}; Object.keys(r).forEach((k) => { o[k] = String(r[k]); }); o.weekendLock = !!r.weekendLock; return o; });
-  const [econ, setEcon] = useState(() => { const e = R.econOf(product); return { ...e, aov: String(e.aov), beRoas: String(e.beRoas), costs: e.costs.map((c) => ({ ...c, value: String(c.value) })) }; });
+  const str = (v) => (v == null ? '' : String(v));
+  const [pe, setPe] = useState(() => { const e = R.econOf(product); const o = { price: str(e.price), packCost: str(e.packCost), aov: str(e.ownAov) }; R.SHARED_COSTS.forEach(([k]) => { o[k] = str(e.own[k]); }); return o; });
+  const [st, setSt] = useState(() => { const s0 = R.storeEcon(); const o = {}; Object.keys(R.STORE_DEFAULTS).forEach((k) => { o[k] = str(s0[k]); }); return o; });
   const [busy, setBusy] = useState(false);
-  const bev = R.breakEven(econ);
-  const setCost = (i, k, v) => setEcon({ ...econ, costs: econ.costs.map((c, j) => j === i ? { ...c, [k]: v } : c) });
+  const toNum = (o) => { const r = {}; Object.keys(o).forEach((k) => { r[k] = o[k] === '' ? null : R.num(o[k]); }); return r; };
+  const storeNow = toNum(st);
+  const peRaw = { v: 2, ...toNum(pe) };
+  const pv = R.econOf({ ...product, economics: peRaw }, storeNow);
+  const crewP = ctx.data.products.find((p) => p.kind === 'crew');
+  const crewE = product.kind === 'crew' ? pv : R.econOf(crewP, storeNow);
+  const sb = R.storeBE(crewE, storeNow);
+  const b1 = R.beAt(pv, pv.price), b2 = R.beAt(pv, pv.price * 2), bA = pv.ownAov ? R.beAt(pv, pv.ownAov) : null;
+  const setP = (k) => (e) => setPe({ ...pe, [k]: e.target.value });
+  const setS = (k) => (e) => setSt({ ...st, [k]: e.target.value });
+  const unit = (u) => html`<span class="tiny muted">${u}</span>`;
   const save = async () => {
     setBusy(true);
     const old = R.rulesOf(product); const nr = {};
     Object.keys(R.DEFAULT_RULES).forEach((k) => { nr[k] = k === 'checkins' ? rules[k] : k === 'weekendLock' ? !!rules.weekendLock : (R.num(rules[k]) ?? R.DEFAULT_RULES[k]); });
     nr.extraAngles = (product.rules || {}).extraAngles || [];
     nr.extraConcepts = (product.rules || {}).extraConcepts || [];
-    const ne = { mode: econ.mode, beRoas: R.num(econ.beRoas), aov: R.num(econ.aov), costs: econ.costs.filter((c) => c.label.trim()).map((c) => ({ label: c.label.trim(), value: R.num(c.value) || 0, pct: !!c.pct })) };
+    const ne = peRaw;
     const changes = Object.keys(nr).filter((k) => String(nr[k]) !== String(old[k])).map((k) => `${k}: ${old[k]} → ${nr[k]}`);
-    const oe = R.econOf(product); if (String(oe.beRoas) !== String(ne.beRoas) || String(oe.aov) !== String(ne.aov) || oe.mode !== ne.mode) changes.push(`break-even: ${oe.mode} ${oe.beRoas}x @ $${oe.aov} → ${ne.mode} ${ne.beRoas}x @ $${ne.aov}`);
+    const oe = R.econOf(product), os = R.storeEcon();
+    const ob1 = R.beAt(oe, oe.price);
+    if (String(oe.price) !== String(pv.price) || String(oe.packCost) !== String(pv.packCost) || R.SHARED_COSTS.some(([k]) => String(oe.own[k]) !== String(pv.own[k])) || String(oe.ownAov) !== String(pv.ownAov))
+      changes.push(`${product.name} economics: 1-pack break-even ${ob1 ? R.xroas(ob1.roas) : 'not set'} → ${b1 ? R.xroas(b1.roas) : 'not set'}`);
+    const storeChanged = Object.keys(R.STORE_DEFAULTS).some((k) => String(os[k] ?? '') !== String(storeNow[k] ?? ''));
+    if (storeChanged) changes.push(`Store economics: avg order $${storeNow.aov}, break-even ${sb.roas ? R.xroas(sb.roas) : 'not set'}${sb.estimated ? ' (est.)' : ''}`);
     try {
+      if (storeChanged) { await be.saveStore(storeNow); R.setStoreEcon(storeNow); }
       await be.update('products', product.id, { rules: nr, economics: ne });
       if (changes.length) await be.insert('learnings', { product_id: product.id, kind: 'rule_change', text: 'Rules changed: ' + changes.join('; ') });
       await reload(); say(changes.length ? 'Saved · logged in Learnings' : 'Saved');
@@ -1545,17 +1578,27 @@ function Rules(ctx) {
     <div class="row"><h1 style="font-size:30px">Rules · ${product.name}</h1><span class="spacer"></span><button class="btn primary" disabled=${busy} onClick=${save}>${busy ? 'Saving…' : 'Save changes'}</button></div>
     <p class="muted small" style="margin:-8px 0 0">Every product keeps its own copy. Every number is yours to change.</p>
     <div class="grid2">
-      <section class="panel accent"><h2>Break-even</h2>
-        <div class="seg" role="group" aria-label="Break-even source">
-          <button class=${econ.mode === 'own' ? 'on' : ''} onClick=${() => setEcon({ ...econ, mode: 'own' })}>Set my own</button>
-          <button class=${econ.mode === 'costs' ? 'on' : ''} onClick=${() => setEcon({ ...econ, mode: 'costs' })}>From my costs</button></div>
-        <div class="tiles"><div class="tile"><div class="k">Break-even ROAS</div><div class="v" style="color:var(--accent2)">${R.xroas(bev.roas)}</div></div><div class="tile"><div class="k">Break-even CPA</div><div class="v" style="color:var(--accent2)">${R.money(bev.cpa)}</div><div class="s">at your average order</div></div></div>
-        <div class="rulerow"><label for="aov">Average order value</label><input id="aov" inputmode="decimal" value=${econ.aov} onInput=${(e) => setEcon({ ...econ, aov: e.target.value })} /><span class="tiny muted">$</span></div>
-        ${econ.mode === 'own' && html`<div class="rulerow"><label for="beroas">My break-even ROAS</label><input id="beroas" inputmode="decimal" value=${econ.beRoas} onInput=${(e) => setEcon({ ...econ, beRoas: e.target.value })} /><span class="tiny muted">x</span></div>`}
-        <div class="fsec">Costs per order</div>
-        ${econ.costs.map((c, i) => html`<div class="rulerow"><input style="text-align:left;font-family:var(--body)" value=${c.label} onInput=${(e) => setCost(i, 'label', e.target.value)} aria-label="Cost name" /><input inputmode="decimal" value=${c.value} onInput=${(e) => setCost(i, 'value', e.target.value)} aria-label=${c.label + ' amount'} /><span class="row tiny muted" style="gap:4px"><button class="link tiny" onClick=${() => setCost(i, 'pct', !c.pct)}>${c.pct ? '%' : '$'}</button><button class="link tiny" style="color:var(--fail)" onClick=${() => setEcon({ ...econ, costs: econ.costs.filter((_, j) => j !== i) })} aria-label="Remove">✕</button></span></div>`)}
-        <button class="btn sm ghost" style="align-self:flex-start" onClick=${() => setEcon({ ...econ, costs: [...econ.costs, { label: 'New cost', value: '0', pct: false }] })}>+ Add a cost line</button>
-        <div class="status small">From these costs: ${R.money(bev.calc.cpa)} CPA, ${R.xroas(bev.calc.roas)} ROAS. Cost per order ${R.money(bev.calc.cost)}.</div>
+      <section class="panel accent"><h2>${product.name} economics</h2>
+        ${pv.set ? html`<div class="tiles">
+          <div class="tile"><div class="k">Break-even · 1 pack</div><div class="v" style="color:var(--accent2)">${R.xroas(b1 && b1.roas)}</div><div class="s">${R.money(b1 && b1.cpa)} CPA at ${R.money(pv.price)}</div></div>
+          <div class="tile"><div class="k">Break-even · 2 packs</div><div class="v" style="color:var(--accent2)">${R.xroas(b2 && b2.roas)}</div><div class="s">${R.money(b2 && b2.cpa)} CPA at ${R.money(pv.price * 2)}, full price</div></div>
+          ${bA && html`<div class="tile"><div class="k">At its avg order</div><div class="v" style="color:var(--accent2)">${R.xroas(bA.roas)}</div><div class="s">${R.money(bA.cpa)} CPA at ${R.money(pv.ownAov)} · estimate</div></div>`}
+          <div class="tile"><div class="k">Testing pass line</div><div class="v">${R.xroas(R.num(rules.passARoas))}</div><div class="s">Your rule, not break-even</div></div></div>
+          <p class="tiny muted" style="margin:0">Each ad is also checked against break-even at its own average order. 1 and 2 full-price packs are exact; other order sizes assume the extra is more packs, so they're marked as estimates.</p>`
+        : html`<div class="status warn small">Costs not set. Enter the pack price and product cost to see break-even. Nothing is guessed.</div>`}
+        <div class="rulerow"><label for="e-price">Pack price</label><input id="e-price" inputmode="decimal" value=${pe.price} onInput=${setP('price')} />${unit('$')}</div>
+        <div class="rulerow"><label for="e-cost">Product cost per pack</label><input id="e-cost" inputmode="decimal" value=${pe.packCost} onInput=${setP('packCost')} />${unit('$')}</div>
+        <div class="rulerow"><label for="e-aov">This product's average order (optional)</label><input id="e-aov" inputmode="decimal" value=${pe.aov} onInput=${setP('aov')} placeholder="—" />${unit('$')}</div>
+        <div class="fsec">Shared costs · blank uses the store's</div>
+        ${R.SHARED_COSTS.map(([k, l, u]) => html`<div class="rulerow"><label for=${'e-' + k}>${l}${pe[k] === '' ? html` <span class="tiny muted">(store)</span>` : html` <button class="link tiny" onClick=${() => setPe({ ...pe, [k]: '' })}>use store</button>`}</label><input id=${'e-' + k} inputmode="decimal" value=${pe[k]} placeholder=${st[k] || '0'} onInput=${setP(k)} />${unit(u)}</div>`)}
+      </section>
+      <section class="panel"><h2>Store economics</h2>
+        <p class="small muted" style="margin:0">The whole shop, blended. Shared by every product. Used for MER and profit on Stats.</p>
+        <div class="tiles"><div class="tile"><div class="k">Store break-even</div><div class="v">${sb.missing ? '—' : R.xroas(sb.roas)}</div><div class="s">${sb.missing ? 'Needs average order and product cost' : R.money(sb.cpa) + ' CPA at ' + R.money(sb.V)}</div></div></div>
+        ${sb.estimated && html`<div class="status warn small"><b>Estimate.</b> Uses Crew's product cost ratio (${sb.pct.toFixed(0)}% of sales) until you enter the store's own average below.</div>`}
+        <div class="rulerow"><label for="s-aov">Store average order</label><input id="s-aov" inputmode="decimal" value=${st.aov} onInput=${setS('aov')} />${unit('$')}</div>
+        <div class="rulerow"><label for="s-cogs">Product cost, % of sales (all products)</label><input id="s-cogs" inputmode="decimal" value=${st.cogsPct} placeholder="not known yet" onInput=${setS('cogsPct')} />${unit('%')}</div>
+        ${R.SHARED_COSTS.map(([k, l, u]) => html`<div class="rulerow"><label for=${'s-' + k}>${l}</label><input id=${'s-' + k} inputmode="decimal" value=${st[k]} onInput=${setS(k)} />${unit(u)}</div>`)}
       </section>
       <section class="panel"><h2>Angles</h2><p class="small muted" style="margin:0">The main message each ad leads with. A short fixed list keeps results comparable.</p>
         <div class="list">${R.ANGLES.map((x) => html`<div class="li"><span class="grow small"><b>${x.name}</b><br/><span class="muted">${x.hint} Examples: ${x.examples.join(' · ')}</span></span></div>`)}

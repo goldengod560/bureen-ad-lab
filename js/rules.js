@@ -19,17 +19,19 @@ export const DEFAULT_RULES = {
   fatigueCpaUp: 25, fatigueRoasDown: 20, fatigueMinSpend: 50,
 };
 
-export const DEFAULT_ECON = {
-  mode: 'own',            // own = you set break-even ROAS; costs = calculated from costs below
-  beRoas: 2.7,
-  aov: 46.81,
-  costs: [
-    { label: 'Product cost', value: 15 },
-    { label: 'Inbound shipping', value: 7.25 },
-    { label: 'Packaging', value: 1 },
-    { label: 'Payment processing', value: 3, pct: true },
-  ],
-};
+// ---------- economics ----------
+// Store = the whole shop, blended. Each product has its own costs; break-even comes from one formula,
+// with the order value as the input. Shared costs (postage, packaging, fees) come from the store
+// unless the product overrides them. Testing targets live in the rules and are never called break-even.
+export const STORE_DEFAULTS = { aov: 47.54, cogsPct: null, ship: 7.6, pack: 0.6, feePct: 2.9, feeFixed: 0.3, other: 0 };
+export const SHARED_COSTS = [
+  ['ship', 'Postage per order', '$'], ['pack', 'Packaging per order', '$'], ['feePct', 'Card fee', '%'], ['feeFixed', 'Card fee per order', '$'], ['other', 'Other cost per order', '$'],
+];
+let STORE = { ...STORE_DEFAULTS };
+export const setStoreEcon = (s) => { STORE = { ...STORE_DEFAULTS, ...(s || {}) }; };
+export const storeEcon = () => STORE;
+// Verified Crew numbers, used until Crew's own economics are saved.
+const CREW_START = { price: 36, packCost: 15 };
 
 export const STAGES = [
   { key: 'next', label: 'Up Next', hint: 'Ready to launch, in order' },
@@ -72,7 +74,8 @@ export const ANGLES = [
   { name: 'Price per shirt', hint: 'Leads with the price of one shirt.', examples: ['"ONLY $6 EACH."', '"$6 PER SHIRT. Why pay more?"', '"$8 per tee + free shipping" (Long Sleeve)'] },
   { name: 'Pack total', hint: 'Leads with the price of the whole pack.', examples: ['"6 TEES. $36."', '"6 TEES. ONE DRAWER."', '"$36 6-Pack"'] },
   { name: 'Discount / sale', hint: 'Leads with money off or a sale.', examples: ['"Black Friday 18% off"', '"Winter sale: 15% off"', '"Buy 3, save 15%"'] },
-  { name: 'Quality', hint: 'Leads with how good the shirt is: material, feel, how it holds up.', examples: ['"Why 100% cotton?"', '"Soft. Breathable."', '"The $6 tee that doesn\'t look $6"'] },
+  { name: 'Quality', hint: 'Leads with how good the shirt is: material, feel, how it holds up.', examples: ['"Why 100% cotton?"', '"Soft. Breathable."', '"Built to last wash after wash"'] },
+  { name: 'Premium Value', hint: 'Leads with the contrast: a low price on a shirt that looks or feels like it costs more.', examples: ['"The $6 tee that doesn\'t look $6"', '"Looks like $20. Costs $6."', '"Cheap price. Not a cheap shirt."'] },
   { name: 'Brand', hint: 'Leads with Sada itself: why pick the brand, or a brand look with no price.', examples: ['"Why Sada?"', '"Available on Bureen"', 'Sada logo poster, shirts on graffiti, no price'] },
   { name: 'Fit', hint: 'Leads with how it fits or the sizes.', examples: ['"Sada got the big sizes on lock"', 'Someone showing how it fits on the body', '"Fits right, even after washing"'] },
   { name: 'Lifestyle', hint: 'Leads with a person living their day in it.', examples: ['"Shift ready. Comfort that shows up."', 'Someone at work, the gym or out', '"Your everyday rotation"'] },
@@ -127,6 +130,8 @@ export function normalizeAd(ad) {
   if (ad.stage === 'untested') out.stage = t.ready ? 'next' : (t.retest || isRetestResult(ad.result)) ? 'retest' : 'ideas';
   if (ad.setup_era === 'old' || ad.setup_era === 'new') out.setup_era = eraOf(ad.launched_on);
   if (ad.angle && ANGLE_MAP[ad.angle.trim()]) out.angle = ANGLE_MAP[ad.angle.trim()];
+  // "Doesn't look $6" ads lead with price vs. quality contrast: Premium Value.
+  if (/doesn'?t look \$?6/i.test(ad.base_name || '') && (!out.angle || ['Quality', 'Price per shirt'].includes(out.angle))) out.angle = 'Premium Value';
   if (ad.concept && CONCEPT_MAP[ad.concept.trim()]) out.concept = CONCEPT_MAP[ad.concept.trim()];
   const hid = ad.history && ad.history.importId;
   if (hid && HISTORY_CONCEPTS[hid] && (!ad.concept || CONCEPT_MAP[ad.concept.trim()])) out.concept = HISTORY_CONCEPTS[hid];
@@ -134,23 +139,50 @@ export function normalizeAd(ad) {
 }
 
 export const rulesOf = (p) => Object.assign({}, DEFAULT_RULES, (p && p.rules) || {});
-export const econOf = (p) => {
-  const e = Object.assign({}, DEFAULT_ECON, (p && p.economics) || {});
-  if (!Array.isArray(e.costs)) e.costs = DEFAULT_ECON.costs.map((c) => ({ ...c }));
-  return e;
-};
+export function econOf(p, store = STORE) {
+  const raw = (p && p.economics) || {};
+  const e = raw.v === 2 ? raw : p && p.kind === 'crew' ? CREW_START : {};
+  const o = { price: num(e.price), packCost: num(e.packCost), ownAov: num(e.aov), own: {} };
+  for (const [k] of SHARED_COSTS) { o.own[k] = e[k] === '' || e[k] == null ? null : num(e[k]); o[k] = o.own[k] ?? num(store[k]) ?? 0; }
+  o.set = o.price > 0 && o.packCost != null;
+  o.aov = o.ownAov || num(store.aov) || o.price || null; // typical order, used when an order size is needed
+  return o;
+}
 export const num = (v) => { const n = parseFloat(String(v ?? '').replace(/[$,%\s]/g, '')); return isFinite(n) ? n : null; };
 
-export function breakEven(econ) {
-  const aov = num(econ.aov) || 0;
-  const cost = econ.costs.reduce((s, c) => s + (c.pct ? aov * (num(c.value) || 0) / 100 : (num(c.value) || 0)), 0);
-  const profit = aov - cost;
-  const calc = { cost, profit, cpa: profit, roas: profit > 0 ? aov / profit : null };
-  if (econ.mode === 'own') {
-    const roas = num(econ.beRoas);
-    return { mode: 'own', roas, cpa: roas ? aov / roas : null, calc };
-  }
-  return { mode: 'costs', roas: calc.roas, cpa: calc.cpa, calc };
+// Break-even at an order worth V. Product cost scales with order value (cost per pack ÷ pack price).
+// That is exact for 1 or 2 full-price packs and an estimate for any other order size.
+export function beAt(e, V) {
+  V = num(V);
+  if (!e || !e.set || !V) return null;
+  const cogs = e.packCost / e.price * V;
+  const fees = V * (e.feePct || 0) / 100 + (e.feeFixed || 0);
+  const contrib = V - cogs - fees - (e.ship || 0) - (e.pack || 0) - (e.other || 0);
+  return { V, cogs, fees, contrib, cpa: contrib > 0 ? contrib : null, roas: contrib > 0 ? V / contrib : null };
+}
+
+// Store-wide break-even. Until you enter the store's own product cost %, it borrows Crew's ratio and says so.
+export function storeBE(crew, s = STORE) {
+  const V = num(s.aov);
+  let pct = num(s.cogsPct), borrowed = false;
+  if (pct == null && crew && crew.set) { pct = crew.packCost / crew.price * 100; borrowed = true; }
+  if (!V || pct == null) return { missing: true, V };
+  const fees = V * (num(s.feePct) || 0) / 100 + (num(s.feeFixed) || 0);
+  const contrib = V - V * pct / 100 - fees - (num(s.ship) || 0) - (num(s.pack) || 0) - (num(s.other) || 0);
+  return { V, pct, borrowed, estimated: borrowed, contrib, cpa: contrib > 0 ? contrib : null, roas: contrib > 0 ? V / contrib : null };
+}
+
+// How an ad's real numbers compare with break-even at its own average order.
+export function vsBreakEven(e, m) {
+  if (!m || !m.purchases || m.roas == null) return null;
+  const V = m.aov || e.aov;
+  const be = beAt(e, V);
+  if (!be || !be.roas) return { missing: true };
+  const diff = (m.roas / be.roas - 1) * 100;
+  const perOrder = be.contrib - (m.cpa ?? 0);
+  const band = diff >= 5 ? 'above' : diff <= -5 ? 'below' : 'near';
+  const estimated = Math.abs(V - e.price) > 0.5 && Math.abs(V - 2 * e.price) > 0.5;
+  return { be, V, diff, perOrder, band, estimated, label: band === 'above' ? 'Above break-even' : band === 'below' ? 'Below break-even' : 'Near break-even' };
 }
 
 export function checkinDays(rules) {
@@ -255,7 +287,7 @@ export function testStatus(test, cps, rules, aov, live) {
     const pace = Math.round(m.purchases / Math.max(atDay, 1) * planned * 10) / 10;
     const onTrack = m.roas != null && m.purchases && m.roas >= rules.passARoas && m.cpa <= rules.passACpa;
     return { m, day, planned, due, final: false, live: useLive, onTrack, behind: pace < rules.minPurchases,
-      text: `Status, not a verdict. Day ${atDay} of ${planned}: ${xroas(m.roas)}, ${m.purchases} buy${s(m.purchases)}, on pace for about ${pace}${src}.${onTrack ? ' On track for a pass so far.' : ''}` };
+      text: `Status, not a verdict. Day ${atDay} of ${planned}: ${xroas(m.roas)}, ${m.purchases} buy${s(m.purchases)}, on pace for about ${pace}${src}.${onTrack ? ' On track for a pass by your test rule (profit is shown separately below).' : ''}` };
   }
   const c = classify(m, rules, last);
   return { m, day, planned, due, final: true, ...c, text: `Window complete. Your rules say: ${RESULTS[c.result].label}.` };
