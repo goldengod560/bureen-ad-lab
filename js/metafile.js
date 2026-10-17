@@ -1,6 +1,6 @@
 // Reads an Ads Manager export (CSV or Excel) into one row per ad per day.
 // Export at the Ad level, either one day at a time or with Breakdown → Time → Day.
-import * as R from './rules.js?v=36';
+import * as R from './rules.js?v=37';
 
 function parseCSV(text) {
   const rows = []; let row = [], cell = '', q = false;
@@ -54,7 +54,9 @@ const COLS = {
   // Fallbacks for exports that only have Results / ROAS / CPC columns
   results: [/^results$/],
   result_type: [/^result type$/],
-  roas: [/^purchase roas/, /^website purchase roas/],
+  results_value: [/^results value$/],
+  roas_all: [/^purchase roas/],          // all purchases: website + on Facebook/Instagram (Shop)
+  roas_web: [/^website purchase roas/],  // website only
   cpc: [/^cpc \(cost per link click\)/],
 };
 
@@ -87,7 +89,12 @@ export async function readMetaFile(file) {
     const spend = g('spend') ?? 0;
     const isBuy = idx.result_type >= 0 && /purchase/i.test(String(r[idx.result_type] || ''));
     let purchases = g('purchases'); if (purchases == null && isBuy) purchases = g('results') ?? 0;
-    let revenue = g('revenue'); if (revenue == null && g('roas') != null) revenue = Math.round(g('roas') * spend * 100) / 100;
+    // Revenue: the purchase value column if there is one; else Results value (when results are purchases);
+    // else all-purchase ROAS × spend; website-only ROAS last, because it misses Shop purchases.
+    let revenue = g('revenue');
+    if (revenue == null && isBuy && g('results_value') != null) revenue = g('results_value');
+    const roasCol = g('roas_all') != null ? g('roas_all') : g('roas_web');
+    if (revenue == null && roasCol != null) revenue = Math.round(roasCol * spend * 100) / 100;
     let clicks = g('link_clicks'); if (clicks == null && g('cpc')) clicks = Math.round(spend / g('cpc'));
     if (idx.purchases < 0 && !isBuy && idx.result_type >= 0 && spend > 0) notBuys.add(name);
     const row = { ad_name: name, adset: idx.adset >= 0 ? String(r[idx.adset] ?? '').trim() : '', campaign: idx.campaign >= 0 ? String(r[idx.campaign] ?? '').trim() : '', day,

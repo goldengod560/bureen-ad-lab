@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=36';
-import * as R from './rules.js?v=36';
-import { importHistory } from './importer.js?v=36';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=36';
+import { createBackend } from './data.js?v=37';
+import * as R from './rules.js?v=37';
+import { importHistory } from './importer.js?v=37';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=37';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -210,10 +210,21 @@ const lsGet = (k, d) => { try { return localStorage.getItem(k) || d; } catch (e)
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
 const shortMoney = (n) => (n == null ? '—' : n >= 1000 ? '$' + (n / 1000).toFixed(1) + 'k' : '$' + Math.round(n));
 
+// File rows grouped by ad name, built once per data load.
+const fileIndex = new WeakMap();
+function fileTotals(ad, data) {
+  let idx = fileIndex.get(data);
+  if (!idx) { idx = new Map(); for (const r of data.meta_days || []) { const k = normName(r.ad_name); if (!idx.has(k)) idx.set(k, []); idx.get(k).push(r); } fileIndex.set(data, idx); }
+  const rows = idx.get(normName(ad.base_name));
+  return rows ? sumRows(rows) : null;
+}
+// One set of numbers per ad: your Ads Manager files when they cover at least as much spend as the
+// imported history and typed check-ins; otherwise the history.
 function quickStats(ad, data) {
-  const n = adNumbers(ad, data);
+  const n = adNumbers(ad, data), f = fileTotals(ad, data);
+  if (f && f.spend && f.spend >= n.spend - 1) return { spend: f.spend, buys: f.purchases, roas: f.roas, cpa: f.cpa, src: 'files' };
   if (!n.spend) return null;
-  return { spend: n.spend, buys: n.buys, roas: n.rev / n.spend, cpa: n.buys ? n.spend / n.buys : null };
+  return { spend: n.spend, buys: n.buys, roas: n.rev / n.spend, cpa: n.buys ? n.spend / n.buys : null, src: 'history' };
 }
 
 // Running totals for a live test from the Ads Manager files, from the day it went live.
