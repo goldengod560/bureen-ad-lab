@@ -1,6 +1,6 @@
 // Reads an Ads Manager export (CSV or Excel) into one row per ad per day.
 // Export at the Ad level, either one day at a time or with Breakdown → Time → Day.
-import * as R from './rules.js?v=34';
+import * as R from './rules.js?v=35';
 
 function parseCSV(text) {
   const rows = []; let row = [], cell = '', q = false;
@@ -75,7 +75,7 @@ export async function readMetaFile(file) {
   for (const [k, pats] of Object.entries(COLS)) idx[k] = head.findIndex((h) => pats.some((p) => p.test(h)));
   if (idx.ad_name < 0) throw new Error('No "Ad name" column. In Ads Manager, export from the Ads tab (ad level).');
   if (idx.spend < 0) throw new Error('No "Amount spent" column in this file.');
-  const out = new Map(); let ranged = 0; const notBuys = new Set();
+  const out = new Map(); let ranged = 0, empty = 0; const notBuys = new Set();
   if (idx.purchases < 0 && idx.results < 0) throw new Error('No purchases in this file. Add the "Purchases" (or "Results") column in Ads Manager and export again.');
   for (const r of table.slice(1)) {
     const name = String(r[idx.ad_name] ?? '').trim();
@@ -93,13 +93,15 @@ export async function readMetaFile(file) {
     const row = { ad_name: name, adset: idx.adset >= 0 ? String(r[idx.adset] ?? '').trim() : '', campaign: idx.campaign >= 0 ? String(r[idx.campaign] ?? '').trim() : '', day,
       spend, impressions: g('impressions'), reach: g('reach'), frequency: g('frequency'), link_clicks: clicks,
       adds_to_cart: g('adds_to_cart'), checkouts: g('checkouts'), purchases: purchases ?? 0, revenue: revenue ?? 0, hook_plays: g('hook_plays') };
+    // Ads Manager lists every ad you've ever had, every day, even when it didn't run. Skip those empty rows.
+    if (!spend && !(row.impressions > 0) && !row.purchases) { empty++; continue; }
     const key = [row.ad_name, row.adset, row.campaign, row.day].join('|');
     out.set(key, row); // a repeated row in the same file replaces the earlier one
   }
   const rows = [...out.values()];
-  if (!rows.length) throw new Error(ranged ? 'This file covers several days per row. Export one day at a time, or add Breakdown → Time → Day.' : 'No ad rows found in this file.');
+  if (!rows.length) throw new Error(ranged ? 'This file covers several days per row. Export one day at a time, or add Breakdown → Time → Day.' : empty ? 'No ad spent anything on the days in this file.' : 'No ad rows found in this file.');
   const days = [...new Set(rows.map((r) => r.day))].sort();
-  return { rows, days, ranged, notBuys: [...notBuys], spend: rows.reduce((s, r) => s + (r.spend || 0), 0) };
+  return { rows, days, ranged, empty, notBuys: [...notBuys], spend: rows.reduce((s, r) => s + (r.spend || 0), 0) };
 }
 
 // ---------- matching file rows to ads in the app ----------

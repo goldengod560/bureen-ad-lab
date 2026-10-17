@@ -1,5 +1,5 @@
 // Data layer. Talks to Supabase, or to an in-browser mock when ?mock=1 (for testing without an account).
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js?v=34';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js?v=35';
 
 const TABLES = ['products', 'ads', 'tests', 'checkpoints', 'events', 'decisions', 'learnings', 'meta_days', 'shop_days'];
 const UPSERT_KEYS = { meta_days: 'ad_name,adset,campaign,day', shop_days: 'day' };
@@ -45,9 +45,15 @@ function supabaseBackend() {
     async insert(t, row) { return check(await client.from(T(t)).insert(row).select().single()); },
     async update(t, id, patch) { return check(await client.from(T(t)).update(patch).eq('id', id).select().single()); },
     async remove(t, id) { check(await client.from(T(t)).delete().eq('id', id)); },
-    async upsert(t, rows) {
-      for (let i = 0; i < rows.length; i += 500) check(await client.from(T(t)).upsert(rows.slice(i, i + 500), { onConflict: UPSERT_KEYS[t] }));
+    async upsert(t, rows, onProgress) {
+      // 1000 rows per request, 3 requests at a time.
+      const chunks = []; for (let i = 0; i < rows.length; i += 1000) chunks.push(rows.slice(i, i + 1000));
+      let done = 0, next = 0;
+      const worker = async () => { while (next < chunks.length) { const c = chunks[next++]; check(await client.from(T(t)).upsert(c, { onConflict: UPSERT_KEYS[t] })); done += c.length; onProgress && onProgress(done, rows.length); } };
+      await Promise.all([worker(), worker(), worker()]);
     },
+    // Remove saved rows where the ad didn't run (older imports kept them). Keeps loading fast.
+    async cleanMetaDays() { check(await client.from('meta_days').delete().eq('spend', 0).eq('purchases', 0).or('impressions.is.null,impressions.eq.0')); },
     async saveStore(store) { check(await client.auth.updateUser({ data: { store_econ: store } })); },
     async syncShopify(days) {
       const { data, error } = await client.functions.invoke('shopify-sync', { body: days ? { days } : {} });
@@ -113,6 +119,7 @@ function mockBackend() {
     },
     async syncShopify() { throw new Error('Shopify sync is not available in test mode.'); },
     async saveStore(store) { db.store = store; save(); },
+    async cleanMetaDays() { db.meta_days = db.meta_days.filter((r) => +r.spend || +r.purchases || +r.impressions); save(); },
     async reset() { localStorage.removeItem(KEY); try { await idbDo('readwrite', (st) => st.clear()); } catch (e) {} },
   };
 }
