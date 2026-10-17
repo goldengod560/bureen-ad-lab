@@ -1,5 +1,5 @@
 // Data layer. Talks to Supabase, or to an in-browser mock when ?mock=1 (for testing without an account).
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js?v=35';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js?v=36';
 
 const TABLES = ['products', 'ads', 'tests', 'checkpoints', 'events', 'decisions', 'learnings', 'meta_days', 'shop_days'];
 const UPSERT_KEYS = { meta_days: 'ad_name,adset,campaign,day', shop_days: 'day' };
@@ -23,12 +23,17 @@ function supabaseBackend() {
       // Supabase returns at most 1000 rows per request, so page through big tables.
       const OPTIONAL = ['meta_days', 'shop_days'];
       const missing = [];
+      // Clear out empty Meta rows in the background; loading doesn't wait for it.
+      client.from('meta_days').delete().eq('spend', 0).eq('purchases', 0).or('impressions.is.null,impressions.eq.0').then(() => {}, () => {});
       await Promise.all(TABLES.map(async (t) => {
         const rows = [];
         for (let from = 0; ; from += 1000) {
           if (OPTIONAL.includes(t)) {
             // Tables added later: if the database setup hasn't been re-run yet, carry on without them.
-            const r = await client.from(T(t)).select('*').order('created_at', { ascending: true }).order(t === 'shop_days' ? 'day' : 'id', { ascending: true }).range(from, from + 999);
+            let q = client.from(T(t)).select('*');
+            // Only rows where the ad actually ran. Empty rows (old imports) are skipped and cleaned up.
+            if (t === 'meta_days') q = q.or('spend.gt.0,purchases.gt.0,impressions.gt.0');
+            const r = await q.order('created_at', { ascending: true }).order(t === 'shop_days' ? 'day' : 'id', { ascending: true }).range(from, from + 999);
             if (r.error) { missing.push(t); break; }
             rows.push(...r.data); if (r.data.length < 1000) break; continue;
           }
