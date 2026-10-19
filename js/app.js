@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=39';
-import * as R from './rules.js?v=39';
-import { importHistory } from './importer.js?v=39';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=39';
+import { createBackend } from './data.js?v=40';
+import * as R from './rules.js?v=40';
+import { importHistory } from './importer.js?v=40';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=40';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -362,6 +362,15 @@ async function closeTestFor(ad, to, data) {
 }
 async function closeOrphanTests(d) {
   const orphans = d.tests.filter((t) => t.stage === 1 && t.status === 'active' && (d.ads.find((a) => a.id === t.ad_id) || {}).stage !== 'testing');
+  // Two open tests for one ad (double click): keep the one with check-ins, else the newest.
+  const byAd = new Map();
+  for (const t of d.tests.filter((x) => x.stage === 1 && x.status === 'active' && !orphans.includes(x))) { if (!byAd.has(t.ad_id)) byAd.set(t.ad_id, []); byAd.get(t.ad_id).push(t); }
+  for (const list of byAd.values()) {
+    if (list.length < 2) continue;
+    const score = (t) => (d.checkpoints.some((c) => c.test_id === t.id) ? 1e15 : 0) + Date.parse(t.created_at || 0);
+    const keep = list.reduce((a, b) => (score(b) > score(a) ? b : a));
+    for (const t of list) if (t !== keep) { const patch = { status: 'stopped', result_reason: 'Duplicate of another live test.' }; try { await be.update('tests', t.id, patch); Object.assign(t, patch); } catch (e) {} }
+  }
   for (const t of orphans) {
     const ad = d.ads.find((a) => a.id === t.ad_id);
     const patch = { status: 'stopped', result_reason: ad ? `Moved to ${R.stageLabel(ad.stage)} by hand.` : 'Ad deleted.' };
@@ -942,7 +951,11 @@ function LaunchForm(ctx) {
   // Day 1 is the first full day. A partial day before it still counts toward spend and purchases.
   const spendFrom = f.partial ? R.addDays(f.date, -1) : f.date;
   const dayNow = Math.max(0, R.daysBetween(f.date, R.today()) + 1);
+  const [saving, setSaving] = useState(false);
   const go = async () => {
+    if (saving) return; setSaving(true);
+    // One live test per ad: a new launch replaces any open one (also stops double-clicks making two).
+    for (const t of data.tests.filter((x) => x.ad_id === ad.id && x.stage === 1 && x.status === 'active')) await be.update('tests', t.id, { status: 'stopped', result_reason: 'Replaced by a new launch.' });
     await be.insert('tests', { ad_id: ad.id, product_id: ad.product_id, stage: 1, start_date: f.date, planned_days: +f.days || rules.plannedDays, budget: +f.budget || null, status: 'active', conditions: { method: f.method, landingPage: f.landingPage, enhancements: f.enhancements, shopAds: f.shopAds, productMismatch: !!f.mismatch, ...(f.partial ? { spendFrom } : {}) } });
     await be.update('ads', ad.id, { stage: 'testing', launched_on: spendFrom, setup_era: R.eraOf(spendFrom), tags: { ...(ad.tags || {}), ready: false } });
     await be.insert('decisions', { product_id: ad.product_id, ad_id: ad.id, kind: 'launch', choice: `Launched at $${f.budget}/day`, day: spendFrom });
@@ -963,7 +976,7 @@ function LaunchForm(ctx) {
       <label class="chk full"><input type="checkbox" checked=${f.shopAds} onChange=${set('shopAds')} /> Shop ads on</label>
       <label class="chk full"><input type="checkbox" checked=${f.mismatch} onChange=${set('mismatch')} /> The ad shows a different product than the page it links to</label>
     </div>
-    <div class="row"><button class="btn primary" onClick=${go}>Start test</button><button class="btn ghost" onClick=${close}>Cancel</button></div>
+    <div class="row"><button class="btn primary" disabled=${saving} onClick=${go}>Start test</button><button class="btn ghost" onClick=${close}>Cancel</button></div>
   <//>`;
 }
 
@@ -1218,7 +1231,7 @@ function Today(ctx) {
     ${ready.length > 0 && live < rules0.slots && html`<section class="panel"><h2>Slot open</h2><div class="small">${rules0.slots - live} test slot${rules0.slots - live > 1 ? 's' : ''} free. Launch next from Up Next:</div>
       <div class="list">${ready.map((a) => html`<button class="li" style="background:none;border-left:0;border-right:0;border-bottom:0;color:inherit;text-align:left;cursor:pointer;width:100%" onClick=${() => setModal({ type: AdDetail, props: { adId: a.id } })}><${Media} path=${a.media_path} type=${a.media_type} poster=${a.tags && a.tags.poster} cls="" /><span class="grow small"><b>#${ready.indexOf(a) + 1} · ${a.base_name}</b><br/><span class="muted">${(products.find((p) => p.id === a.product_id) || {}).name}</span></span></button>`)}</div></section>`}
     <section class="panel"><h2>Running</h2>
-      ${running.length ? html`<div class="list">${running.map((t) => { const ad = data.ads.find((a) => a.id === t.ad_id); return ad && html`<button class="li" style="background:none;border-left:0;border-right:0;border-bottom:0;color:inherit;text-align:left;cursor:pointer;width:100%" onClick=${() => setModal({ type: AdDetail, props: { adId: ad.id } })}><span class="bar blue"></span><span class="grow small"><b>${displayName(ad)}</b><br/><span class="muted">${t.stage === 2 ? 'Trial in Main' : 'Stage 1'} · day ${R.testDay(t)}</span></span></button>`; })}</div>` : html`<div class="empty">No live tests</div>`}
+      ${running.length ? html`<div class="list">${running.map((t) => { const ad = data.ads.find((a) => a.id === t.ad_id); return ad && html`<button class="li" style="background:none;border-left:0;border-right:0;border-bottom:0;color:inherit;text-align:left;cursor:pointer;width:100%" onClick=${() => setModal({ type: AdDetail, props: { adId: ad.id } })}><span class="bar blue"></span><span class="grow small"><b>${displayName(ad)}</b><br/><span class="muted">${t.stage === 2 ? 'Trial in Main' : 'Stage 1'} · ${R.testDay(t) < 1 ? 'partial day, day 1 tomorrow' : 'day ' + R.testDay(t)}</span></span></button>`; })}</div>` : html`<div class="empty">No live tests</div>`}
     </section>`;
 }
 
