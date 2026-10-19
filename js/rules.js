@@ -266,7 +266,7 @@ export function testStatus(test, cps, rules, aov, live) {
   const m = useLive ? live.m : last ? metrics(last, aov) : null;
   const atDay = useLive ? Math.max(live.day, 1) : last ? last.day : 0;
   const src = useLive ? ` (your files through ${shortDate(live.through)})` : '';
-  if (!m) return { m, day, planned, due, final: false, text: day ? `Day ${day} of ${planned}. No numbers yet.` : 'Not started.' };
+  if (!m) return { m, day, planned, due, final: false, text: day ? `Day ${day} of ${planned}. No numbers yet.` : test.start_date ? `Partial day today. Day 1 is ${shortDate(test.start_date)}.` : 'Not started.' };
   if (useLive || last.day < planned) {
     const s = (n) => (n === 1 ? '' : 's');
     if (atDay >= rules.earlyDay && m.spend >= rules.earlySpend && m.purchases <= rules.earlyMaxPurchases) {
@@ -287,7 +287,7 @@ export function testStatus(test, cps, rules, aov, live) {
     const pace = Math.round(m.purchases / Math.max(atDay, 1) * planned * 10) / 10;
     const onTrack = m.roas != null && m.purchases && m.roas >= rules.passARoas && m.cpa <= rules.passACpa;
     return { m, day, planned, due, final: false, live: useLive, onTrack, behind: pace < rules.minPurchases,
-      text: `Status, not a verdict. Day ${atDay} of ${planned}: ${xroas(m.roas)}, ${m.purchases} buy${s(m.purchases)}, on pace for about ${pace}${src}.${onTrack ? ' On track for a pass by your test rule (profit is shown separately below).' : ''}` };
+      text: `Status, not a verdict. ${useLive && live.day < 1 ? 'Partial day before day 1' : `Day ${atDay} of ${planned}`}: ${xroas(m.roas)}, ${m.purchases} buy${s(m.purchases)}, on pace for about ${pace}${src}.${onTrack ? ' On track for a pass by your test rule (profit is shown separately below).' : ''}` };
   }
   const c = classify(m, rules, last);
   return { m, day, planned, due, final: true, ...c, text: `Window complete. Your rules say: ${RESULTS[c.result].label}.` };

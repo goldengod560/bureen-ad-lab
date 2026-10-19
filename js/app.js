@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=37';
-import * as R from './rules.js?v=37';
-import { importHistory } from './importer.js?v=37';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=37';
+import { createBackend } from './data.js?v=38';
+import * as R from './rules.js?v=38';
+import { importHistory } from './importer.js?v=38';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=38';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -248,7 +248,8 @@ function cardInfo(ad, ctx) {
     const t = data.tests.filter((x) => x.ad_id === ad.id && x.status === 'active')[0];
     if (!t) return { line: 'Open it to add the start date', chip: 'Needs start date', tone: 'mid', glow: 'live' };
     const st = R.testStatus(t, data.checkpoints.filter((c) => c.test_id === t.id), R.rulesOf(product), R.econOf(product).aov, liveFor(t, ad, data));
-    const line = st.m ? `Day ${Math.min(st.day, st.planned)}/${st.planned} · ${R.xroas(st.m.roas)} · ${st.m.purchases} buys` : `Day ${Math.min(st.day, st.planned)} of ${st.planned}`;
+    const dl = st.day < 1 ? 'Partial day · Day 1 tomorrow' : `Day ${Math.min(st.day, st.planned)}/${st.planned}`;
+    const line = st.m ? `${dl} · ${R.xroas(st.m.roas)} · ${st.m.purchases} buys` : st.day < 1 ? dl : `Day ${Math.min(st.day, st.planned)} of ${st.planned}`;
     if (st.early) return { line, chip: 'Pause?', tone: 'fail', glow: 'live' };
     if (st.final) return { line, chip: 'Finalize', tone: 'live', glow: 'live' };
     if (st.due.length) return { line, chip: 'Results due', tone: 'mid', glow: 'live' };
@@ -932,7 +933,8 @@ function LaunchForm(ctx) {
     ${warns.length > 0 && html`<div class="banner"><ul style="margin:0;padding-left:18px">${warns.map((w) => html`<li>${w}</li>`)}</ul></div>`}
     <div class="form">
       <${Field} label="First full day of spend (day 1)"><input type="date" value=${f.date} onInput=${set('date')} /><//>
-      <label class="chk full"><input type="checkbox" checked=${f.partial} onChange=${set('partial')} /> It went live partway through the day before (${R.shortDate(R.addDays(f.date, -1))}). Count that day's spend and sales too.</label>
+      <label class="chk full"><input type="checkbox" checked=${f.partial} onChange=${set('partial')} /> It went live partway through ${R.shortDate(R.addDays(f.date, -1))}. That day isn't one of the ${+f.days || rules.plannedDays} days, but its spend and sales are added to the totals.</label>
+      <div class="status small full">Day 1 is ${R.shortDate(f.date)}. Day ${+f.days || rules.plannedDays} is ${R.shortDate(R.addDays(f.date, (+f.days || rules.plannedDays) - 1))}.${f.partial ? ` Plus the partial day ${R.shortDate(R.addDays(f.date, -1))}.` : ''}</div>
       ${dayNow > 1 && html`<div class="status live small full">Today is day ${dayNow} of this test.${f.partial ? ` Name date will be ${R.shortDate(spendFrom)}.` : ''}</div>`}
       <${Field} label="Budget ($/day)"><input inputmode="decimal" value=${f.budget} onInput=${set('budget')} /><//>
       <${Field} label="Test window (days)"><input inputmode="numeric" value=${f.days} onInput=${set('days')} /><//>
@@ -967,7 +969,7 @@ function EditTestForm(ctx) {
   return html`<${Modal} title="Edit test" sub=${ad ? ad.base_name : ''} onClose=${close}>
     <div class="form">
       <${Field} label="First full day of spend (day 1)"><input type="date" value=${f.date} onInput=${set('date')} /><//>
-      <label class="chk full"><input type="checkbox" checked=${f.partial} onChange=${set('partial')} /> It went live partway through the day before (${R.shortDate(R.addDays(f.date, -1))}). Count that day too.</label>
+      <label class="chk full"><input type="checkbox" checked=${f.partial} onChange=${set('partial')} /> It went live partway through ${R.shortDate(R.addDays(f.date, -1))}. That day isn't one of the test days, but its spend and sales are added to the totals.</label>
       <${Field} label="Budget ($/day)"><input inputmode="decimal" value=${f.budget} onInput=${set('budget')} /><//>
       <${Field} label="Test window (days)"><input inputmode="numeric" value=${f.days} onInput=${set('days')} /><//>
       <${Field} label="How you're testing it"><select value=${f.method} onChange=${set('method')}>${R.TEST_METHODS.map((m) => html`<option>${m}</option>`)}</select><//>
