@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=38';
-import * as R from './rules.js?v=38';
-import { importHistory } from './importer.js?v=38';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=38';
+import { createBackend } from './data.js?v=39';
+import * as R from './rules.js?v=39';
+import { importHistory } from './importer.js?v=39';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=39';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -89,7 +89,7 @@ function App() {
 
   const say = (m) => { setToast(m); clearTimeout(toastTimer); toastTimer = setTimeout(() => setToast(''), 2800); };
   const [loadErr, setLoadErr] = useState(null);
-  const reload = async () => { try { const d = await be.loadAll(); d.ads = d.ads.map(R.normalizeAd); R.setStoreEcon(d.store); setData(d); setLoadErr(null); } catch (e) { setLoadErr(e.message); say('Could not load: ' + e.message); } };
+  const reload = async () => { try { const d = await be.loadAll(); d.ads = d.ads.map(R.normalizeAd); R.setStoreEcon(d.store); await closeOrphanTests(d); setData(d); setLoadErr(null); } catch (e) { setLoadErr(e.message); say('Could not load: ' + e.message); } };
 
   useEffect(() => {
     if (!be.configured) { setSession(null); return; }
@@ -148,7 +148,7 @@ function App() {
   const product = products.find((p) => p.id === pid) || products[0];
   const ctx = { data, product, products, reload, say, setModal, setLightbox, busy, setBusy, setView };
 
-  const activeStage1 = data.tests.filter((t) => t.status === 'active' && t.stage === 1);
+  const activeStage1 = { length: testingCount(data) };
   const rules0 = R.rulesOf(product);
   const NAV = [['today', 'Today'], ['board', 'Board'], ['archive', 'Archive'], ['stats', 'Stats'], ['angles', 'Angles'], ['rules', 'Rules'], ['learn', 'Learnings'], ['more', 'More']];
 
@@ -308,7 +308,7 @@ function benchHealth(data, product) {
 
 function SummaryStrip({ data, product }) {
   const econ = R.econOf(product), b1 = R.beAt(econ, econ.price), rules = R.rulesOf(product);
-  const live = data.tests.filter((t) => t.status === 'active' && t.stage === 1).length;
+  const live = testingCount(data, product.id);
   const bh = benchHealth(data, product);
   return html`<div class="strip">
     <span>${b1 ? html`Break-even <b>${R.xroas(b1.roas)}</b> at $${econ.price}` : html`Break-even <em class="warn">costs not set</em>`}</span>
@@ -353,9 +353,27 @@ function Toolbar({ b, data, product, sel, setSel, extra }) {
   </div>`;
 }
 
+// A Stage 1 test only stays open while its ad is in Testing. Ads moved out by hand close their test.
+async function closeTestFor(ad, to, data) {
+  if (!ad || to === 'testing') return;
+  for (const t of data.tests.filter((x) => x.ad_id === ad.id && x.stage === 1 && x.status === 'active')) {
+    await be.update('tests', t.id, { status: 'stopped', result_reason: `Moved to ${R.stageLabel(to)} by hand on ${R.today()}.` });
+  }
+}
+async function closeOrphanTests(d) {
+  const orphans = d.tests.filter((t) => t.stage === 1 && t.status === 'active' && (d.ads.find((a) => a.id === t.ad_id) || {}).stage !== 'testing');
+  for (const t of orphans) {
+    const ad = d.ads.find((a) => a.id === t.ad_id);
+    const patch = { status: 'stopped', result_reason: ad ? `Moved to ${R.stageLabel(ad.stage)} by hand.` : 'Ad deleted.' };
+    try { await be.update('tests', t.id, patch); Object.assign(t, patch); } catch (e) { /* try again next load */ }
+  }
+}
+const testingCount = (data, pid) => data.ads.filter((a) => a.stage === 'testing' && (!pid || a.product_id === pid)).length;
+
 async function moveAds(ids, to, data, note) {
   for (const id of ids) {
     const ad = data.ads.find((a) => a.id === id); if (!ad || ad.stage === to) continue;
+    await closeTestFor(ad, to, data);
     await be.update('ads', id, to === 'next' ? { stage: to, tags: { ...(ad.tags || {}), queue: Date.now() } } : { stage: to });
     try { await be.insert('decisions', { product_id: ad.product_id, ad_id: id, kind: 'move', choice: `Moved to ${R.stageLabel(to)}`, reason: note || '' }); } catch (e) { /* log only */ }
   }
@@ -687,6 +705,7 @@ function AdDetail(ctx) {
     if (to === 'next' && ad.stage !== 'next') p2.tags = { ...((patch && patch.tags) || tags), queue: Date.now() };
     try { await be.update('ads', ad.id, p2); }
     catch (e) { say('Could not move: ' + e.message); await reload(); return; }
+    try { await closeTestFor(ad, to, data); } catch (e) { console.warn('could not close test', e); }
     try { await log('move', `Moved to ${R.stageLabel(to)}`, note); } catch (e) { console.warn('decision log failed', e); }
     await reload(); say('Moved to ' + R.stageLabel(to));
   };
@@ -1186,7 +1205,7 @@ function Today(ctx) {
   const lastMeta = data.meta_days.reduce((m, r) => (r.day > m ? r.day : m), '');
   if (!lastMeta || lastMeta < R.addDays(R.today(), -1)) items.push({ tone: 'blue', title: lastMeta ? `Add yesterday's Ads Manager file (last one: ${lastMeta})` : 'Add your first Ads Manager file', sub: 'Keeps check-ins, fatigue warnings and Stats up to date.', tag: 'DAILY', go: () => setView('stats') });
   const ready = data.ads.filter((a) => a.stage === 'next').sort((a, b) => R.queueOf(a) - R.queueOf(b));
-  const live = data.tests.filter((t) => t.status === 'active' && t.stage === 1).length;
+  const live = testingCount(data);
   const rules0 = R.rulesOf(products[0]);
   const running = data.tests.filter((t) => t.status === 'active');
   return html`
