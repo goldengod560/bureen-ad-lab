@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=45';
-import * as R from './rules.js?v=45';
-import { importHistory } from './importer.js?v=45';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=45';
+import { createBackend } from './data.js?v=47';
+import * as R from './rules.js?v=47';
+import { importHistory } from './importer.js?v=47';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=47';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -630,6 +630,42 @@ function BulkForm(ctx) {
 
 // ---------- ad detail ----------
 // How every ad sharing this concept has done. Era 1 results are shown but not counted.
+// Stats for a group of ads: how many, and how many worked (Era 2 and later, finished only).
+function famStats(fam) {
+  const counted = fam.filter((a) => a.setup_era !== 'era1' && !['ideas', 'next', 'retest', 'testing'].includes(a.stage));
+  const won = counted.filter((a) => ['pass', 'strong_pass', 'held'].includes(a.result) || ['bench', 'main', 'exhausted'].includes(a.stage));
+  return { fam, counted: counted.length, won: won.length, era1: fam.filter((a) => a.setup_era === 'era1').length };
+}
+const same = (x, y) => !!x && !!y && x.trim().toLowerCase() === y.trim().toLowerCase();
+// Other ads with the same angle, the same concept, or both. Angle first: the message usually matters most.
+function SimilarAds({ ad, data, setModal }) {
+  const [by, setBy] = useState(() => { try { return localStorage.getItem('adlab-similar') || 'angle'; } catch (e) { return 'angle'; } });
+  const [all, setAll] = useState(false);
+  const pick = (k) => { setBy(k); setAll(false); try { localStorage.setItem('adlab-similar', k); } catch (e) {} };
+  const others = data.ads.filter((a) => a.id !== ad.id);
+  const groups = {
+    angle: ad.angle ? others.filter((a) => same(a.angle, ad.angle)) : null,
+    concept: ad.concept ? others.filter((a) => same(a.concept, ad.concept)) : null,
+    both: ad.angle && ad.concept ? others.filter((a) => same(a.angle, ad.angle) && same(a.concept, ad.concept)) : null,
+  };
+  const label = { angle: 'Same angle', concept: 'Same concept', both: 'Both' };
+  const fam = groups[by];
+  if (!ad.angle && !ad.concept) return html`<div class="small muted">Pick an angle and a concept to see similar ads and how they did.</div>`;
+  // Worked first, then the rest; newest first inside each.
+  const rank = (a) => (['bench', 'main', 'exhausted'].includes(a.stage) || ['pass', 'strong_pass', 'held'].includes(a.result) ? 0 : a.stage === 'testing' ? 1 : 2);
+  const list = fam ? fam.slice().sort((a, b) => rank(a) - rank(b) || String(b.launched_on || b.created_at || '').localeCompare(String(a.launched_on || a.created_at || ''))) : [];
+  const st = fam ? famStats([ad, ...fam]) : null;
+  const what = by === 'angle' ? ad.angle : by === 'concept' ? ad.concept : `${ad.angle} + ${ad.concept}`;
+  return html`<div class="stack" style="gap:8px">
+    <div class="row" style="gap:8px;flex-wrap:wrap"><h2 style="margin:0">Similar ads</h2><span class="spacer"></span>
+      <div class="seg sm" role="group" aria-label="Similar by">${['angle', 'concept', 'both'].map((k) => html`<button class=${by === k ? 'on' : ''} disabled=${!groups[k]} onClick=${() => pick(k)}>${label[k]}${groups[k] ? ` (${groups[k].length})` : ''}</button>`)}</div></div>
+    ${!fam ? html`<div class="small muted">Set the ${by === 'angle' ? 'angle' : by === 'concept' ? 'concept' : 'angle and concept'} first.</div>`
+      : !fam.length ? html`<div class="small muted">No other ads with ${what} yet.</div>`
+      : html`<div class="small"><b>${what}</b>: ${st.fam.length} ads including this one${st.counted ? ` · Era 2 and later: ${st.won} of ${st.counted} worked` : ' · none finished since Era 1'}${st.era1 ? ` · ${st.era1} from Era 1 (not counted)` : ''}</div>
+      <div class="fam">${(all ? list : list.slice(0, 6)).map((f) => html`<button class="famitem" onClick=${() => setModal({ type: AdDetail, props: { adId: f.id } })}><${Media} path=${f.media_path} type=${f.media_type} poster=${f.tags && f.tags.poster} /><span class="small">${f.base_name}</span><span class=${'chip t-' + (f.result ? toneOf(f.result) : 'muted')}>${R.stageLabel(f.stage)}${f.setup_era === 'era1' ? ' · Era 1' : ''}</span></button>`)}</div>
+      ${list.length > 6 && html`<button class="link small" style="align-self:flex-start" onClick=${() => setAll(!all)}>${all ? 'Show fewer' : `Show all ${list.length}`}</button>`}`}
+  </div>`;
+}
 function conceptStats(data, concept) {
   if (!concept) return null;
   const fam = data.ads.filter((a) => a.concept && a.concept.trim().toLowerCase() === concept.trim().toLowerCase());
@@ -700,7 +736,6 @@ function ConceptPanel({ ad, data, reload, say, setModal }) {
   const saveAng = async () => { if ((ang || '') === (ad.angle || '')) return; await be.update('ads', ad.id, { angle: ang.trim() || null }); await reload(); say('Angle saved'); };
   const prod = data.products.find((p) => p.id === ad.product_id);
   const angles = allAngles(data, prod);
-  const cs = conceptStats(data, ad.concept);
   const save = async () => { if ((val || '') === (ad.concept || '')) return; await be.update('ads', ad.id, { concept: val.trim() || null }); await reload(); say('Concept saved'); };
   return html`<div class="panel"><div class="row"><h2>Angle</h2><span class="spacer"></span>
       <select class="inp" style="max-width:240px;min-height:34px" value=${ang} onChange=${async (e) => { const v = e.target.value; setAng(v); await be.update('ads', ad.id, { angle: v || null }); await reload(); say('Angle saved'); }} aria-label="Angle">
@@ -710,10 +745,7 @@ function ConceptPanel({ ad, data, reload, say, setModal }) {
       <select class="inp" style="max-width:240px;min-height:34px" value=${val} onChange=${async (e) => { const v = e.target.value; setVal(v); await be.update('ads', ad.id, { concept: v || null }); await reload(); say('Concept saved'); }} aria-label="Concept">
         <option value="">Not set</option>${[...allConcepts(data, prod), ...(ad.concept && !allConcepts(data, prod).includes(ad.concept) ? [ad.concept] : [])].map((c) => html`<option value=${c}>${c}</option>`)}</select></div>
     ${val && R.conceptInfo(val) && html`<div class="angx"><b>${val}:</b> ${R.conceptInfo(val).hint}</div>`}
-    ${cs && cs.fam.length > 1 ? html`
-      <div class="small">${cs.fam.length} ads with this concept${cs.counted ? ` · Era 2 and later: ${cs.won} of ${cs.counted} worked` : ' · none tested since Era 1'}${cs.era1 ? ` · ${cs.era1} from Era 1 (not counted)` : ''}</div>
-      <div class="fam">${cs.fam.filter((f) => f.id !== ad.id).map((f) => html`<button class="famitem" onClick=${() => setModal({ type: AdDetail, props: { adId: f.id } })}><${Media} path=${f.media_path} type=${f.media_type} poster=${f.tags && f.tags.poster} /><span class="small">${f.base_name}</span><span class=${'chip t-' + (f.result ? toneOf(f.result) : 'muted')}>${R.stageLabel(f.stage)}${f.setup_era === 'era1' ? ' · Era 1' : ''}</span></button>`)}</div>`
-    : html`<div class="small muted">${ad.concept ? 'The only ad with this concept so far.' : 'Pick what the picture or video shows, so you can see which kinds of shots work.'}</div>`}
+    <${SimilarAds} ad=${ad} data=${data} setModal=${setModal} />
   </div>`;
 }
 
