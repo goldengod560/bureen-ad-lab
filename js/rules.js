@@ -261,7 +261,7 @@ export function testStatus(test, cps, rules, aov, live) {
   const last = sorted[sorted.length - 1];
   const day = testDay(test);
   const due = checkinDays(rules).map((d) => Math.min(d, planned)).filter((d, i, a) => a.indexOf(d) === i)
-    .filter((d) => day >= d && !sorted.some((c) => c.day >= d));
+    .filter((d) => day > d && !sorted.some((c) => c.day >= d)); // day d's results are due the day after it ends
   const useLive = live && live.m && live.m.spend > 0 && (!last || (last.day < planned && live.day > last.day));
   const m = useLive ? live.m : last ? metrics(last, aov) : null;
   const atDay = useLive ? Math.max(live.day, 1) : last ? last.day : 0;

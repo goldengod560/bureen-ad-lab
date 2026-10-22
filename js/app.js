@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=40';
-import * as R from './rules.js?v=40';
-import { importHistory } from './importer.js?v=40';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=40';
+import { createBackend } from './data.js?v=41';
+import * as R from './rules.js?v=41';
+import { importHistory } from './importer.js?v=41';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=41';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1382,7 +1382,7 @@ async function autoCheckins(data) {
     const want = [...new Set([...R.checkinDays(rules).map((d) => Math.min(d, planned)), planned])];
     for (const d of want) {
       const end = R.addDays(t.start_date, d - 1);
-      if (maxDay < end) continue;
+      if (maxDay < end || end >= R.today()) continue; // only once that day is fully over
       const existing = data.checkpoints.find((c) => c.test_id === t.id && c.day === d);
       if (existing && existing.source !== 'file') continue;
       const tot = sumRows(rows.filter((r) => r.day <= end));
