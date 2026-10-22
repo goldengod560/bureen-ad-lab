@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=43';
-import * as R from './rules.js?v=43';
-import { importHistory } from './importer.js?v=43';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=43';
+import { createBackend } from './data.js?v=44';
+import * as R from './rules.js?v=44';
+import { importHistory } from './importer.js?v=44';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=44';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -276,7 +276,9 @@ function lateChange(test, r) {
   if (r.rule === c.d7.rule || c.lateAck === r.rule) return null;
   return { was: c.d7.rule, now: r.rule };
 }
-function lastStage1(ad, data) { return data.tests.filter((t) => t.ad_id === ad.id && t.stage === 1 && t.status !== 'active').sort((a, b) => String(b.start_date).localeCompare(String(a.start_date)))[0] || null; }
+// Tests closed only because they were a double-click copy or replaced by a new launch: not real tests.
+const isDupTest = (t) => t.status === 'stopped' && !t.result && /^(Duplicate of another live test|Replaced by a new launch)/.test(t.result_reason || '');
+function lastStage1(ad, data) { return data.tests.filter((t) => t.ad_id === ad.id && t.stage === 1 && t.status !== 'active' && !isDupTest(t)).sort((a, b) => String(b.start_date).localeCompare(String(a.start_date)))[0] || null; }
 
 // One stat line and at most one tag per card.
 function cardInfo(ad, ctx) {
@@ -755,7 +757,7 @@ function AdDetail(ctx) {
   if (!ad) return null;
   const product = data.products.find((p) => p.id === ad.product_id) || ctx.product;
   const rules = R.rulesOf(product), econ = R.econOf(product);
-  const tests = data.tests.filter((t) => t.ad_id === ad.id).sort(byCreated);
+  const tests = data.tests.filter((t) => t.ad_id === ad.id && !isDupTest(t)).sort(byCreated);
   const active = tests.find((t) => t.status === 'active');
   const hist = ad.history || {};
   const tags = ad.tags || {};

@@ -1,6 +1,6 @@
 // Reads an Ads Manager export (CSV or Excel) into one row per ad per day.
 // Export at the Ad level, either one day at a time or with Breakdown → Time → Day.
-import * as R from './rules.js?v=43';
+import * as R from './rules.js?v=44';
 
 function parseCSV(text) {
   const rows = []; let row = [], cell = '', q = false;
@@ -114,7 +114,9 @@ export async function readMetaFile(file) {
 }
 
 // ---------- matching file rows to ads in the app ----------
-export const normName = (s) => String(s || '').toLowerCase().replace(/\s*\|\s*\d{1,2}[-/]\d{1,2}\s*$/, '').replace(/\s+/g, ' ').trim();
+// Names match even if one side has an apostrophe, a curly quote or a different dash ("Doesn't" = "Doesnt").
+export const normName = (s) => String(s || '').toLowerCase().replace(/\s*\|\s*\d{1,2}[-/]\d{1,2}\s*$/, '')
+  .replace(/['\u2018\u2019\u201C\u201D"`´]/g, '').replace(/[\u2010-\u2015]/g, '-').replace(/\s+/g, ' ').trim();
 
 export function rowsForAd(ad, metaDays) {
   const n = normName(ad.base_name);
