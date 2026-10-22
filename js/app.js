@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=41';
-import * as R from './rules.js?v=41';
-import { importHistory } from './importer.js?v=41';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=41';
+import { createBackend } from './data.js?v=43';
+import * as R from './rules.js?v=43';
+import { importHistory } from './importer.js?v=43';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=43';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -237,6 +237,47 @@ function liveFor(t, ad, data) {
   return { m: R.metrics({ spend: s.spend, purchases: s.purchases, revenue: s.revenue, impressions: s.impressions || null, link_clicks: s.link_clicks || null, adds_to_cart: s.adds_to_cart || null, hook_plays: s.hook_plays || null, frequency: s.frequency }), day: R.daysBetween(t.start_date, through) + 1, through };
 }
 
+// ---------- Day-7 result vs. full run ----------
+const mOf = (t) => R.metrics({ spend: t.spend, purchases: t.purchases, revenue: t.revenue, impressions: t.impressions || null, link_clicks: t.link_clicks || null, adds_to_cart: t.adds_to_cart || null, hook_plays: t.hook_plays || null, frequency: t.frequency });
+// From your Ads Manager files: the standard window (partial launch day + days 1–7) and the full run
+// (everything reported until the day you turned it off, same ad set). offOn overrides the saved off date.
+function runsFor(test, ad, data, offOn) {
+  if (!test || !ad || !test.start_date || test.stage !== 1) return null;
+  const c = test.conditions || {}, p = data.products.find((x) => x.id === test.product_id), rules = R.rulesOf(p);
+  const from = c.spendFrom || test.start_date, planned = test.planned_days || rules.plannedDays;
+  const end = R.addDays(test.start_date, planned - 1), off = offOn || c.stoppedOn || null;
+  let rows = rowsForAd(ad, data.meta_days || []).filter((r) => r.day >= from && (!off || r.day <= off));
+  // Stick to the test's own ad set: the one with the most spend inside the window.
+  const sets = new Map(); rows.filter((r) => r.day <= end).forEach((r) => { const k = r.campaign + '|' + r.adset; sets.set(k, (sets.get(k) || 0) + (+r.spend || 0)); });
+  const key = [...sets.entries()].sort((a, b) => b[1] - a[1]).map((x) => x[0])[0];
+  if (key) rows = rows.filter((r) => r.campaign + '|' + r.adset === key);
+  if (!rows.length) return null;
+  const win = rows.filter((r) => r.day <= end), after = rows.filter((r) => r.day > end);
+  const spent = rows.filter((r) => +r.spend > 0).map((r) => r.day).sort();
+  const lastN = (rules.collapseDays || 3);
+  const last3 = sumRows(win.filter((r) => r.day > R.addDays(end, -lastN))).purchases;
+  const d7 = win.length ? mOf(sumRows(win)) : null;
+  const cls = d7 ? R.classify(d7, rules, R.today() > end ? { last3_purchases: last3 } : null) : null;
+  return { from, end, off, d7, rule: cls && cls.result, evidence: cls && cls.evidence, full: mOf(sumRows(rows)), after: after.length ? mOf(sumRows(after)) : null,
+    lastDay: spent[spent.length - 1] || null, windowDone: R.today() > end, rules };
+}
+function trendAfter(r) {
+  if (!r || !r.after || !r.after.spend || !r.d7 || r.d7.roas == null || r.full.roas == null) return null;
+  const ch = r.full.roas / r.d7.roas - 1;
+  return ch >= 0.05 ? 'Improved after day 7' : ch <= -0.05 ? 'Slipped after day 7' : 'Held steady after day 7';
+}
+const isPassRes = (x) => x === 'pass' || x === 'strong_pass';
+// Passed on day 7, but the full run fell under the fail line.
+const slipped = (test, r) => r && isPassRes(test.result) && r.full.roas != null && r.after && r.after.spend > 0 && r.full.roas < r.rules.failRoas;
+// Newer files changed what the rules say about the standard window since you finalized.
+function lateChange(test, r) {
+  const c = test.conditions || {};
+  if (!r || !c.d7 || !c.d7.rule || !r.rule || test.status === 'active') return null;
+  if (r.rule === c.d7.rule || c.lateAck === r.rule) return null;
+  return { was: c.d7.rule, now: r.rule };
+}
+function lastStage1(ad, data) { return data.tests.filter((t) => t.ad_id === ad.id && t.stage === 1 && t.status !== 'active').sort((a, b) => String(b.start_date).localeCompare(String(a.start_date)))[0] || null; }
+
 // One stat line and at most one tag per card.
 function cardInfo(ad, ctx) {
   const { data } = ctx;
@@ -250,11 +291,23 @@ function cardInfo(ad, ctx) {
     const st = R.testStatus(t, data.checkpoints.filter((c) => c.test_id === t.id), R.rulesOf(product), R.econOf(product).aov, liveFor(t, ad, data));
     const dl = st.day < 1 ? 'Partial day · Day 1 tomorrow' : `Day ${Math.min(st.day, st.planned)}/${st.planned}`;
     const line = st.m ? `${dl} · ${R.xroas(st.m.roas)} · ${st.m.purchases} buys` : st.day < 1 ? dl : `Day ${Math.min(st.day, st.planned)} of ${st.planned}`;
-    if (st.early) return { line, chip: 'Pause?', tone: 'fail', glow: 'live' };
-    if (st.final) return { line, chip: 'Finalize', tone: 'live', glow: 'live' };
-    if (st.due.length) return { line, chip: 'Results due', tone: 'mid', glow: 'live' };
-    if (st.onTrack) return { line, chip: 'On track', tone: 'pass', glow: 'live' };
-    return { line, chip: null, glow: 'live' };
+    const rr = st.day > st.planned ? runsFor(t, ad, data) : null;
+    const line2 = rr && rr.after && rr.after.spend ? `Full run so far ${R.xroas(rr.full.roas)} · ${rr.full.purchases} buys` : null;
+    if (st.early) return { line, line2, chip: 'Pause?', tone: 'fail', glow: 'live' };
+    if (st.final) return { line, line2, chip: 'Finalize', tone: 'live', glow: 'live' };
+    if (st.due.length) return { line, line2, chip: 'Results due', tone: 'mid', glow: 'live' };
+    if (st.onTrack) return { line, line2, chip: 'On track', tone: 'pass', glow: 'live' };
+    return { line, line2, chip: null, glow: 'live' };
+  }
+  // Finished tests: show the Day-7 result and the full run.
+  if (['bench', 'mid', 'retest', 'failed'].includes(ad.stage)) {
+    const lt = lastStage1(ad, data), rr = lt && runsFor(lt, ad, data);
+    if (rr && rr.d7) {
+      const base = ad.stage === 'bench' ? { tone: 'pass', glow: 'pass', chip: ad.result === 'strong_pass' ? 'Strong' : null } : { chip: null };
+      const lc = lateChange(lt, rr), sl = slipped(lt, rr);
+      return { ...base, line: `Day 7 ${R.xroas(rr.d7.roas)} · ${rr.d7.purchases} buys`, line2: rr.after && rr.after.spend ? `Full run ${R.xroas(rr.full.roas)} · ${rr.full.purchases} buys` : null,
+        ...(lc ? { chip: 'Check result', tone: 'mid' } : sl ? { chip: 'Slipped', tone: 'fail' } : {}) };
+    }
   }
   if (ad.stage === 'main') {
     const trial = data.tests.some((x) => x.ad_id === ad.id && x.stage === 2 && x.status === 'active');
@@ -287,6 +340,7 @@ function Card(props) {
       ${select && html`<span class=${'check' + (selected ? ' on' : '')}>${selected ? '✓' : ''}</span>`}</span>
     <span class="tn">${displayName(ad)}</span>
     ${ci.line && html`<span class="tl">${ci.line}</span>`}
+    ${ci.line2 && html`<span class="tl">${ci.line2}</span>`}
   </button>`;
 }
 
@@ -835,12 +889,13 @@ function ProfitLine({ econ, m, product }) {
     <span class="tiny">Break-even at its ${R.money(v.V)} average order: ${R.xroas(v.be.roas)} · ${R.money(v.be.cpa)} CPA. It's at ${R.xroas(m.roas)} · ${R.money(m.cpa)}.${v.estimated ? ' Estimated break-even based on assumed product mix.' : ''}</span></div>`;
 }
 
-function TestPanel({ data, test, rules, econ, setModal }) {
+function TestPanel({ data, test, rules, econ, setModal, reload, say }) {
   const cps = data.checkpoints.filter((c) => c.test_id === test.id).sort((a, b) => a.day - b.day);
   const ad = data.ads.find((a) => a.id === test.ad_id);
   const st = R.testStatus(test, cps, rules, econ.aov, test.stage === 1 ? liveFor(test, ad, data) : null);
   const m = st.m, dg = R.diagnose(m);
   const vb = m ? R.vsBreakEven(econ, m) : null;
+  const hideOld = test.status !== 'active' && test.stage === 1 && !!(runsFor(test, ad, data) || {}).d7; // the Day-7 / full-run blocks replace it
   const c = test.conditions || {};
   return html`<div class=${'panel' + (test.status === 'active' ? ' accent' : '')}>
     <div class="row"><h2>${test.stage === 2 ? 'Stage 2 · Main' : 'Stage 1 test'}</h2><span class="spacer"></span>
@@ -848,13 +903,28 @@ function TestPanel({ data, test, rules, econ, setModal }) {
       <button class="link small" onClick=${() => setModal({ type: EditTestForm, props: { testId: test.id, adId: test.ad_id } })}>Edit</button></div>
     ${test.status === 'active' && test.stage === 1 && html`<div class=${'status ' + (st.final || st.onTrack ? 'good' : st.early ? 'bad' : st.behind ? 'warn' : 'live')}>${st.text}</div>`}
     ${test.status !== 'active' && test.result && html`<div class=${'status ' + (toneOf(test.result) === 'pass' ? 'good' : toneOf(test.result) === 'fail' ? 'bad' : 'warn')}><b>${(R.RESULTS[test.result] || {}).label || test.result}</b>${test.result_reason ? ' · ' + test.result_reason : ''}${test.override_reason ? html`<br/><span class="small">Your call: ${test.override_reason}</span>` : ''}</div>`}
-    ${m && html`<div class="metrics">
+    ${test.stage === 1 && (() => {
+      const rr = runsFor(test, ad, data); if (!rr) return null;
+      const done = test.status !== 'active';
+      if (!done && !(rr.windowDone && rr.after && rr.after.spend)) return null;
+      const lc = done && lateChange(test, rr), tr = trendAfter(rr);
+      const ack = async () => { await be.update('tests', test.id, { conditions: { ...(test.conditions || {}), lateAck: lc.now } }); await reload(); say('Kept as filed'); };
+      return html`<div class="stack" style="gap:8px">
+        <${RunBlock} title="Day-7 result" sub=${`${R.shortDate(rr.from)} to ${R.shortDate(rr.end)}${rr.from < test.start_date ? ' (incl. partial launch day)' : ''}`} m=${rr.d7} />
+        <${RunBlock} title=${done ? 'Full run' : 'Full run so far'} sub=${`${R.shortDate(rr.from)} to ${rr.lastDay ? R.shortDate(rr.lastDay) : '—'}${rr.off ? ' · turned off ' + R.shortDate(rr.off) : ''}`} m=${rr.full} />
+        ${rr.after && rr.after.spend > 0 && html`<div class="small muted">After day 7: ${R.money(rr.after.spend)} spent, ${rr.after.purchases} buys, ${R.xroas(rr.after.roas)} ROAS.${tr ? ' ' + tr + '.' : ''}</div>`}
+        ${done && slipped(test, rr) && html`<div class="status bad small"><b>${SLIP_TEXT}</b></div>`}
+        ${lc && html`<div class="status warn small"><b>Newer files changed the Day-7 result.</b> When you finalized, your rules said ${R.RESULTS[lc.was].label}. With the latest numbers they say ${R.RESULTS[lc.now].label}. Your saved result hasn't been changed.
+          <div class="row" style="margin-top:6px"><button class="btn sm" onClick=${() => setModal({ type: FinalizeForm, props: { testId: test.id } })}>Review and re-file</button><button class="btn sm ghost" onClick=${ack}>Keep as filed</button></div></div>`}
+      </div>`; })()}
+    ${test.stage === 1 && test.status === 'stopped' && !test.result && html`<div class="row"><span class="small muted grow">This test was closed without a result.</span><button class="btn sm" onClick=${() => setModal({ type: FinalizeForm, props: { testId: test.id } })}>Record result</button></div>`}
+    ${m && !hideOld && html`<div class="metrics">
       <div class="metric"><small>Spend</small><b>${R.money(m.spend)}</b></div><div class="metric"><small>Buys</small><b>${m.purchases}</b></div>
       <div class=${'metric ' + (m.cpa != null ? (m.cpa <= rules.passACpa ? 'good' : 'bad') : '')}><small>CPA</small><b>${R.money(m.cpa)}</b></div>
       <div class=${'metric ' + (m.roas != null ? (vb && vb.band === 'above' ? 'good' : vb && vb.band === 'below' ? 'bad' : '') : '')}><small>ROAS${m.revenueEstimated ? '*' : ''}</small><b>${R.xroas(m.roas)}</b></div>
       <div class="metric"><small>Avg order</small><b>${R.money(m.aov)}</b></div><div class="metric"><small>CTR</small><b>${R.pct(m.ctr)}</b></div>
       ${m.hookRate != null && html`<div class="metric"><small>Hook rate</small><b>${R.pct(m.hookRate)}</b></div>`}<div class="metric"><small>Freq</small><b>${m.frequency != null ? Number(m.frequency).toFixed(2) : '—'}</b></div></div>`}
-    ${test.stage === 1 && html`<${ProfitLine} econ=${econ} m=${m} product=${data.products.find((p) => p.id === test.product_id)} />`}
+    ${test.stage === 1 && html`<${ProfitLine} econ=${econ} m=${hideOld ? runsFor(test, ad, data).full : m} product=${data.products.find((p) => p.id === test.product_id)} />`}
     ${m && m.aov != null && m.aov < econ.aov * 0.9 && html`<div class="status warn">Orders on this ad average ${R.money(m.aov)}, under your ${R.money(econ.aov)} average. The offer may be pulling order size down.</div>`}
     ${dg && dg.steps.length > 0 && html`<div class="stack" style="gap:6px">${dg.steps.map((s) => html`<div class="meter"><span>${s.label}</span><span class="trk"><i style=${`width:${Math.min(100, s.value * (s.key === 'stop' ? 30 : s.key === 'cart' ? 3 : 1.6))}%;background:${s.ok ? 'var(--pass)' : 'var(--mid)'}`}></i></span><span class="mono" style="text-align:right">${s.value.toFixed(1)}%</span></div>`)}
       ${dg.advice && html`<span class="small" style="color:var(--mid)">${dg.advice}</span>`}</div>`}
@@ -1050,36 +1120,68 @@ function CheckinForm(ctx) {
   <//>`;
 }
 
+// Two numbers side by side: the standard window and the full run.
+function RunBlock({ title, sub, m }) {
+  if (!m) return null;
+  return html`<div class="stack" style="gap:6px"><div class="small"><b>${title}</b> <span class="muted">${sub}</span></div>
+    <div class="metrics"><div class="metric"><small>Spend</small><b>${R.money(m.spend)}</b></div><div class="metric"><small>Buys</small><b>${m.purchases}</b></div>
+      <div class="metric"><small>Value</small><b>${R.money(m.revenue)}</b></div><div class="metric"><small>CPA</small><b>${R.money(m.cpa)}</b></div><div class="metric"><small>ROAS</small><b>${R.xroas(m.roas)}</b></div></div></div>`;
+}
+const SLIP_TEXT = 'Passed Stage 1, but performance slipped after Day 7. Review before advancing.';
+
 function FinalizeForm(ctx) {
   const { data, testId, close, reload, say } = ctx;
   const test = data.tests.find((t) => t.id === testId); const product = data.products.find((p) => p.id === test.product_id);
+  const ad = data.ads.find((a) => a.id === test.ad_id) || {};
   const rules = R.rulesOf(product), econ = R.econOf(product);
+  const c0 = test.conditions || {};
+  const [off, setOff] = useState(c0.stoppedOn || R.today());
   const cps = data.checkpoints.filter((c) => c.test_id === test.id).sort((a, b) => a.day - b.day);
-  const last = cps[cps.length - 1]; const m = last ? R.metrics(last, econ.aov) : null;
-  const c = R.classify(m, rules, last);
-  const early = last && last.day < (test.planned_days || rules.plannedDays);
+  const last = cps[cps.length - 1];
+  const runs = runsFor(test, ad, data, off);
+  // The Day-7 result comes from your files when they cover the test (newest numbers, late sales included);
+  // otherwise from the typed check-ins.
+  const m = runs && runs.d7 ? runs.d7 : last ? R.metrics(last, econ.aov) : null;
+  const c = runs && runs.d7 ? { result: runs.rule, evidence: runs.evidence } : R.classify(m, rules, last);
+  const end = runs ? runs.end : test.start_date ? R.addDays(test.start_date, (test.planned_days || rules.plannedDays) - 1) : null;
+  const early = end && off < end;
   const [pick, setPick] = useState(c.result || 'insufficient'); const [why, setWhy] = useState('');
   const events = data.events.filter((e) => (!e.product_id || e.product_id === test.product_id) && test.start_date && e.day >= test.start_date && e.day <= R.addDays(test.start_date, test.planned_days || 7));
+  const trend = trendAfter(runs);
+  const slip = runs && isPassRes(pick) && runs.after && runs.after.spend > 0 && runs.full.roas != null && runs.full.roas < rules.failRoas;
   const go = async () => {
+    if (!c.result) { say('No numbers yet. Add your Ads Manager file first.'); return; }
     if (pick !== c.result && !why.trim()) { say('Add a reason when you change the result.'); return; }
     const strong = pick === 'strong_pass';
-    await be.update('tests', test.id, { status: 'complete', result: pick, strong, result_reason: c.evidence.join(' '), override_reason: pick !== c.result ? why : null });
-    const fad = data.ads.find((a) => a.id === test.ad_id) || {};
-    await be.update('ads', test.ad_id, { stage: R.stageForResult(pick), result: pick, tags: { ...(fad.tags || {}), retest: R.isRetestResult(pick), ready: false } });
-    await be.insert('decisions', { product_id: test.product_id, ad_id: test.ad_id, test_id: test.id, kind: 'result', choice: `Filed as ${R.RESULTS[pick].label}`, reason: why });
-    await reload(); close(); say('Filed in ' + R.stageLabel(R.stageForResult(pick)));
+    const snap = (x) => (x ? { spend: round2(x.spend), purchases: x.purchases, revenue: round2(x.revenue) } : null);
+    const conditions = { ...c0, stoppedOn: off, d7: { ...snap(m), end, rule: c.result }, full: runs ? { ...snap(runs.full), lastDay: runs.lastDay } : null };
+    delete conditions.lateAck;
+    await be.update('tests', test.id, { status: 'complete', result: pick, strong, result_reason: (c.evidence || []).join(' '), override_reason: pick !== c.result ? why : null, conditions });
+    // Test result and lifecycle stay separate: an ad you already moved out of Testing stays where you put it.
+    const move = ad.stage === 'testing';
+    await be.update('ads', test.ad_id, { ...(move ? { stage: R.stageForResult(pick) } : {}), result: pick, tags: { ...(ad.tags || {}), retest: R.isRetestResult(pick), ready: false } });
+    await be.insert('decisions', { product_id: test.product_id, ad_id: test.ad_id, test_id: test.id, kind: 'result', day: off, choice: `Filed as ${R.RESULTS[pick].label}`, reason: why });
+    await reload(); close(); say(move ? 'Filed in ' + R.stageLabel(R.stageForResult(pick)) : 'Result saved');
   };
-  return html`<${Modal} title="Finalize the test" onClose=${close}>
-    ${early && html`<div class="banner">The planned window isn't finished (last check-in was day ${last.day}). Finalizing now is your call.</div>`}
-    ${!m && html`<div class="banner">No numbers yet. Add results first.</div>`}
-    ${m && html`<div class="status ${toneOf(c.result) === 'pass' ? 'good' : toneOf(c.result) === 'fail' ? 'bad' : 'warn'}"><b>Test rule says: ${R.RESULTS[c.result].label}</b><ul style="margin:6px 0 0;padding-left:18px">${c.evidence.map((x) => html`<li>${x}</li>`)}</ul><div class="small" style="margin-top:6px">Files into: <b>${R.stageLabel(R.stageForResult(pick))}</b></div></div>`}
-    <${ProfitLine} econ=${econ} m=${m} product=${product} />
+  return html`<${Modal} title="Finalize the test" sub=${ad.base_name} onClose=${close}>
+    <div class="form">
+      <${Field} label="Date you turned the ad off"><input type="date" value=${off} onInput=${(e) => setOff(e.target.value || R.today())} /><//>
+    </div>
+    ${early && html`<div class="banner">The 7 days aren't finished (day 7 is ${end}). Finalizing now is your call.</div>`}
+    ${!m && html`<div class="banner">No numbers yet. Add your Ads Manager file first.</div>`}
+    ${m && html`<div class="status ${toneOf(c.result) === 'pass' ? 'good' : toneOf(c.result) === 'fail' ? 'bad' : 'warn'}"><b>Day-7 result, your rules say: ${R.RESULTS[c.result].label}</b><ul style="margin:6px 0 0;padding-left:18px">${(c.evidence || []).map((x) => html`<li>${x}</li>`)}</ul><div class="small" style="margin-top:6px">${ad.stage === 'testing' ? html`Files into: <b>${R.stageLabel(R.stageForResult(pick))}</b>` : html`The ad stays in <b>${R.stageLabel(ad.stage)}</b>.`}</div></div>`}
+    <${RunBlock} title="Day-7 result" sub=${runs ? `${R.shortDate(runs.from)} to ${R.shortDate(runs.end)}${runs.from < test.start_date ? ' (incl. partial launch day)' : ''}` : 'from your check-ins'} m=${m} />
+    ${runs && html`<${RunBlock} title="Full run" sub=${`${R.shortDate(runs.from)} to ${runs.lastDay ? R.shortDate(runs.lastDay) + ' (last day with spend)' : '—'} · turned off ${R.shortDate(off)}`} m=${runs.full} />`}
+    ${runs && runs.after && runs.after.spend > 0 && html`<div class="small muted">After day 7: ${R.money(runs.after.spend)} spent, ${runs.after.purchases} buys, ${R.xroas(runs.after.roas)} ROAS. ${trend || ''}.</div>`}
+    ${slip && html`<div class="status bad small"><b>${SLIP_TEXT}</b></div>`}
+    ${!runs && m && html`<div class="tiny muted">No Ads Manager file rows for this ad yet, so there's no full run. Add your file to see it.</div>`}
+    <${ProfitLine} econ=${econ} m=${runs ? runs.full : m} product=${product} />
     ${events.length > 0 && html`<div class="banner">Changes logged during this test: ${events.map((e) => `${e.day} ${e.kind}`).join('; ')}. If they distorted it, file it as "Not a fair test".</div>`}
     <div class="form">
       <${Field} label="File it as"><select value=${pick} onChange=${(e) => setPick(e.target.value)}>${Object.entries(R.RESULTS).filter(([, v]) => !v.main).map(([k, v]) => html`<option value=${k}>${v.label}${k === c.result ? ' (your rules)' : ''}</option>`)}</select><//>
       <${Field} full label="Reason, if you change it"><input value=${why} onInput=${(e) => setWhy(e.target.value)} /><//>
     </div>
-    <div class="row"><button class="btn primary" onClick=${go}>File result</button><button class="btn ghost" onClick=${close}>Not yet</button></div>
+    <div class="row"><button class="btn primary" onClick=${go}>Save result</button><button class="btn ghost" onClick=${close}>Not yet</button></div>
   <//>`;
 }
 
@@ -1205,6 +1307,11 @@ function Today(ctx) {
     if (st.early) items.push({ tone: 'red', title: `Pause? ${displayName(ad)}`, sub: st.text, tag: 'DECIDE', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) });
     if (st.final) items.push({ tone: 'blue', title: `Finalize: ${displayName(ad)}`, sub: `${p.name} · window complete`, tag: 'TODAY', go: () => setModal({ type: FinalizeForm, props: { testId: t.id } }) });
     else if (st.due.length) items.push({ tone: 'amber', title: `Day ${st.due[st.due.length - 1]} results: ${displayName(ad)}`, sub: `${p.name} · day ${st.day} of ${st.planned}`, tag: 'DUE', go: () => setModal({ type: CheckinForm, props: { testId: t.id } }) });
+  }
+  for (const t of data.tests.filter((x) => x.stage === 1 && x.status === 'complete')) {
+    const ad = data.ads.find((a) => a.id === t.ad_id); if (!ad) continue;
+    const rr = runsFor(t, ad, data), lc = lateChange(t, rr);
+    if (lc) items.push({ tone: 'amber', title: `Check result: ${displayName(ad)}`, sub: `Newer files: your rules now say ${R.RESULTS[lc.now].label} (filed as ${R.RESULTS[t.result] ? R.RESULTS[t.result].label : t.result}).`, tag: 'REVIEW', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) });
   }
   for (const p of products) {
     const bh = benchHealth(data, p);
@@ -1435,7 +1542,7 @@ function MetaDrop({ data, reload, say, compact }) {
       const unmatched = [...new Set(f.rows.filter((r) => r.spend > 0 && !known.has(normName(r.ad_name))).map((r) => r.ad_name))];
       await reload();
       setSt({ ok: true, msg: `Added ${f.days.length === 1 ? f.days[0] : f.days[0] + ' to ' + f.days[f.days.length - 1]}: ${f.rows.length} ad rows, ${R.money0(f.spend)} spend.`
-        + (filled.length ? ` Filled check-ins: ${filled.join(', ')}.` : '') + (f.ranged ? ` Skipped ${f.ranged} rows that covered several days.` : '') + (f.empty ? ` Skipped ${f.empty.toLocaleString()} rows for ads that didn't run.` : '') + (f.notBuys && f.notBuys.length ? ` ${f.notBuys.length} ad${f.notBuys.length > 1 ? 's' : ''} optimize for something other than purchases, so their buys show as 0.` : ''), unmatched });
+        + (filled.length ? ` Filled check-ins: ${filled.join(', ')}.` : '') + (f.ranged ? ` Skipped ${f.ranged} rows that covered several days.` : '') + (f.empty ? ` Skipped ${f.empty.toLocaleString()} rows for ads that didn't run.` : '') + (f.attribution && f.attribution.length ? ` Attribution in this file: ${f.attribution.join(', ')}.` : '') + (f.notBuys && f.notBuys.length ? ` ${f.notBuys.length} ad${f.notBuys.length > 1 ? 's' : ''} optimize for something other than purchases, so their buys show as 0.` : ''), unmatched });
       say('Ads Manager file added');
     } catch (e) { setSt({ err: true, msg: e.message }); }
   };
