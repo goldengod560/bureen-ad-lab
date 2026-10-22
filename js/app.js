@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=44';
-import * as R from './rules.js?v=44';
-import { importHistory } from './importer.js?v=44';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=44';
+import { createBackend } from './data.js?v=45';
+import * as R from './rules.js?v=45';
+import { importHistory } from './importer.js?v=45';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=45';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -313,7 +313,9 @@ function cardInfo(ad, ctx) {
   }
   if (ad.stage === 'main') {
     const trial = data.tests.some((x) => x.ad_id === ad.id && x.stage === 2 && x.status === 'active');
-    return { line: stats || 'In Main', chip: trial ? 'On trial' : tags.fatiguing ? 'Fatiguing' : null, tone: trial ? 'live' : 'mid', glow: tags.fatiguing ? 'mid' : 'pass' };
+    const h = mainHealth(ad, data, product);
+    const chip = trial ? ['On trial', 'live'] : tags.fatiguing ? ['Fatiguing', 'mid'] : h && h.money === 'below' ? ['Below break-even', 'fail'] : h && h.creative === 'fatigue' ? ['Possible fatigue', 'mid'] : null;
+    return { line: stats || 'In Main', chip: chip && chip[0], tone: chip && chip[1], glow: tags.fatiguing ? 'mid' : 'pass' };
   }
   if (ad.stage === 'next') {
     const q = data.ads.filter((a) => a.stage === 'next' && a.product_id === ad.product_id).sort((a, b) => R.queueOf(a) - R.queueOf(b));
@@ -852,10 +854,10 @@ function AdDetail(ctx) {
           ${ad.launched_on && html`<span class="chip t-muted">Live ${ad.launched_on}</span>`}
         </div>
         ${ad.setup_era === 'era1' && html`<div class="status warn small">${R.ERAS.era1.note}</div>`}
-        ${ad.stage === 'main' && (() => { const f = fatigueSignals(data, product).find((x) => x.ad.id === ad.id); return f && html`<div class="status warn small"><b>May be fatiguing.</b> ${fatigueText(f)}</div>`; })()}
-        ${(() => { const rows = rowsForAd(ad, data.meta_days); if (!rows.length) return null; const t = sumRows(rows.filter((r) => r.day >= R.addDays(R.today(), -7))), all = sumRows(rows);
+        ${ad.stage === 'main' && html`<${HealthPanel} ad=${ad} data=${data} product=${product} />`}
+        ${(() => { const rows = rowsForAd(ad, data.meta_days); if (!rows.length) return null; const hw = healthWindow(data); const t = sumRows(rows.filter((r) => hw && r.day >= hw.a && r.day <= hw.end)), all = sumRows(rows);
           return html`<div class="panel"><h2>From your Ads Manager files</h2><div class="metrics">
-            <div class="metric"><small>Last 7 days</small><b>${R.money0(t.spend)}</b></div><div class="metric"><small>7d ROAS</small><b>${R.xroas(t.roas)}</b></div><div class="metric"><small>7d CPA</small><b>${R.money(t.cpa)}</b></div>
+            <div class="metric"><small>Last 7 days${hw ? ' · ' + R.shortDate(hw.a) + '–' + R.shortDate(hw.end) : ''}</small><b>${R.money0(t.spend)}</b></div><div class="metric"><small>7d ROAS</small><b>${R.xroas(t.roas)}</b></div><div class="metric"><small>7d CPA</small><b>${R.money(t.cpa)}</b></div>
             <div class="metric"><small>All files</small><b>${R.money0(all.spend)}</b></div><div class="metric"><small>ROAS</small><b>${R.xroas(all.roas)}</b></div><div class="metric"><small>Buys</small><b>${Math.round(all.purchases)}</b></div></div>
             ${ad.stage !== 'testing' && html`<${ProfitLine} econ=${R.econOf(product)} m=${{ purchases: all.purchases, roas: all.roas, cpa: all.cpa, aov: all.purchases ? all.revenue / all.purchases : null }} product=${product} />`}</div>`; })()}
         ${actions.length > 0 && html`<div class="row">${actions}</div>`}
@@ -925,7 +927,7 @@ function TestPanel({ data, test, rules, econ, setModal, reload, say }) {
       <div class=${'metric ' + (m.cpa != null ? (m.cpa <= rules.passACpa ? 'good' : 'bad') : '')}><small>CPA</small><b>${R.money(m.cpa)}</b></div>
       <div class=${'metric ' + (m.roas != null ? (vb && vb.band === 'above' ? 'good' : vb && vb.band === 'below' ? 'bad' : '') : '')}><small>ROAS${m.revenueEstimated ? '*' : ''}</small><b>${R.xroas(m.roas)}</b></div>
       <div class="metric"><small>Avg order</small><b>${R.money(m.aov)}</b></div><div class="metric"><small>CTR</small><b>${R.pct(m.ctr)}</b></div>
-      ${m.hookRate != null && html`<div class="metric"><small>Hook rate</small><b>${R.pct(m.hookRate)}</b></div>`}<div class="metric"><small>Freq</small><b>${m.frequency != null ? Number(m.frequency).toFixed(2) : '—'}</b></div></div>`}
+      ${m.hookRate != null && html`<div class="metric"><small>Hook rate</small><b>${R.pct(m.hookRate)}</b></div>`}</div>`}
     ${test.stage === 1 && html`<${ProfitLine} econ=${econ} m=${hideOld ? runsFor(test, ad, data).full : m} product=${data.products.find((p) => p.id === test.product_id)} />`}
     ${m && m.aov != null && m.aov < econ.aov * 0.9 && html`<div class="status warn">Orders on this ad average ${R.money(m.aov)}, under your ${R.money(econ.aov)} average. The offer may be pulling order size down.</div>`}
     ${dg && dg.steps.length > 0 && html`<div class="stack" style="gap:6px">${dg.steps.map((s) => html`<div class="meter"><span>${s.label}</span><span class="trk"><i style=${`width:${Math.min(100, s.value * (s.key === 'stop' ? 30 : s.key === 'cart' ? 3 : 1.6))}%;background:${s.ok ? 'var(--pass)' : 'var(--mid)'}`}></i></span><span class="mono" style="text-align:right">${s.value.toFixed(1)}%</span></div>`)}
@@ -1320,10 +1322,13 @@ function Today(ctx) {
     if (bh.urgent) items.unshift({ tone: 'red', title: `${p.name}: Bench is ${bh.bench ? 'low' : 'empty'} and Main is fatiguing`, sub: `${bh.fatiguing.map((a) => a.base_name).join(', ')} fatiguing. ${bh.bench} of ${bh.target} tested backups ready. Test now so September doesn't repeat.`, tag: 'ACT', go: () => { setPid(p.id); setView('board'); } });
     else if (bh.low && bh.main) items.push({ tone: 'amber', title: `${p.name}: Bench under target`, sub: `${bh.bench} of ${bh.target} tested backups ready.`, tag: 'PLAN', go: () => { setPid(p.id); setView('board'); } });
   }
-  for (const p of products) for (const f of fatigueSignals(data, p)) {
-    if (f.ad.tags && f.ad.tags.fatiguing) continue;
-    items.unshift({ tone: 'amber', title: `${f.ad.base_name} may be fatiguing`, sub: fatigueText(f) + ' Open it and mark it fatiguing if you agree.', tag: 'CHECK', go: () => setModal({ type: AdDetail, props: { adId: f.ad.id } }) });
+  for (const p of products) for (const ad of data.ads.filter((x) => x.product_id === p.id && x.stage === 'main')) {
+    const h = mainHealth(ad, data, p); if (!h) continue;
+    const t = healthText(h);
+    if (h.money === 'below') items.unshift({ tone: 'red', title: `${displayName(ad)}: below break-even (last 7 days)`, sub: t.m, tag: 'CHECK', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) });
+    if (h.creative === 'fatigue' && !(ad.tags || {}).fatiguing) items.push({ tone: 'amber', title: `${displayName(ad)}: possible fatigue`, sub: t.c, tag: 'CHECK', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) });
   }
+
   const lastMeta = data.meta_days.reduce((m, r) => (r.day > m ? r.day : m), '');
   if (!lastMeta || lastMeta < R.addDays(R.today(), -1)) items.push({ tone: 'blue', title: lastMeta ? `Add yesterday's Ads Manager file (last one: ${lastMeta})` : 'Add your first Ads Manager file', sub: 'Keeps check-ins, fatigue warnings and Stats up to date.', tag: 'DAILY', go: () => setView('stats') });
   const ready = data.ads.filter((a) => a.stage === 'next').sort((a, b) => R.queueOf(a) - R.queueOf(b));
@@ -1506,23 +1511,77 @@ async function autoCheckins(data) {
   return filled;
 }
 
-// Main ads whose last 7 days look worse than the 7 before. A suggestion only: you decide.
-function fatigueSignals(data, product) {
-  const md = data.meta_days; if (!md.length) return [];
-  const rules = R.rulesOf(product);
-  const last = md.reduce((m, r) => (r.day > m ? r.day : m), '');
-  const a = R.addDays(last, -6), b = R.addDays(last, -13), be7 = R.addDays(last, -7);
-  return data.ads.filter((x) => x.product_id === product.id && x.stage === 'main').map((ad) => {
-    const rows = rowsForAd(ad, md);
-    const now = sumRows(rows.filter((r) => r.day >= a)), prev = sumRows(rows.filter((r) => r.day >= b && r.day <= be7));
-    if (now.spend < rules.fatigueMinSpend || prev.spend < rules.fatigueMinSpend) return null;
-    const cpaUp = now.cpa && prev.cpa ? (now.cpa / prev.cpa - 1) * 100 : now.purchases === 0 ? 100 : 0;
-    const roasDown = prev.roas ? (1 - (now.roas || 0) / prev.roas) * 100 : 0;
-    if (cpaUp >= rules.fatigueCpaUp || roasDown >= rules.fatigueRoasDown) return { ad, now, prev, cpaUp, roasDown, last };
-    return null;
-  }).filter(Boolean);
+// ---------- Main ad health ----------
+// One set of 7-day windows used everywhere: the last 7 complete days your files cover (never today's partial day).
+function healthWindow(data) {
+  const last = (data.meta_days || []).reduce((m, r) => (r.day > m ? r.day : m), '');
+  if (!last) return null;
+  const y = R.addDays(R.today(), -1), end = last < y ? last : y;
+  return { end, a: R.addDays(end, -6), pb: R.addDays(end, -13), pe: R.addDays(end, -7), r: R.addDays(end, -2) };
 }
-const fatigueText = (f) => `CPA ${R.money(f.prev.cpa)} → ${R.money(f.now.cpa)}, ROAS ${R.xroas(f.prev.roas)} → ${R.xroas(f.now.roas)} (last 7 days vs the 7 before)${f.now.frequency ? `, frequency ${f.now.frequency.toFixed(1)}` : ''}.`;
+const linkCtr = (t) => (t && t.impressions && t.link_clicks ? t.link_clicks / t.impressions * 100 : null);
+// Two separate checks: creative health (is the ad wearing out?) and money (is it above break-even?).
+// Suggestions only: nothing is paused, moved or marked automatically.
+function mainHealth(ad, data, product) {
+  const w = healthWindow(data); if (!w) return null;
+  const rules = R.rulesOf(product), econ = R.econOf(product);
+  const rows = rowsForAd(ad, data.meta_days);
+  const pick = (a, b) => sumRows(rows.filter((r) => r.day >= a && r.day <= b));
+  const cur = pick(w.a, w.end), prev = pick(w.pb, w.pe), rec = pick(w.r, w.end);
+  const c0 = linkCtr(prev), c1 = linkCtr(cur), c3 = linkCtr(rec);
+  let creative = 'none', roasDown = null, cpaUp = null, ctrDown = null;
+  if (cur.spend >= rules.fatigueMinSpend && prev.spend >= rules.fatigueMinSpend) {
+    roasDown = prev.roas ? (1 - (cur.roas || 0) / prev.roas) * 100 : 0;
+    cpaUp = prev.cpa && cur.cpa ? (cur.cpa / prev.cpa - 1) * 100 : prev.purchases && !cur.purchases ? 100 : 0;
+    const decline = roasDown >= rules.fatigueRoasDown || cpaUp >= rules.fatigueCpaUp;
+    ctrDown = c0 && c1 != null ? (1 - c1 / c0) * 100 : null;
+    const ctrSig = ctrDown != null && ctrDown >= rules.fatigueCtrDown;
+    // The last 3 days only confirm direction (still weaker than the week before), not a second percentage test.
+    const persist = rec.spend > 0 && (prev.roas == null || (rec.roas || 0) < prev.roas) && (c3 == null || c0 == null || c3 < c0);
+    creative = !decline ? 'healthy' : ctrSig && persist ? 'fatigue' : 'cooling';
+  }
+  let money = 'uncertain', v = null, be = null;
+  if (econ.set && cur.spend > 0) {
+    if (cur.purchases > 0) { v = R.vsBreakEven(econ, { purchases: cur.purchases, roas: cur.roas, cpa: cur.cpa, aov: cur.revenue / cur.purchases }); if (v && !v.missing) money = v.band; }
+    else { be = R.beAt(econ, econ.aov); if (be && be.cpa && cur.spend >= 2 * be.cpa) money = 'below'; }
+  }
+  return { w, cur, prev, rec, c0, c1, creative, money, v, be, roasDown, cpaUp, ctrDown, limited: cur.purchases < 5, econSet: econ.set };
+}
+const CREATIVE = { healthy: ['Healthy', 'pass'], cooling: ['Cooling off', 'muted'], fatigue: ['Possible fatigue', 'mid'], none: ['Not enough data', 'muted'] };
+const MONEY = { above: ['Above break-even', 'pass'], near: ['Near break-even', 'mid'], below: ['Below break-even', 'fail'], uncertain: ['Economics uncertain', 'muted'] };
+function healthText(h) {
+  const d = `ROAS ${R.xroas(h.prev.roas)} → ${R.xroas(h.cur.roas)}, CPA ${R.money(h.prev.cpa)} → ${R.money(h.cur.cpa)}`;
+  const ctr = h.c0 != null && h.c1 != null ? `, link CTR ${h.c0.toFixed(2)}% → ${h.c1.toFixed(2)}%` : '';
+  const c = h.creative === 'none' ? `Needs at least $50 spend in each of the two weeks to judge.`
+    : h.creative === 'healthy' ? `No meaningful decline (${d}${ctr}).`
+    : h.creative === 'cooling' ? `Recent CPA up and ROAS down (${d}${ctr}); monitor. Not enough evidence of creative fatigue.`
+    : `${d}${ctr}, and the last 3 days are still weaker. Your call whether to mark it fatiguing.`;
+  const m = !h.econSet ? 'Costs not set for this product.'
+    : h.v && !h.v.missing ? `${R.xroas(h.cur.roas)} vs ${R.xroas(h.v.be.roas)} break-even at its ${R.money(h.v.V)} average order (estimate).`
+    : h.money === 'below' ? `${R.money(h.cur.spend)} spent with no purchases.` : 'Too little spend to tell.';
+  return { c: c + (h.limited && h.creative !== 'none' ? ' Limited evidence: fewer than 5 purchases in the last 7 days.' : ''), m };
+}
+// Real frequency from whole-period exports (no daily breakdown). Only compared across equal-length periods.
+function freqCheckpoints(ad) {
+  const list = ((ad.tags || {}).freq || []).slice().sort((a, b) => String(b.to).localeCompare(String(a.to)));
+  const byLen = new Map();
+  for (const f of list) { const n = R.daysBetween(f.from, f.to) + 1; if (!byLen.has(n)) byLen.set(n, []); if (byLen.get(n).length < 2) byLen.get(n).push(f); }
+  return [...byLen.entries()].sort((a, b) => a[0] - b[0]);
+}
+function HealthPanel({ ad, data, product }) {
+  const h = mainHealth(ad, data, product); const fq = freqCheckpoints(ad);
+  if (!h && !fq.length) return null;
+  const t = h && healthText(h);
+  return html`<div class="panel"><h2>Health · last 7 days</h2>
+    ${h && html`<div class="tiny muted">${R.shortDate(h.w.a)} to ${R.shortDate(h.w.end)}, compared with ${R.shortDate(h.w.pb)} to ${R.shortDate(h.w.pe)}</div>
+    <div class="stack" style="gap:6px">
+      <div class="small"><span class=${'chip t-' + CREATIVE[h.creative][1]}>Creative: ${CREATIVE[h.creative][0]}</span> ${t.c}</div>
+      <div class="small"><span class=${'chip t-' + MONEY[h.money][1]}>${MONEY[h.money][0]}</span> ${t.m}</div></div>`}
+    ${fq.length > 0 && html`<div class="small"><b>Real frequency</b> <span class="muted">(from your whole-period exports)</span>
+      ${fq.map(([n, l]) => html`<div class="tiny">${n}-day ${R.shortDate(l[0].from)} to ${R.shortDate(l[0].to)}: <b>${l[0].frequency.toFixed(2)}</b>${l[1] ? ` · previous ${n}-day (${R.shortDate(l[1].from)} to ${R.shortDate(l[1].to)}): ${l[1].frequency.toFixed(2)}` : ''}</div>`)}
+      <div class="tiny muted">Context only. Frequency never decides fatigue on its own.</div></div>`}
+  </div>`;
+}
 
 function MetaFileModal(ctx) {
   return html`<${Modal} title="Add Ads Manager file" sub="One file fills every test, every Main ad and Stats" onClose=${ctx.close}><${MetaDrop} ...${ctx} /><//>`;
@@ -1535,6 +1594,22 @@ function MetaDrop({ data, reload, say, compact }) {
     setSt({ msg: 'Reading ' + file.name + '…' });
     try {
       const f = await readMetaFile(file);
+      if (f.kind === 'freq') {
+        // Whole-period export: save real frequency on each matching ad. No spend or sales are added.
+        const byName = new Map(); f.periods.forEach((x) => { const k = normName(x.ad_name); if (!byName.has(k)) byName.set(k, []); byName.get(k).push(x); });
+        let n = 0;
+        for (const ad of data.ads) {
+          const list = byName.get(normName(ad.base_name)); if (!list) continue;
+          const keep = new Map(((ad.tags || {}).freq || []).map((x) => [x.from + '|' + x.to + '|' + x.adset, x]));
+          list.forEach((x) => keep.set(x.from + '|' + x.to + '|' + x.adset, { from: x.from, to: x.to, adset: x.adset, reach: x.reach, impressions: x.impressions, frequency: x.frequency }));
+          const freq = [...keep.values()].sort((a, b) => String(b.to).localeCompare(String(a.to))).slice(0, 24);
+          await be.update('ads', ad.id, { tags: { ...(ad.tags || {}), freq } }); n++;
+        }
+        const pr = [...new Set(f.periods.map((x) => `${x.from} to ${x.to}`))];
+        await reload();
+        setSt({ ok: true, msg: `Frequency file (${pr.slice(0, 2).join(', ')}${pr.length > 2 ? '…' : ''}): saved real frequency for ${n} ad${n === 1 ? '' : 's'}. No spend or sales were added.` });
+        say('Frequency saved'); return;
+      }
       setSt({ msg: `Saving ${f.rows.length.toLocaleString()} rows…` });
       await be.upsert('meta_days', f.rows.map((r) => ({ ...r, imported_at: new Date().toISOString() })), (d, n) => setSt({ msg: `Saving ${d.toLocaleString()} of ${n.toLocaleString()} rows…` }));
       try { await be.cleanMetaDays(); } catch (e) { /* optional */ }
@@ -1671,10 +1746,10 @@ function Stats(ctx) {
     <section class="panel">
       <div class="row"><h2>Breakdown</h2><span class="spacer"></span><div class="seg wide">${[['ads', 'By ad'], ['angle', 'By angle'], ['camp', 'By campaign']].map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => setTab(k)}>${l}</button>`)}</div></div>
       ${!inRange.length ? html`<div class="empty">No Meta rows in this range.</div>` : html`<div class="tscroll"><table class="t stats">
-        <thead><tr><th>${tab === 'ads' ? 'Ad' : tab === 'angle' ? 'Angle' : 'Campaign'}</th><th>Spend</th><th>Buys</th><th>ROAS</th><th>CPA</th><th>CTR</th><th>Freq</th></tr></thead>
+        <thead><tr><th>${tab === 'ads' ? 'Ad' : tab === 'angle' ? 'Angle' : 'Campaign'}</th><th>Spend</th><th>Buys</th><th>ROAS</th><th>CPA</th><th>CTR</th></tr></thead>
         <tbody>${(tab === 'ads' ? shown.map((r) => ({ k: r.name, t: r.t, ad: r.ad })) : tab === 'angle' ? angleRows : campRows).map((r) => html`<tr class=${r.ad ? 'click' : ''} onClick=${() => r.ad && setModal({ type: AdDetail, props: { adId: r.ad.id } })}>
           <td><span class="cellname">${r.ad && html`<${Media} path=${r.ad.media_path} type=${r.ad.media_type} />`}<span>${r.k}${r.ad ? html`<br/><span class="tiny muted">${R.stageLabel(r.ad.stage)}${r.ad.angle ? ' · ' + r.ad.angle : ''}</span>` : ''}</span></span></td>
-          <td>${R.money0(r.t.spend)}</td><td>${Math.round(r.t.purchases)}</td><td class=${tone(r.t, r.ad)}>${R.xroas(r.t.roas)}</td><td>${R.money(r.t.cpa)}</td><td>${R.pct(r.t.ctr)}</td><td>${r.t.frequency ? r.t.frequency.toFixed(1) : '—'}</td></tr>`)}</tbody></table></div>
+          <td>${R.money0(r.t.spend)}</td><td>${Math.round(r.t.purchases)}</td><td class=${tone(r.t, r.ad)}>${R.xroas(r.t.roas)}</td><td>${R.money(r.t.cpa)}</td><td>${R.pct(r.t.ctr)}</td></tr>`)}</tbody></table></div>
         ${tab === 'ads' && adRows.length > 10 && html`<button class="link small" onClick=${() => setAll(!all)}>${all ? 'Show top 10' : `Show all ${adRows.length}`}</button>`}`}
       <p class="tiny muted" style="margin:0">ROAS and buys here are what Meta reports. MER uses real Shopify revenue. ROAS color: each ad vs. break-even at its own average order.</p>
     </section>`}`;

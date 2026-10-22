@@ -1,6 +1,6 @@
 // Reads an Ads Manager export (CSV or Excel) into one row per ad per day.
 // Export at the Ad level, either one day at a time or with Breakdown → Time → Day.
-import * as R from './rules.js?v=44';
+import * as R from './rules.js?v=45';
 
 function parseCSV(text) {
   const rows = []; let row = [], cell = '', q = false;
@@ -77,15 +77,20 @@ export async function readMetaFile(file) {
   const idx = {};
   for (const [k, pats] of Object.entries(COLS)) idx[k] = head.findIndex((h) => pats.some((p) => p.test(h)));
   if (idx.ad_name < 0) throw new Error('No "Ad name" column. In Ads Manager, export from the Ads tab (ad level).');
-  if (idx.spend < 0) throw new Error('No "Amount spent" column in this file.');
-  const out = new Map(); let ranged = 0, empty = 0; const attr = new Set(); const notBuys = new Set();
-  if (idx.purchases < 0 && idx.results < 0) throw new Error('No purchases in this file. Add the "Purchases" (or "Results") column in Ads Manager and export again.');
+  const out = new Map(); let ranged = 0, empty = 0; const attr = new Set(); const periods = []; const notBuys = new Set();
   for (const r of table.slice(1)) {
     const name = String(r[idx.ad_name] ?? '').trim();
     if (!name) continue; // totals row
     if (idx.attribution >= 0 && String(r[idx.attribution] || '').trim()) attr.add(String(r[idx.attribution]).trim());
     let day = idx.day >= 0 ? toDay(r[idx.day]) : null;
-    if (!day && idx.start >= 0) { const a = toDay(r[idx.start]), b = idx.end >= 0 ? toDay(r[idx.end]) : a; if (a && a === b) day = a; else if (a) { ranged++; continue; } }
+    if (!day && idx.start >= 0) { const a = toDay(r[idx.start]), b = idx.end >= 0 ? toDay(r[idx.end]) : a; if (a && a === b) day = a; else if (a) {
+      ranged++;
+      // A whole-period row (no daily breakdown): keep only its reach / impressions / frequency.
+      const imp = idx.impressions >= 0 ? R.num(r[idx.impressions]) : null, reach = idx.reach >= 0 ? R.num(r[idx.reach]) : null;
+      let freq = idx.frequency >= 0 ? R.num(r[idx.frequency]) : null; if (freq == null && imp && reach) freq = imp / reach;
+      if (b && imp > 0 && reach > 0) periods.push({ ad_name: name, adset: idx.adset >= 0 ? String(r[idx.adset] ?? '').trim() : '', campaign: idx.campaign >= 0 ? String(r[idx.campaign] ?? '').trim() : '', from: a, to: b, reach, impressions: imp, frequency: Math.round(freq * 100) / 100 });
+      continue;
+    } }
     if (!day) continue;
     const g = (k) => (idx[k] >= 0 ? R.num(r[idx[k]]) : null);
     const spend = g('spend') ?? 0;
@@ -108,7 +113,10 @@ export async function readMetaFile(file) {
     out.set(key, row); // a repeated row in the same file replaces the earlier one
   }
   const rows = [...out.values()];
-  if (!rows.length) throw new Error(ranged ? 'This file covers several days per row. Export one day at a time, or add Breakdown → Time → Day.' : empty ? 'No ad spent anything on the days in this file.' : 'No ad rows found in this file.');
+  if (!rows.length && periods.length) return { kind: 'freq', periods };
+  if (idx.spend < 0) throw new Error('No "Amount spent" column in this file.');
+  if (idx.purchases < 0 && idx.results < 0) throw new Error('No purchases in this file. Add the "Purchases" (or "Results") column in Ads Manager and export again.');
+  if (!rows.length) throw new Error(ranged ? 'This file covers several days per row but has no Reach or Impressions to use for frequency. For daily numbers, add Breakdown → Time → Day.' : empty ? 'No ad spent anything on the days in this file.' : 'No ad rows found in this file.');
   const days = [...new Set(rows.map((r) => r.day))].sort();
   return { rows, days, ranged, empty, attribution: [...attr], notBuys: [...notBuys], spend: rows.reduce((s, r) => s + (r.spend || 0), 0) };
 }
