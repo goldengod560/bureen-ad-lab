@@ -255,7 +255,15 @@ export function testDay(test) { return test && test.start_date ? Math.max(0, day
 // Status of a running Stage 1 test. Early numbers are status updates, never a verdict.
 // live = running totals from the Ads Manager files ({ m, day, through }). When the files are newer
 // than the last check-in, the status uses them, so the card always shows the latest numbers.
+// "Keep running": you saw the Pause? alert and chose to keep the ad on. The alert is quieted for this test
+// (the numbers still show), until you undo it.
 export function testStatus(test, cps, rules, aov, live) {
+  const st = testStatusRaw(test, cps, rules, aov, live);
+  const kr = (test.conditions || {}).keepRunning;
+  if (st.early && kr) return { ...st, early: false, kept: true, text: `You chose to keep it running (${shortDate(kr)}). ` + st.text.replace(/^Pause it\? /, '').replace(/ You decide\.$/, '') };
+  return st;
+}
+function testStatusRaw(test, cps, rules, aov, live) {
   const planned = test.planned_days || rules.plannedDays;
   const sorted = [...cps].sort((a, b) => a.day - b.day);
   const last = sorted[sorted.length - 1];

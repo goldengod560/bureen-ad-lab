@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=47';
-import * as R from './rules.js?v=47';
-import { importHistory } from './importer.js?v=47';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=47';
+import { createBackend } from './data.js?v=48';
+import * as R from './rules.js?v=48';
+import { importHistory } from './importer.js?v=48';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=48';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -937,7 +937,9 @@ function TestPanel({ data, test, rules, econ, setModal, reload, say }) {
     <div class="row"><h2>${test.stage === 2 ? 'Stage 2 · Main' : 'Stage 1 test'}</h2><span class="spacer"></span>
       <span class="muted small">${test.start_date ? 'Day 1: ' + test.start_date : ''}${(test.conditions || {}).spendFrom ? ' (live from ' + test.conditions.spendFrom + ')' : ''}${test.budget ? ' · $' + test.budget + '/day' : ''}</span>
       <button class="link small" onClick=${() => setModal({ type: EditTestForm, props: { testId: test.id, adId: test.ad_id } })}>Edit</button></div>
-    ${test.status === 'active' && test.stage === 1 && html`<div class=${'status ' + (st.final || st.onTrack ? 'good' : st.early ? 'bad' : st.behind ? 'warn' : 'live')}>${st.text}</div>`}
+    ${test.status === 'active' && test.stage === 1 && html`<div class=${'status ' + (st.final || st.onTrack ? 'good' : st.early ? 'bad' : st.behind || st.kept ? 'warn' : 'live')}>${st.text}
+      ${st.early && html`<div class="row" style="margin-top:8px"><button class="btn sm" onClick=${async () => { await be.update('tests', test.id, { conditions: { ...(test.conditions || {}), keepRunning: R.today() } }); await be.insert('decisions', { product_id: test.product_id, ad_id: test.ad_id, test_id: test.id, kind: 'keep', day: R.today(), choice: 'Kept running after Pause? alert', reason: '' }); await reload(); say('Keeping it running'); }}>Keep running</button><button class="btn sm ghost" style="color:var(--fail)" onClick=${() => setModal({ type: StopForm, props: { testId: test.id } })}>Stop early</button></div>`}
+      ${st.kept && html`<button class="link small" style="display:block;margin-top:6px" onClick=${async () => { const c = { ...(test.conditions || {}) }; delete c.keepRunning; await be.update('tests', test.id, { conditions: c }); await reload(); say('Alert back on'); }}>Undo: show the Pause? alert again</button>`}</div>`}
     ${test.status !== 'active' && test.result && html`<div class=${'status ' + (toneOf(test.result) === 'pass' ? 'good' : toneOf(test.result) === 'fail' ? 'bad' : 'warn')}><b>${(R.RESULTS[test.result] || {}).label || test.result}</b>${test.result_reason ? ' · ' + test.result_reason : ''}${test.override_reason ? html`<br/><span class="small">Your call: ${test.override_reason}</span>` : ''}</div>`}
     ${test.stage === 1 && (() => {
       const rr = runsFor(test, ad, data); if (!rr) return null;
