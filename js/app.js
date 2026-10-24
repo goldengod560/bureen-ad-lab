@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=48';
-import * as R from './rules.js?v=48';
-import { importHistory } from './importer.js?v=48';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=48';
+import { createBackend } from './data.js?v=49';
+import * as R from './rules.js?v=49';
+import { importHistory } from './importer.js?v=49';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=49';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1641,8 +1641,9 @@ function MetaDrop({ data, reload, say, compact }) {
         }
         const pr = [...new Set(f.periods.map((x) => `${x.from} to ${x.to}`))];
         await reload();
-        setSt({ ok: true, msg: `Frequency file (${pr.slice(0, 2).join(', ')}${pr.length > 2 ? '…' : ''}): saved real frequency for ${n} ad${n === 1 ? '' : 's'}. No spend or sales were added.` });
-        say('Frequency saved'); return;
+        // Most of the time this is a daily export missing its Day breakdown, so say that loudly.
+        setSt({ warn: true, msg: `This file has no daily breakdown (one row per ad for ${pr.slice(0, 2).join(', ')}${pr.length > 2 ? '…' : ''}), so it can't update spend, sales or your tests. To update them, export again with Breakdown → By time → Day. It was saved as a frequency checkpoint only, for ${n} ad${n === 1 ? '' : 's'}.` });
+        say('No daily breakdown: numbers not updated'); return;
       }
       setSt({ msg: `Saving ${f.rows.length.toLocaleString()} rows…` });
       await be.upsert('meta_days', f.rows.map((r) => ({ ...r, imported_at: new Date().toISOString() })), (d, n) => setSt({ msg: `Saving ${d.toLocaleString()} of ${n.toLocaleString()} rows…` }));
@@ -1660,7 +1661,7 @@ function MetaDrop({ data, reload, say, compact }) {
   return html`<div class=${'drop' + (compact ? ' compact' : '')}>
     <label class="btn primary"><input type="file" accept=".csv,.xlsx,.xls" hidden onChange=${(e) => { go(e.target.files[0]); e.target.value = ''; }} />Add Ads Manager file</label>
     <span class="small muted">${last ? `Meta numbers through ${last}.` : 'No Meta numbers yet.'} Export the Ads tab for yesterday (or with Breakdown → Day), CSV or Excel.</span>
-    ${st && html`<div class=${'status small ' + (st.err ? 'bad' : st.ok ? 'good' : 'live')}>${st.msg}
+    ${st && html`<div class=${'status small ' + (st.err ? 'bad' : st.warn ? 'warn' : st.ok ? 'good' : 'live')}>${st.msg}
       ${st.unmatched && st.unmatched.length > 0 && html`<div class="tiny muted" style="margin-top:4px">Not in Ad Lab yet (counted in totals): ${st.unmatched.slice(0, 6).join(' · ')}${st.unmatched.length > 6 ? ` +${st.unmatched.length - 6} more` : ''}</div>`}</div>`}
   </div>`;
 }
@@ -1676,7 +1677,7 @@ function ShopSync({ data, reload, say }) {
   return html`<div class="drop compact">
     <button class="btn" onClick=${go}>Sync Shopify</button>
     <span class="small muted">${last ? 'Last synced ' + new Date(last).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + '. Syncs on its own when you open the app.' : 'Not connected yet.'}</span>
-    ${st && html`<div class=${'status small ' + (st.err ? 'bad' : st.ok ? 'good' : 'live')}>${st.msg}</div>`}
+    ${st && html`<div class=${'status small ' + (st.err ? 'bad' : st.warn ? 'warn' : st.ok ? 'good' : 'live')}>${st.msg}</div>`}
   </div>`;
 }
 
