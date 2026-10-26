@@ -1,9 +1,0 @@
-{
-  "name":"Family NFL Picks",
-  "short_name":"NFL Picks",
-  "start_url":"./",
-  "display":"standalone",
-  "background_color":"#F7F3EA",
-  "theme_color":"#F7F3EA",
-  "icons":[]
-}
