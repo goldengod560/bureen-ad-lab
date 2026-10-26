@@ -1,0 +1,28 @@
+Family NFL Picks v0.9.1 AUDITED FINAL
+
+NO COMMISSIONER MAKE-PICK FEATURE IS INCLUDED.
+
+Included:
+1) Future-game lock fix.
+2) Account-switch draft fix.
+3) Mobile pick-save reliability fix.
+4) Audit hardening:
+   - Background refresh cannot replace the page while somebody is typing or a modal is open.
+   - Margin autosave is quiet so it does not dismiss the phone keyboard mid-entry.
+   - Login keeps the PIN modal until the shared snapshot succeeds.
+   - User-facing Supabase calls have timeouts instead of hanging indefinitely.
+   - Commish Status uses the same strict completed-submission test as game locking.
+   - The lock SQL trigger safely handles DELETE operations.
+   - Submission completeness checks the actual current game IDs, not only matching pick/game counts.
+   - Module files use cache-busting tokens so an old JS module cannot mix with the new app.
+
+SUPABASE
+Run V091_RUN_ONCE_IN_SUPABASE_LOCK_FIX.sql ONCE in a NEW SQL Editor query.
+If you already ran the earlier v0.9.1 lock patch, it is safe to run THIS audited v0.9.1 SQL once; CREATE OR REPLACE updates it without resetting data.
+
+GITHUB
+Upload all website files from this folder to the correct Family-MVP repository, replacing the current site files.
+
+NO RESET
+This does not reset/delete saved picks, margins, points, standings, history, PINs, games, or overrides.
+The SQL can remove only a stale submission marker for a player who is not actually complete; their saved picks remain untouched.
