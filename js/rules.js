@@ -10,7 +10,7 @@ export const DEFAULT_RULES = {
   failRoas: 2.0,
   strongPct: 80,
   collapseDays: 3,
-  earlyDay: 4, earlySpend: 60, earlyMaxPurchases: 1,
+  earlyDay: 4, earlySpend: 60, earlyMaxPurchases: 1, underSpend: 85,
   slots: 2, testingCap: 60,
   stage2Min: 5, stage2Max: 7,
   raiseStep: 20,
@@ -281,7 +281,8 @@ function testStatusRaw(test, cps, rules, aov, live) {
       return { m, day, planned, due, final: false, early: true, live: useLive, text: `Pause it? Early-stop rule met on day ${atDay}: $${m.spend.toFixed(0)} spent, ${m.purchases} purchase${s(m.purchases)}${src}. You decide.` };
     }
     // Under the fail line after a fair amount of spend: say so, and show what it would take to still pass.
-    if (atDay >= rules.earlyDay && m.spend >= rules.earlySpend && (m.roas ?? 0) < rules.failRoas) {
+    // Under the fail line: waits for more spend than the 0–1 sale rule, because single days swing a lot.
+    if (atDay >= rules.earlyDay && m.spend >= (rules.underSpend ?? rules.earlySpend) && (m.roas ?? 0) < rules.failRoas) {
       const left = Math.max(0, planned - atDay);
       const daily = num(test.budget) || m.spend / Math.max(atDay, 1);
       const endSpend = m.spend + left * daily;

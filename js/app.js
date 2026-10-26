@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=49';
-import * as R from './rules.js?v=49';
-import { importHistory } from './importer.js?v=49';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=49';
+import { createBackend } from './data.js?v=50';
+import * as R from './rules.js?v=50';
+import { importHistory } from './importer.js?v=50';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=50';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -892,6 +892,7 @@ function AdDetail(ctx) {
             <div class="metric"><small>Last 7 days${hw ? ' · ' + R.shortDate(hw.a) + '–' + R.shortDate(hw.end) : ''}</small><b>${R.money0(t.spend)}</b></div><div class="metric"><small>7d ROAS</small><b>${R.xroas(t.roas)}</b></div><div class="metric"><small>7d CPA</small><b>${R.money(t.cpa)}</b></div>
             <div class="metric"><small>All files</small><b>${R.money0(all.spend)}</b></div><div class="metric"><small>ROAS</small><b>${R.xroas(all.roas)}</b></div><div class="metric"><small>Buys</small><b>${Math.round(all.purchases)}</b></div></div>
             ${ad.stage !== 'testing' && html`<${ProfitLine} econ=${R.econOf(product)} m=${{ purchases: all.purchases, roas: all.roas, cpa: all.cpa, aov: all.purchases ? all.revenue / all.purchases : null }} product=${product} />`}</div>`; })()}
+        <${TrendPanel} ad=${ad} data=${data} product=${product} />
         ${actions.length > 0 && html`<div class="row">${actions}</div>`}
         <div class="row"><label class="f" style="flex-direction:row;align-items:center;gap:8px">Move to
           <select class="inp" style="width:auto;min-height:36px" value=${ad.stage} onChange=${(e) => (e.target.value === 'testing' && !active ? open(LaunchForm) : move(e.target.value, 'Moved by hand'))}>
@@ -1545,6 +1546,28 @@ async function autoCheckins(data) {
   return filled;
 }
 
+// Daily ROAS as dots with the 7-day ROAS as a line: the bouncing days stay visible, the line shows the trend.
+function TrendPanel({ ad, data, product }) {
+  const rows = rowsForAd(ad, data.meta_days || []);
+  if (!rows.length) return null;
+  const byDay = new Map(); rows.forEach((r) => { const t = byDay.get(r.day) || { spend: 0, revenue: 0, purchases: 0 }; t.spend += +r.spend || 0; t.revenue += +r.revenue || 0; t.purchases += +r.purchases || 0; byDay.set(r.day, t); });
+  const days = [...byDay.keys()].filter((d) => byDay.get(d).spend > 0).sort();
+  if (days.length < 3) return null;
+  const y = R.addDays(R.today(), -1), last = days[days.length - 1] < y ? days[days.length - 1] : y;
+  const first = days[0] > R.addDays(last, -44) ? days[0] : R.addDays(last, -44);
+  const n = R.daysBetween(first, last) + 1; if (n < 3) return null;
+  const labels = Array.from({ length: n }, (_, i) => R.addDays(first, i));
+  const daily = labels.map((d) => { const t = byDay.get(d); return t && t.spend > 0 ? t.revenue / t.spend : null; });
+  const roll = labels.map((d) => { let sp = 0, rv = 0; for (let k = 0; k < 7; k++) { const t = byDay.get(R.addDays(d, -k)); if (t) { sp += t.spend; rv += t.revenue; } } return sp > 0 ? rv / sp : null; });
+  const econ = R.econOf(product), all = sumRows(rows);
+  const be = econ.set ? R.beAt(econ, all.purchases ? all.revenue / all.purchases : econ.aov) : null;
+  const top = Math.max(...roll.filter((v) => v != null), be && be.roas ? be.roas : 0) * 1.8;
+  return html`<div class="panel"><h2>Daily ROAS and 7-day trend</h2>
+    <${LineChart} labels=${labels} cap=${top} fmt=${(v) => v.toFixed(2) + 'x'} refLine=${be && be.roas ? { value: be.roas, label: 'Break-even ' + R.xroas(be.roas) } : null}
+      series=${[{ name: 'Each day', color: '#3D8BFF', values: daily, dots: true }, { name: '7-day ROAS', color: '#3D8BFF', values: roll }]} />
+    <div class="tiny muted">Dots bounce with Meta's good and bad days. Decide on the line. Very high days sit on the top edge; hover for the real number. Today's partial day isn't shown.</div></div>`;
+}
+
 // ---------- Main ad health ----------
 // One set of 7-day windows used everywhere: the last 7 complete days your files cover (never today's partial day).
 function healthWindow(data) {
@@ -1682,14 +1705,15 @@ function ShopSync({ data, reload, say }) {
 }
 
 // Line chart: one money axis, hover crosshair + tooltip.
-function LineChart({ labels, series, fmt, refLine, height = 190 }) {
+function LineChart({ labels, series, fmt, refLine, height = 190, cap }) {
   const [hi, setHi] = useState(null);
   const W = 720, H = height, L = 48, Rt = 10, T = 12, B = 24;
   const vals = series.flatMap((s) => s.values.filter((v) => v != null));
   if (refLine) vals.push(refLine.value);
-  const max = Math.max(1e-9, ...vals) * 1.1;
+  // cap: an upper limit for the scale, so one freak day doesn't squash everything. Points above it sit on the top edge.
+  const max = Math.max(1e-9, cap != null ? Math.min(cap, Math.max(...vals)) : Math.max(...vals)) * 1.1;
   const x = (i) => L + (labels.length <= 1 ? 0 : i * (W - L - Rt) / (labels.length - 1));
-  const y = (v) => T + (H - T - B) * (1 - v / max);
+  const y = (v) => T + (H - T - B) * (1 - Math.min(v, max) / max);
   const ticks = [0, 0.5, 1].map((f) => max / 1.1 * f);
   const step = Math.max(1, Math.ceil(labels.length / 7));
   const move = (e) => { const r = e.currentTarget.getBoundingClientRect(); const px = (e.clientX - r.left) / r.width * W; const i = Math.round((px - L) / ((W - L - Rt) / Math.max(1, labels.length - 1))); setHi(Math.max(0, Math.min(labels.length - 1, i))); };
@@ -1698,10 +1722,11 @@ function LineChart({ labels, series, fmt, refLine, height = 190 }) {
       ${ticks.map((t) => html`<line x1=${L} x2=${W - Rt} y1=${y(t)} y2=${y(t)} class="grid" /><text x=${L - 6} y=${y(t) + 4} class="ax" text-anchor="end">${fmt(t, true)}</text>`)}
       ${labels.map((l, i) => i % step === 0 && html`<text x=${x(i)} y=${H - 6} class="ax" text-anchor="middle">${R.shortDate(l)}</text>`)}
       ${refLine && html`<line x1=${L} x2=${W - Rt} y1=${y(refLine.value)} y2=${y(refLine.value)} class="ref" /><text x=${W - Rt} y=${y(refLine.value) - 5} class="ax" text-anchor="end">${refLine.label}</text>`}
-      ${series.map((s) => { const pts = s.values.map((v, i) => (v == null ? null : `${x(i)},${y(v)}`)).filter(Boolean).join(' '); return html`<polyline points=${pts} fill="none" stroke=${s.color} stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke" />`; })}
+      ${series.filter((s) => s.dots).map((s) => s.values.map((v, i) => v != null && html`<circle cx=${x(i)} cy=${y(v)} r="4" fill=${s.color} fill-opacity="0.6" stroke="var(--panel)" stroke-width="2" vector-effect="non-scaling-stroke" />`))}
+      ${series.filter((s) => !s.dots).map((s) => { const pts = s.values.map((v, i) => (v == null ? null : `${x(i)},${y(v)}`)).filter(Boolean).join(' '); return html`<polyline points=${pts} fill="none" stroke=${s.color} stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke" />`; })}
       ${hi != null && html`<line x1=${x(hi)} x2=${x(hi)} y1=${T} y2=${H - B} class="cross" />${series.map((s) => s.values[hi] != null && html`<circle cx=${x(hi)} cy=${y(s.values[hi])} r="4" fill=${s.color} stroke="var(--panel)" stroke-width="2" vector-effect="non-scaling-stroke" />`)}`}
     </svg>
-    ${series.length > 1 && html`<div class="legend">${series.map((s) => html`<span><i style=${'background:' + s.color}></i>${s.name}</span>`)}</div>`}
+    ${series.length > 1 && html`<div class="legend">${series.map((s) => html`<span><i style=${'background:' + s.color + (s.dots ? ';opacity:.6;border-radius:50%;width:9px;height:9px' : '')}></i>${s.name}</span>`)}</div>`}
     ${hi != null && html`<div class="tip" style=${`left:${Math.min(80, Math.max(8, x(hi) / W * 100))}%`}><b>${labels[hi]}</b>${series.map((s) => html`<div><i style=${'background:' + s.color}></i>${s.name}: ${s.values[hi] == null ? '—' : fmt(s.values[hi])}</div>`)}</div>`}
   </div>`;
 }
@@ -1795,7 +1820,7 @@ const RULE_ROWS = [
   ['Budgets', [['stage1Budget', 'Stage 1 budget per ad set', '$/day'], ['boostedBudget', 'Boosted budget', '$/day'], ['boostAt', 'Boost when 30-day blended ROAS is at least', 'x']]],
   ['Test window', [['plannedDays', 'Test window', 'days'], ['checkins', 'Check-in days', 'day']]],
   ['Testing target (your rule, not break-even)', [['minPurchases', 'Minimum purchases', 'buys'], ['passARoas', 'Pass A: ROAS at least', 'x'], ['passACpa', 'Pass A: CPA at most', '$'], ['passBRoas', 'Pass B: ROAS at least', 'x'], ['passBCpa', 'Pass B: CPA at most', '$'], ['failRoas', 'Fail below ROAS', 'x'], ['strongPct', 'Strong pass: CPA at most', '% of line'], ['collapseDays', 'Back-half collapse window', 'days']]],
-  ['Early stop', [['earlyDay', 'From day', 'day'], ['earlySpend', 'Spend at least', '$'], ['earlyMaxPurchases', 'Purchases at most', 'buys']]],
+  ['Early stop (Pause? alerts)', [['earlyDay', 'From day', 'day'], ['earlySpend', '0–1 sales: spend at least', '$'], ['earlyMaxPurchases', '0–1 sales: purchases at most', 'buys'], ['underSpend', 'Under the fail line: spend at least', '$']]],
   ['Capacity & timing', [['slots', 'Test slots at once', 'slots'], ['testingCap', 'Testing cap, all products', '$/day'], ['stage2Min', 'Stage 2 minimum', 'days'], ['stage2Max', 'Stage 2 maximum', 'days'], ['raiseStep', 'Budget raise step', '%'], ['benchTarget', 'Tested backups to keep on the Bench', 'ads']]],
 ];
 
