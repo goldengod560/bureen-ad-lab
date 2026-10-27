@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=51';
-import * as R from './rules.js?v=51';
-import { importHistory } from './importer.js?v=51';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=51';
+import { createBackend } from './data.js?v=52';
+import * as R from './rules.js?v=52';
+import { importHistory } from './importer.js?v=52';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=52';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1568,7 +1568,7 @@ function TrendPanel({ ad, data, product }) {
   const n = R.daysBetween(first, last) + 1; if (n < 3) return null;
   const days = Array.from({ length: n }, (_, i) => { const d = R.addDays(first, i), t = byDay.get(d) || { spend: 0, revenue: 0, purchases: 0 };
     let sp = 0, rv = 0; for (let k = 0; k < 7; k++) { const u = byDay.get(R.addDays(d, -k)); if (u) { sp += u.spend; rv += u.revenue; } }
-    return { d, ...t, roas: t.spend > 0 ? t.revenue / t.spend : null, roll: sp > 0 ? rv / sp : null }; });
+    return { d, ...t, roas: t.spend > 0 ? t.revenue / t.spend : null, roll: t.spend > 0 && sp > 0 ? rv / sp : null }; }); // no 7-day value on days it didn't run
   const econ = R.econOf(product), all = sumRows(rows);
   const be = econ.set ? R.beAt(econ, all.purchases ? all.revenue / all.purchases : econ.aov) : null;
   const showYear = first.slice(0, 4) !== R.today().slice(0, 4) || last.slice(0, 4) !== first.slice(0, 4);
@@ -1580,7 +1580,10 @@ function TrendPanel({ ad, data, product }) {
   const sMax = Math.max(1, ...days.map((v) => v.spend)) * 1.1;
   const top2 = T1 + H1 + G, yS = (v) => top2 + H2 * (1 - v / sMax);
   const bw = Math.max(2, Math.min(14, step * 0.6));
-  const pts = days.map((v, i) => (v.roll == null ? null : `${x(i)},${yR(v.roll)}`)).filter(Boolean).join(' ');
+  // The line breaks on days the ad didn't run, so it never looks like it was running.
+  const segs = []; let cur = [];
+  days.forEach((v, i) => { if (v.roll == null) { if (cur.length) segs.push(cur); cur = []; } else cur.push(`${x(i)},${yR(v.roll)}`); });
+  if (cur.length) segs.push(cur);
   const lblEvery = Math.max(1, Math.ceil(n / Math.max(3, Math.floor((W - L) / 64))));
   const pick = (e) => { const r = e.currentTarget.getBoundingClientRect(); const i = Math.floor((e.clientX - r.left - L) / step); setHi(i >= 0 && i < n ? i : null); };
   const h = hi != null ? days[hi] : null;
@@ -1592,7 +1595,7 @@ function TrendPanel({ ad, data, product }) {
         <text x=${L} y=${T1 - 1} class="ax">7-day ROAS</text>
         ${[0, rMax / 1.15].map((t) => html`<line x1=${L} x2=${W - Rt} y1=${yR(t)} y2=${yR(t)} class="grid" /><text x=${L - 6} y=${yR(t) + 4} class="ax" text-anchor="end">${t.toFixed(1)}x</text>`)}
         ${be && be.roas && html`<line x1=${L} x2=${W - Rt} y1=${yR(be.roas)} y2=${yR(be.roas)} class="ref" /><text x=${W - Rt} y=${yR(be.roas) - 4} class="ax" text-anchor="end">break-even ${R.xroas(be.roas)}</text>`}
-        <polyline points=${pts} fill="none" stroke="#3D8BFF" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+        ${segs.map((sg) => sg.length === 1 ? html`<circle cx=${sg[0].split(',')[0]} cy=${sg[0].split(',')[1]} r="2.5" fill="#3D8BFF" />` : html`<polyline points=${sg.join(' ')} fill="none" stroke="#3D8BFF" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />`)}
         <text x=${L} y=${top2 - 5} class="ax">Spend each day</text>
         <line x1=${L} x2=${W - Rt} y1=${top2 + H2} y2=${top2 + H2} class="grid" />
         <text x=${L - 6} y=${top2 + 8} class="ax" text-anchor="end">${R.money0(sMax / 1.1)}</text>
@@ -1603,12 +1606,12 @@ function TrendPanel({ ad, data, product }) {
       ${h && html`<div class="tip" style=${`left:${Math.min(W - 90, Math.max(90, x(hi)))}px;top:${T1 + 8}px`}><b>${longDate(h.d, showYear)}</b>
         <div>Spent ${h.spend > 0 ? R.money(h.spend) : '$0 (not running)'}</div>
         ${h.spend > 0 && html`<div>${h.purchases} buy${h.purchases === 1 ? '' : 's'} · that day ${R.xroas(h.roas)}</div>`}
-        <div><i style="background:#3D8BFF"></i>7-day ROAS ${R.xroas(h.roll)}</div></div>`}
+        ${h.roll != null && html`<div><i style="background:#3D8BFF"></i>7-day ROAS (${R.shortDate(R.addDays(h.d, -6))} to ${R.shortDate(h.d)}): ${R.xroas(h.roll)}</div>`}</div>`}
     </div>
-    <div class="tiny muted">Top: the last 7 days' ROAS, recalculated each day, which smooths out Meta's random good and bad days. Bottom: what the ad spent each day. Hover or tap a day for the exact numbers. Today's partial day isn't shown.</div>
+    <div class="tiny muted">Top: ROAS over the 7 days ending on that day, which smooths out Meta's random good and bad days. Gaps are days the ad didn't run. Bottom: what the ad spent each day. Hover or tap a day for the exact numbers. Today's partial day isn't shown.</div>
     <button class="link small" style="align-self:flex-start" onClick=${() => setTable(!table)}>${table ? 'Hide days' : 'Show each day'}</button>
     ${table && html`<div class="tscroll"><table class="t"><thead><tr><th>Day</th><th>Spend</th><th>Buys</th><th>Value</th><th>ROAS</th><th>7-day ROAS</th></tr></thead><tbody>
-      ${days.slice().reverse().map((v) => html`<tr><td>${longDate(v.d, showYear)}</td><td>${v.spend > 0 ? R.money(v.spend) : '—'}</td><td>${v.spend > 0 ? v.purchases : '—'}</td><td>${v.spend > 0 ? R.money(v.revenue) : '—'}</td><td>${v.spend > 0 ? R.xroas(v.roas) : '—'}</td><td>${R.xroas(v.roll)}</td></tr>`)}
+      ${days.slice().reverse().map((v) => html`<tr><td>${longDate(v.d, showYear)}</td><td>${v.spend > 0 ? R.money(v.spend) : '—'}</td><td>${v.spend > 0 ? v.purchases : '—'}</td><td>${v.spend > 0 ? R.money(v.revenue) : '—'}</td><td>${v.spend > 0 ? R.xroas(v.roas) : '—'}</td><td>${v.roll != null ? R.xroas(v.roll) : '—'}</td></tr>`)}
     </tbody></table></div>`}
   </div>`;
 }
