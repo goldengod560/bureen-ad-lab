@@ -352,3 +352,6 @@ table.stats tr.click{cursor:pointer} table.stats tr.click:hover td{background:va
 .rsel-opt .minis .thumb{width:26px;height:26px;border-radius:4px}
 .pickpair{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 @media (max-width:600px){.pickpair{grid-template-columns:1fr}}
+
+.mainplan .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:middle;background:var(--accent)}
+.mainplan .dot.good{background:var(--pass)}.mainplan .dot.warn{background:var(--mid)}.mainplan .dot.bad{background:var(--fail)}
