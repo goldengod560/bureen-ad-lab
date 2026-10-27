@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=52';
-import * as R from './rules.js?v=52';
-import { importHistory } from './importer.js?v=52';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=52';
+import { createBackend } from './data.js?v=53';
+import * as R from './rules.js?v=53';
+import { importHistory } from './importer.js?v=53';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=53';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -365,11 +365,11 @@ function benchHealth(data, product) {
 }
 
 function SummaryStrip({ data, product }) {
-  const econ = R.econOf(product), b1 = R.beAt(econ, econ.price), rules = R.rulesOf(product);
+  const econ = R.econOf(product), rules = R.rulesOf(product);
   const live = testingCount(data, product.id);
   const bh = benchHealth(data, product);
   return html`<div class="strip">
-    <span>${b1 ? html`Break-even <b>${R.xroas(b1.roas)}</b> at $${econ.price}` : html`Break-even <em class="warn">costs not set</em>`}</span>
+    <span>${econ.opBE ? html`Break-even <b>${R.xroas(econ.opBE)}</b> (est.)` : html`Break-even <em class="warn">costs not set</em>`}</span>
     <span>Up Next <b>${data.ads.filter((a) => a.product_id === product.id && a.stage === 'next').length}</b></span>
     <span>Testing <b>${live}/${rules.slots}</b> slots</span>
     <span>In Main <b>${bh.main}</b>${bh.fatiguing.length ? html` <em class="warn">${bh.fatiguing.length} fatiguing</em>` : ''}</span>
@@ -886,6 +886,7 @@ function AdDetail(ctx) {
           ${ad.launched_on && html`<span class="chip t-muted">Live ${ad.launched_on}</span>`}
         </div>
         ${ad.setup_era === 'era1' && html`<div class="status warn small">${R.ERAS.era1.note}</div>`}
+        ${ad.stage !== 'testing' && html`<${VerdictPanel} ad=${ad} data=${data} product=${product} />`}
         ${ad.stage === 'main' && html`<${HealthPanel} ad=${ad} data=${data} product=${product} />`}
         ${(() => { const rows = rowsForAd(ad, data.meta_days); if (!rows.length) return null; const hw = healthWindow(data); const t = sumRows(rows.filter((r) => hw && r.day >= hw.a && r.day <= hw.end)), all = sumRows(rows);
           return html`<div class="panel"><h2>From your Ads Manager files</h2><div class="metrics">
@@ -919,11 +920,11 @@ function AdDetail(ctx) {
 // Profit view: real numbers vs. break-even at this ad's own average order. Separate from the test rule.
 function ProfitLine({ econ, m, product }) {
   if (!m || !m.purchases) return null;
-  if (!econ.set) return html`<div class="status small">Break-even: costs not set for ${product ? product.name : 'this product'}. Add them in Rules.</div>`;
+  if (!econ.opBE) return html`<div class="status small">Break-even: costs not set for ${product ? product.name : 'this product'}. Add them in Rules.</div>`;
   const v = R.vsBreakEven(econ, m); if (!v || v.missing) return null;
   return html`<div class=${'status small ' + (v.band === 'above' ? 'good' : v.band === 'below' ? 'bad' : 'warn')}>
     <b>${v.label}</b> (${v.diff >= 0 ? '+' : ''}${v.diff.toFixed(1)}%) · ${R.money(v.perOrder >= 0 ? v.perOrder : -v.perOrder)} ${v.perOrder >= 0 ? 'profit' : 'loss'} per order after ads<br/>
-    <span class="tiny">Break-even at its ${R.money(v.V)} average order: ${R.xroas(v.be.roas)} · ${R.money(v.be.cpa)} CPA. It's at ${R.xroas(m.roas)} · ${R.money(m.cpa)}.${v.estimated ? ' Estimated break-even based on assumed product mix.' : ''}</span></div>`;
+    <span class="tiny">It's at ${R.xroas(m.roas)} vs your ${product ? product.name + ' ' : ''}break-even of ${R.xroas(v.be.roas)} (estimate). Orders average ${R.money(v.V)}, so break-even CPA is about ${R.money(v.be.cpa)}; it's at ${R.money(m.cpa)}.</span></div>`;
 }
 
 function TestPanel({ data, test, rules, econ, setModal, reload, say }) {
@@ -1570,7 +1571,7 @@ function TrendPanel({ ad, data, product }) {
     let sp = 0, rv = 0; for (let k = 0; k < 7; k++) { const u = byDay.get(R.addDays(d, -k)); if (u) { sp += u.spend; rv += u.revenue; } }
     return { d, ...t, roas: t.spend > 0 ? t.revenue / t.spend : null, roll: t.spend > 0 && sp > 0 ? rv / sp : null }; }); // no 7-day value on days it didn't run
   const econ = R.econOf(product), all = sumRows(rows);
-  const be = econ.set ? R.beAt(econ, all.purchases ? all.revenue / all.purchases : econ.aov) : null;
+  const be = econ.opBE ? { roas: econ.opBE } : null;
   const showYear = first.slice(0, 4) !== R.today().slice(0, 4) || last.slice(0, 4) !== first.slice(0, 4);
   // geometry (real pixels, so text never stretches)
   const L = 44, Rt = 8, T1 = 10, H1 = 120, G = 18, H2 = 64, B = 22, H = T1 + H1 + G + H2 + B;
@@ -1646,11 +1647,12 @@ function mainHealth(ad, data, product) {
     creative = !decline ? 'healthy' : ctrSig && persist ? 'fatigue' : 'cooling';
   }
   let money = 'uncertain', v = null, be = null;
-  if (econ.set && cur.spend > 0) {
+  if (econ.opBE && cur.spend > 0) {
     if (cur.purchases > 0) { v = R.vsBreakEven(econ, { purchases: cur.purchases, roas: cur.roas, cpa: cur.cpa, aov: cur.revenue / cur.purchases }); if (v && !v.missing) money = v.band; }
-    else { be = R.beAt(econ, econ.aov); if (be && be.cpa && cur.spend >= 2 * be.cpa) money = 'below'; }
+    else { const beCpa = econ.aov / econ.opBE; if (cur.spend >= 2 * beCpa) money = 'below'; }
   }
-  return { w, cur, prev, rec, c0, c1, creative, money, v, be, roasDown, cpaUp, ctrDown, limited: cur.purchases < 5, econSet: econ.set };
+  const band = (t) => (!econ.opBE || !t.spend ? null : !t.purchases ? (t.spend >= 2 * econ.aov / econ.opBE ? 'below' : null) : t.roas >= econ.opBE * 1.05 ? 'above' : t.roas <= econ.opBE * 0.95 ? 'below' : 'near');
+  return { w, cur, prev, rec, c0, c1, creative, money, v, be, roasDown, cpaUp, ctrDown, limited: cur.purchases < 5, econSet: !!econ.opBE, opBE: econ.opBE, prevBand: band(prev), life: sumRows(rows), lifeBand: band(sumRows(rows)) };
 }
 const CREATIVE = { healthy: ['Healthy', 'pass'], cooling: ['Cooling off', 'muted'], fatigue: ['Possible fatigue', 'mid'], none: ['Not enough data', 'muted'] };
 const MONEY = { above: ['Above break-even', 'pass'], near: ['Near break-even', 'mid'], below: ['Below break-even', 'fail'], uncertain: ['Economics uncertain', 'muted'] };
@@ -1662,7 +1664,7 @@ function healthText(h) {
     : h.creative === 'cooling' ? `Recent CPA up and ROAS down (${d}${ctr}); monitor. Not enough evidence of creative fatigue.`
     : `${d}${ctr}, and the last 3 days are still weaker. Your call whether to mark it fatiguing.`;
   const m = !h.econSet ? 'Costs not set for this product.'
-    : h.v && !h.v.missing ? `${R.xroas(h.cur.roas)} vs ${R.xroas(h.v.be.roas)} break-even at its ${R.money(h.v.V)} average order (estimate).`
+    : h.v && !h.v.missing ? `${R.xroas(h.cur.roas)} vs ${R.xroas(h.v.be.roas)} break-even (estimate).`
     : h.money === 'below' ? `${R.money(h.cur.spend)} spent with no purchases.` : 'Too little spend to tell.';
   return { c: c + (h.limited && h.creative !== 'none' ? ' Limited evidence: fewer than 5 purchases in the last 7 days.' : ''), m };
 }
@@ -1673,6 +1675,51 @@ function freqCheckpoints(ad) {
   for (const f of list) { const n = R.daysBetween(f.from, f.to) + 1; if (!byLen.has(n)) byLen.set(n, []); if (byLen.get(n).length < 2) byLen.get(n).push(f); }
   return [...byLen.entries()].sort((a, b) => a[0] - b[0]);
 }
+// Plain-language read of an ad that's spending: how it's doing overall, this week, why, and what I'd do.
+// Suggestions only. Nothing is paused or moved.
+function adVerdict(ad, data, product) {
+  const h = mainHealth(ad, data, product);
+  if (!h || h.cur.spend < 15) return null;
+  const pc = (a, b) => (a != null && b ? (a / b - 1) * 100 : null);
+  const cpm = (t) => (t.impressions ? t.spend / t.impressions * 1000 : null);
+  const conv = (t) => (t.link_clicks ? t.purchases / t.link_clicks * 100 : null);
+  const be = h.opBE, W = h.cur, P = h.prev, life = h.life;
+  const why = [];
+  const sp = pc(W.spend, P.spend);
+  if (P.spend >= 20 && sp >= 30) why.push(`Meta spent ${Math.round(sp)}% more than the week before (${R.money0(W.spend)} vs ${R.money0(P.spend)}). ROAS usually drops when spend jumps.`);
+  const cm = pc(cpm(W), cpm(P));
+  if (cm != null && P.spend >= 20 && cm >= 20) why.push(`Showing the ad got ${Math.round(cm)}% more expensive (CPM ${R.money(cpm(P))} → ${R.money(cpm(W))}). That's usually the market, not your ad.`);
+  const ctrCh = pc(h.c1, h.c0);
+  const roasDown = h.roasDown != null && h.roasDown >= 15;
+  if (ctrCh != null && roasDown && ctrCh > -10) why.push(`People still click (link CTR ${h.c0.toFixed(2)}% → ${h.c1.toFixed(2)}%), but fewer of them buy${conv(P) != null && conv(W) != null ? ` (${conv(P).toFixed(1)}% → ${conv(W).toFixed(1)}% of clicks)` : ''}. That points to the market, the site or the offer, not a worn-out ad.`);
+  if (ctrCh != null && ctrCh <= -20) why.push(`Fewer people click (link CTR ${h.c0.toFixed(2)}% → ${h.c1.toFixed(2)}%). That's how an ad wearing out usually starts.`);
+  if (W.purchases < 5) why.push(`Only ${W.purchases} buy${W.purchases === 1 ? '' : 's'} this week, so one or two orders swing these numbers a lot.`);
+  const week = h.money, prevB = h.prevBand, lifeB = h.lifeBand;
+  const lifeTxt = life.spend ? `Over its life: ${R.xroas(life.roas)} on ${R.money0(life.spend)} (${life.purchases} buys)${be ? `, ${lifeB === 'above' ? 'above' : lifeB === 'below' ? 'below' : 'around'} break-even (${R.xroas(be)})` : ''}.` : '';
+  const weekTxt = `This week (${R.shortDate(h.w.a)} to ${R.shortDate(h.w.end)}): ${R.xroas(W.roas)}${P.spend ? `, the week before ${R.xroas(P.roas)}` : ''}.`;
+  const bench = data.ads.filter((a) => a.product_id === ad.product_id && a.stage === 'bench');
+  const benchTxt = bench.length ? ` Your Bench has ${bench.map((a) => displayName(a)).slice(0, 2).join(' and ')}.` : ' Your Bench is empty, so start a test now.';
+  let tone, head, todo;
+  if (!be) { tone = 'live'; head = 'Costs not set for this product'; todo = 'Add the product cost in Rules to see whether it makes money.'; }
+  else if (week === 'above') { tone = 'good'; head = h.creative === 'cooling' ? 'Still making money, a bit weaker than last week' : 'Doing well'; todo = 'Leave it alone.'; }
+  else if (week === 'near') { tone = 'warn'; head = 'Around break-even this week'; todo = 'Hold and check again in a few days. No changes needed yet.'; }
+  else if (week === 'below' && prevB === 'below') { tone = 'bad'; head = 'Losing money two weeks in a row'; todo = 'Time to act: lower its spend, or pause it and bring in your best Bench ad.' + benchTxt; }
+  else if (week === 'below' && lifeB === 'below') { tone = 'bad'; head = 'Losing money this week and overall'; todo = 'Consider turning it off.' + benchTxt; }
+  else if (week === 'below') { tone = 'warn'; head = 'Bad week, but this ad has made money before'; todo = "Hold. Don't kill a proven ad on one bad week, especially while Meta is choppy. If next week is also under break-even, lower its spend or swap in a Bench ad." + (sp >= 30 ? " Don't let its budget grow until it recovers." : ''); }
+  else { tone = 'live'; head = 'Not enough sales this week to judge'; todo = 'Wait for more data.'; }
+  if (h.creative === 'fatigue') { tone = tone === 'good' ? 'warn' : tone; todo += ' Signs it is wearing out: get a replacement ready from the Bench.'; }
+  return { tone, head, lifeTxt, weekTxt, why, todo };
+}
+function VerdictPanel({ ad, data, product }) {
+  const v = adVerdict(ad, data, product); if (!v) return null;
+  return html`<div class=${'panel verdict v-' + v.tone}><h2>What's going on</h2>
+    <div class=${'status ' + v.tone}><b>${v.head}</b></div>
+    <div class="small">${v.lifeTxt} ${v.weekTxt}</div>
+    ${v.why.length > 0 && html`<div class="small"><b>Why it might be</b><ul style="margin:4px 0 0;padding-left:18px">${v.why.map((x) => html`<li>${x}</li>`)}</ul></div>`}
+    <div class="small"><b>What I'd do:</b> ${v.todo}</div>
+    <div class="tiny muted">A suggestion from your numbers. Nothing changes until you act.</div></div>`;
+}
+
 function HealthPanel({ ad, data, product }) {
   const h = mainHealth(ad, data, product); const fq = freqCheckpoints(ad);
   if (!h && !fq.length) return null;
@@ -1876,7 +1923,7 @@ function Rules(ctx) {
   const { product, reload, say } = ctx;
   const [rules, setRules] = useState(() => { const r = R.rulesOf(product); const o = {}; Object.keys(r).forEach((k) => { o[k] = String(r[k]); }); o.weekendLock = !!r.weekendLock; return o; });
   const str = (v) => (v == null ? '' : String(v));
-  const [pe, setPe] = useState(() => { const e = R.econOf(product); const o = { price: str(e.price), packCost: str(e.packCost), aov: str(e.ownAov) }; R.SHARED_COSTS.forEach(([k]) => { o[k] = str(e.own[k]); }); return o; });
+  const [pe, setPe] = useState(() => { const e = R.econOf(product); const o = { price: str(e.price), packCost: str(e.packCost), aov: str(e.ownAov), opBE: str(e.opBEOwn) }; R.SHARED_COSTS.forEach(([k]) => { o[k] = str(e.own[k]); }); return o; });
   const [st, setSt] = useState(() => { const s0 = R.storeEcon(); const o = {}; Object.keys(R.STORE_DEFAULTS).forEach((k) => { o[k] = str(s0[k]); }); return o; });
   const [busy, setBusy] = useState(false);
   const toNum = (o) => { const r = {}; Object.keys(o).forEach((k) => { r[k] = o[k] === '' ? null : R.num(o[k]); }); return r; };
@@ -1900,8 +1947,8 @@ function Rules(ctx) {
     const changes = Object.keys(nr).filter((k) => String(nr[k]) !== String(old[k])).map((k) => `${k}: ${old[k]} → ${nr[k]}`);
     const oe = R.econOf(product), os = R.storeEcon();
     const ob1 = R.beAt(oe, oe.price);
-    if (String(oe.price) !== String(pv.price) || String(oe.packCost) !== String(pv.packCost) || R.SHARED_COSTS.some(([k]) => String(oe.own[k]) !== String(pv.own[k])) || String(oe.ownAov) !== String(pv.ownAov))
-      changes.push(`${product.name} economics: 1-pack break-even ${ob1 ? R.xroas(ob1.roas) : 'not set'} → ${b1 ? R.xroas(b1.roas) : 'not set'}`);
+    if (String(oe.price) !== String(pv.price) || String(oe.packCost) !== String(pv.packCost) || R.SHARED_COSTS.some(([k]) => String(oe.own[k]) !== String(pv.own[k])) || String(oe.ownAov) !== String(pv.ownAov) || String(oe.opBEOwn) !== String(pv.opBEOwn))
+      changes.push(`${product.name} economics: break-even used for ads ${oe.opBE ? R.xroas(oe.opBE) : 'not set'} → ${pv.opBE ? R.xroas(pv.opBE) : 'not set'}`);
     const storeChanged = Object.keys(R.STORE_DEFAULTS).some((k) => String(os[k] ?? '') !== String(storeNow[k] ?? ''));
     if (storeChanged) changes.push(`Store economics: avg order $${storeNow.aov}, break-even ${sb.roas ? R.xroas(sb.roas) : 'not set'}${sb.estimated ? ' (est.)' : ''}`);
     try {
@@ -1917,12 +1964,14 @@ function Rules(ctx) {
     <p class="muted small" style="margin:-8px 0 0">Every product keeps its own copy. Every number is yours to change.</p>
     <div class="grid2">
       <section class="panel accent"><h2>${product.name} economics</h2>
-        ${pv.set ? html`<div class="tiles">
+        ${pv.opBE && html`<div class="tiles"><div class="tile"><div class="k">Break-even used to judge ads</div><div class="v" style="color:var(--accent2)">${R.xroas(pv.opBE)}</div><div class="s">${pv.opBEOwn ? 'Set by you' : product.kind === 'crew' ? 'Estimate: store average order with your bundle discounts' : 'Single-pack estimate until you set it'}</div></div></div>`}
+        <div class="rulerow"><label for="e-opbe">Break-even ROAS used to judge ads (blank = estimate)</label><input id="e-opbe" inputmode="decimal" value=${pe.opBE} placeholder=${product.kind === 'crew' ? '2.85' : '—'} onInput=${setP('opBE')} />${unit('x')}</div>
+        ${pv.set ? html`<div class="fsec">For reference</div><div class="tiles">
           <div class="tile"><div class="k">Break-even · 1 pack</div><div class="v" style="color:var(--accent2)">${R.xroas(b1 && b1.roas)}</div><div class="s">${R.money(b1 && b1.cpa)} CPA at ${R.money(pv.price)}</div></div>
-          <div class="tile"><div class="k">Break-even · 2 packs</div><div class="v" style="color:var(--accent2)">${R.xroas(b2 && b2.roas)}</div><div class="s">${R.money(b2 && b2.cpa)} CPA at ${R.money(pv.price * 2)}, full price</div></div>
+          <div class="tile"><div class="k">Break-even · 2 packs</div><div class="v" style="color:var(--accent2)">${R.xroas(b2 && b2.roas)}</div><div class="s">${R.money(b2 && b2.cpa)} CPA at ${R.money(pv.price * 2)}, if sold at full price</div></div>
           ${bA && html`<div class="tile"><div class="k">At its avg order</div><div class="v" style="color:var(--accent2)">${R.xroas(bA.roas)}</div><div class="s">${R.money(bA.cpa)} CPA at ${R.money(pv.ownAov)} · estimate</div></div>`}
           <div class="tile"><div class="k">Testing pass line</div><div class="v">${R.xroas(R.num(rules.passARoas))}</div><div class="s">Your rule, not break-even</div></div></div>
-          <p class="tiny muted" style="margin:0">Each ad is also checked against break-even at its own average order. 1 and 2 full-price packs are exact; other order sizes assume the extra is more packs, so they're marked as estimates.</p>`
+          <p class="tiny muted" style="margin:0">Every ad is judged against the one break-even above, so the line doesn't move with each order. These two are context only.</p>`
         : html`<div class="status warn small">Costs not set. Enter the pack price and product cost to see break-even. Nothing is guessed.</div>`}
         <div class="rulerow"><label for="e-price">Pack price</label><input id="e-price" inputmode="decimal" value=${pe.price} onInput=${setP('price')} />${unit('$')}</div>
         <div class="rulerow"><label for="e-cost">Product cost per pack</label><input id="e-cost" inputmode="decimal" value=${pe.packCost} onInput=${setP('packCost')} />${unit('$')}</div>

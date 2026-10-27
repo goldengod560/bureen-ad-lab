@@ -146,6 +146,11 @@ export function econOf(p, store = STORE) {
   for (const [k] of SHARED_COSTS) { o.own[k] = e[k] === '' || e[k] == null ? null : num(e[k]); o[k] = o.own[k] ?? num(store[k]) ?? 0; }
   o.set = o.price > 0 && o.packCost != null;
   o.aov = o.ownAov || num(store.aov) || o.price || null; // typical order, used when an order size is needed
+  // One break-even ROAS per product, used to judge every ad (so it doesn't move with each order).
+  // Crew: 2.85x estimate (store average order with your bundle discounts). Others: single-pack break-even until set.
+  o.opBEOwn = num(e.opBE);
+  const single = o.set ? beAt(o, o.price) : null;
+  o.opBE = o.opBEOwn || (p && p.kind === 'crew' ? 2.85 : single && single.roas ? Math.round(single.roas * 100) / 100 : null);
   return o;
 }
 export const num = (v) => { const n = parseFloat(String(v ?? '').replace(/[$,%\s]/g, '')); return isFinite(n) ? n : null; };
@@ -175,14 +180,14 @@ export function storeBE(crew, s = STORE) {
 // How an ad's real numbers compare with break-even at its own average order.
 export function vsBreakEven(e, m) {
   if (!m || !m.purchases || m.roas == null) return null;
+  if (!e || !e.opBE) return { missing: true };
   const V = m.aov || e.aov;
-  const be = beAt(e, V);
-  if (!be || !be.roas) return { missing: true };
-  const diff = (m.roas / be.roas - 1) * 100;
-  const perOrder = be.contrib - (m.cpa ?? 0);
+  const contrib = V / e.opBE; // what one order leaves to pay for the ad, at this break-even
+  const be = { roas: e.opBE, cpa: contrib, contrib };
+  const diff = (m.roas / e.opBE - 1) * 100;
+  const perOrder = contrib - (m.cpa ?? 0);
   const band = diff >= 5 ? 'above' : diff <= -5 ? 'below' : 'near';
-  const estimated = Math.abs(V - e.price) > 0.5 && Math.abs(V - 2 * e.price) > 0.5;
-  return { be, V, diff, perOrder, band, estimated, label: band === 'above' ? 'Above break-even' : band === 'below' ? 'Below break-even' : 'Near break-even' };
+  return { be, V, diff, perOrder, band, estimated: true, label: band === 'above' ? 'Above break-even' : band === 'below' ? 'Below break-even' : 'Near break-even' };
 }
 
 export function checkinDays(rules) {
