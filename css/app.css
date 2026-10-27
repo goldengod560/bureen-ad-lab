@@ -169,8 +169,8 @@ table.t th:first-child,table.t td:first-child{text-align:left;font-family:var(--
 .tscroll{overflow-x:auto}
 
 /* bottom nav (phone) */
-.bnav{display:none;position:fixed;left:0;right:0;bottom:0;z-index:30;background:rgba(6,10,18,.97);border-top:1px solid var(--line);padding:4px 8px calc(6px + env(safe-area-inset-bottom,0px));grid-template-columns:repeat(5,minmax(0,1fr))}
-.bnav button{background:none;border:0;color:var(--muted);padding:12px 0;font-weight:500;font-size:12.5px;cursor:pointer}
+.bnav{display:none;position:fixed;left:0;right:0;bottom:0;z-index:30;background:rgba(6,10,18,.97);border-top:1px solid var(--line);padding:4px 8px calc(6px + env(safe-area-inset-bottom,0px));grid-template-columns:repeat(6,minmax(0,1fr))}
+.bnav button{background:none;border:0;color:var(--muted);padding:12px 0;font-weight:500;font-size:12px;cursor:pointer}
 .bnav button.on{color:var(--accent2);box-shadow:inset 0 2px 0 var(--accent)}
 
 /* login */
@@ -355,3 +355,16 @@ table.stats tr.click{cursor:pointer} table.stats tr.click:hover td{background:va
 
 .mainplan .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:middle;background:var(--accent)}
 .mainplan .dot.good{background:var(--pass)}.mainplan .dot.warn{background:var(--mid)}.mainplan .dot.bad{background:var(--fail)}
+
+.gbar{position:relative;height:8px;background:var(--line);border-radius:4px;overflow:visible;margin:6px 0 2px}
+.gbar>i{display:block;height:100%;border-radius:4px;background:var(--accent)}
+.gbar>i.good{background:var(--pass)}.gbar>i.warn{background:var(--mid)}.gbar>i.bad{background:var(--fail)}
+.gbar>b{position:absolute;top:-3px;width:2px;height:14px;background:var(--soft);border-radius:1px}
+.goalrow{display:grid;grid-template-columns:minmax(0,1fr);gap:2px}
+.stages{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.stages>div{border:1px solid var(--line);border-radius:10px;padding:8px;font-size:12px;color:var(--muted);min-width:0}
+.stages>div.on{border-color:var(--accent);color:var(--ink);background:var(--panel2)}
+.stages b{display:block;color:var(--ink);font-size:13px}
+@media (max-width:700px){.stages{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.panel .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:middle;background:var(--accent)}
+.panel .dot.good{background:var(--pass)}.panel .dot.warn{background:var(--mid)}.panel .dot.bad{background:var(--fail)}

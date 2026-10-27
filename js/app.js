@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=56';
-import * as R from './rules.js?v=56';
-import { importHistory } from './importer.js?v=56';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=56';
+import { createBackend } from './data.js?v=59';
+import * as R from './rules.js?v=59';
+import { importHistory } from './importer.js?v=59';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=59';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -150,7 +150,7 @@ function App() {
 
   const activeStage1 = { length: testingCount(data) };
   const rules0 = R.rulesOf(product);
-  const NAV = [['today', 'Today'], ['board', 'Board'], ['archive', 'Archive'], ['stats', 'Stats'], ['angles', 'Angles'], ['rules', 'Rules'], ['learn', 'Learnings'], ['more', 'More']];
+  const NAV = [['today', 'Today'], ['board', 'Board'], ['archive', 'Archive'], ['goal', 'Goal'], ['stats', 'Stats'], ['angles', 'Angles'], ['rules', 'Rules'], ['learn', 'Learnings'], ['more', 'More']];
 
   return html`
     <header class="top">
@@ -174,9 +174,10 @@ function App() {
       ${view === 'angles' && html`<${Angles} key=${product.id} ...${ctx} />`}
       ${view === 'rules' && html`<${Rules} key=${product.id} ...${ctx} />`}
       ${view === 'learn' && html`<${Learn} ...${ctx} />`}
+      ${view === 'goal' && html`<${Goal} ...${ctx} setPid=${setPid} />`}
       ${view === 'more' && html`<${More} ...${ctx} />`}
     </main>
-    <nav class="bnav" aria-label="Main">${[['today', 'Today'], ['board', 'Board'], ['archive', 'Archive'], ['stats', 'Stats'], ['more', 'More']].map(([k, l]) => html`<button class=${view === k || (k === 'more' && (view === 'learn' || view === 'rules' || view === 'angles')) ? 'on' : ''} onClick=${() => setView(k)}>${l}</button>`)}</nav>
+    <nav class="bnav" aria-label="Main">${[['today', 'Today'], ['board', 'Board'], ['archive', 'Archive'], ['goal', 'Goal'], ['stats', 'Stats'], ['more', 'More']].map(([k, l]) => html`<button class=${view === k || (k === 'more' && (view === 'learn' || view === 'rules' || view === 'angles')) ? 'on' : ''} onClick=${() => setView(k)}>${l}</button>`)}</nav>
     ${modal && html`<${modal.type} ...${ctx} ...${modal.props} close=${() => setModal(null)} />`}
     <${Lightbox} item=${lightbox} onClose=${() => setLightbox(null)} />
     <${Toast} msg=${toast} />`;
@@ -1982,6 +1983,183 @@ function Stats(ctx) {
     </section>`}`;
 }
 
+// ---------- goal ----------
+// $12,000/month profit by September 2027, in four stages. Profit = all online sales (ads, organic, email)
+// minus product, shipping, fees, ads and fixed costs; family pay isn't subtracted.
+const GOAL = { profit: 12000, by: '2027-09-30' };
+const STAGES_GOAL = [
+  { key: 'q4', name: 'Rebuild', months: 'Now to Dec 2026', from: '2026-10-01', to: '2026-12-31', roas: [3.0, 3.3], spend: [90, 130], margin: 35, profit: [300, 1000],
+    ms: [['mainBE', 'Main back above break-even', 'auto'], ['bench2', '2 tested backups on the Bench', 'auto'], ['bf', 'Get through Black Friday without losing money', 'manual']] },
+  { key: 'q1', name: 'Grow', months: 'Jan to Mar 2027', from: '2027-01-01', to: '2027-03-31', roas: [3.3, 3.6], spend: [150, 250], margin: 37, profit: [1500, 3000],
+    ms: [['ls', 'Long Sleeve in Main', 'auto'], ['mains3', '3 working Crew Mains', 'auto'], ['aov', 'Bigger orders (average order up)', 'manual']] },
+  { key: 'q2', name: 'Scale', months: 'Apr to Jun 2027', from: '2027-04-01', to: '2027-06-30', roas: [3.5, 3.9], spend: [250, 400], margin: 39, profit: [3500, 7000],
+    ms: [['vneck', 'V-Neck in Main', 'auto'], ['tank', 'Tank in Main', 'auto'], ['repeat', 'Email and repeat buyers growing', 'manual']] },
+  { key: 'q3', name: 'Target', months: 'Jul to Sep 2027', from: '2027-07-01', to: '2027-09-30', roas: [3.8, 4.2], spend: [500, 700], margin: 40, profit: [8000, 12000],
+    ms: [['all', 'Every main product has a working Main', 'manual'], ['twelve', '$12,000 profit in September', 'manual']] },
+];
+const stageNow = () => { const t = R.today(); return STAGES_GOAL.find((g) => t <= g.to) || STAGES_GOAL[STAGES_GOAL.length - 1]; };
+const lastSunday = () => { const d = R.parseDay(R.today()); d.setDate(d.getDate() - ((d.getDay() + 7) % 7 || 7)); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+function goalWeeks(data) {
+  return data.learnings.filter((l) => l.kind === 'week').map((l) => { let v = {}; try { v = JSON.parse(l.text); } catch (e) {} return { id: l.id, end: String(l.day).slice(0, 10), rev: R.num(v.rev) || 0, spend: R.num(v.spend) || 0, orders: R.num(v.orders) || 0, profit: R.num(v.profit) }; })
+    .sort((a, b) => a.end.localeCompare(b.end));
+}
+// Profit for a week: Triple Whale's net profit when typed, otherwise an estimate from your margin. Fixed costs come off either way.
+function weekProfit(w, st) {
+  const fixedWk = (R.num(st.fixedMonthly) || 0) * 12 / 52;
+  const base = w.profit != null ? w.profit : w.rev * (R.num(st.margin) || 35) / 100 - w.spend;
+  return { value: base - fixedWk, estimated: w.profit == null };
+}
+// Spread each week over its 7 days and add up the days that fall in [a, b].
+function sumDays(weeks, st, a, b) {
+  let profit = 0, rev = 0, spend = 0, days = 0, last = null;
+  for (const w of weeks) for (let k = 0; k < 7; k++) {
+    const d = R.addDays(w.end, -k); if (d < a || d > b) continue;
+    profit += weekProfit(w, st).value / 7; rev += w.rev / 7; spend += w.spend / 7; days++; if (!last || d > last) last = d;
+  }
+  return { profit, rev, spend, days, last };
+}
+function GoalBar({ label, now, lo, hi, fmt, sub }) {
+  const tone = now == null ? '' : now >= lo ? 'good' : now >= lo * 0.9 ? 'warn' : 'bad';
+  const max = hi * 1.15, pct = now == null ? 0 : Math.max(2, Math.min(100, now / max * 100));
+  return html`<div class="goalrow"><div class="row small" style="gap:6px"><b>${label}</b><span class="spacer"></span><span class="mono">${now == null ? '—' : fmt(now)}</span><span class="muted tiny">goal ${fmt(lo)}–${fmt(hi)}</span></div>
+    <div class="gbar"><i class=${tone} style=${`width:${pct}%`}></i><b style=${`left:${lo / max * 100}%`}></b></div>${sub && html`<div class="tiny muted">${sub}</div>`}</div>`;
+}
+function Goal(ctx) {
+  const { data, products, reload, say, setModal, setView, setPid } = ctx;
+  const st = R.storeEcon(), stage = stageNow();
+  const weeks = goalWeeks(data);
+  const stock = data.learnings.filter((l) => l.kind === 'stock').map((l) => { let v = {}; try { v = JSON.parse(l.text); } catch (e) {} return { id: l.id, day: String(l.day).slice(0, 10), amount: R.num(v.amount) || 0, note: v.note || '' }; }).sort((a, b) => b.day.localeCompare(a.day));
+  const crew = products.find((p) => p.kind === 'crew') || products[0];
+  const crewE = R.econOf(crew), be = crewE.opBE || 2.85;
+  const t = R.today(), mStart = t.slice(0, 8) + '01';
+  const dim = new Date(+t.slice(0, 4), +t.slice(5, 7), 0).getDate();
+  const mtd = sumDays(weeks, st, mStart, t);
+  const pm = R.addDays(mStart, -1), pmStart = pm.slice(0, 8) + '01', prevM = sumDays(weeks, st, pmStart, pm);
+  const covered = mtd.days, proj = covered ? mtd.profit / covered * dim : null;
+  const loPace = stage.profit[0] * covered / dim, hiPace = stage.profit[1] * covered / dim;
+  const status = !covered ? null : mtd.profit >= hiPace ? ['Ahead', 'good'] : mtd.profit >= loPace ? ['On track', 'good'] : mtd.profit >= loPace - Math.max(100, stage.profit[0] * 0.25 * covered / dim) ? ['Slightly behind', 'warn'] : ['Behind', 'bad'];
+  // Last 4 check-ins: the "where you stand now" numbers
+  const recent = weeks.slice(-4), R4 = recent.reduce((o, w) => ({ rev: o.rev + w.rev, spend: o.spend + w.spend, orders: o.orders + w.orders, prof: o.prof + (w.profit != null ? w.profit : 0), withP: o.withP + (w.profit != null ? 1 : 0) }), { rev: 0, spend: 0, orders: 0, prof: 0, withP: 0 });
+  const mer = R4.spend ? R4.rev / R4.spend : null, spendDay = recent.length ? R4.spend / (7 * recent.length) : null;
+  const margin = R4.withP === recent.length && recent.length && R4.rev ? (R4.prof + R4.spend) / R4.rev * 100 : null;
+  const aov = R4.orders ? R4.rev / R4.orders : null;
+  // Milestones
+  const checks = st.goalChecks || {};
+  const mp = crew ? mainPlan(data, crew) : null;
+  const auto = {
+    mainBE: !!(mp && mp.cur.spend && mp.cur.roas >= be),
+    bench2: data.ads.filter((a) => a.product_id === (crew && crew.id) && a.stage === 'bench').length >= 2,
+    ls: data.ads.some((a) => a.stage === 'main' && (products.find((p) => p.id === a.product_id) || {}).kind === 'long'),
+    mains3: crew ? data.ads.filter((a) => a.product_id === crew.id && a.stage === 'main').filter((a) => { const h = mainHealth(a, data, crew); return !h || h.money !== 'below'; }).length >= 3 : false,
+    vneck: data.ads.some((a) => a.stage === 'main' && (products.find((p) => p.id === a.product_id) || {}).kind === 'vneck'),
+    tank: data.ads.some((a) => a.stage === 'main' && (products.find((p) => p.id === a.product_id) || {}).kind === 'tank'),
+  };
+  const toggleCheck = async (k) => { const next = { ...st, goalChecks: { ...checks, [k]: !checks[k] } }; await be.saveStore(next); R.setStoreEcon(next); await reload(); };
+  // Let's check together: most important first
+  const items = [];
+  const last = weeks[weeks.length - 1], prevW = weeks[weeks.length - 2];
+  if (!last || last.end < lastSunday()) items.push({ tone: 'live', text: `Add last week's numbers from Triple Whale (week ending ${R.shortDate(lastSunday())}). Takes a minute.`, act: ['Add numbers', () => setModal({ type: WeekForm, props: { end: lastSunday() } })] });
+  if (last && last.spend && last.rev / last.spend < be) items.push({ tone: 'bad', text: `Your ads aren't paying for themselves: last week the store took in ${R.xroas(last.rev / last.spend)} what you spent on ads, under the ${R.xroas(be)} it takes to break even.` });
+  if (last && prevW && prevW.spend && last.spend >= prevW.spend * 1.2 && weekProfit(last, st).value <= weekProfit(prevW, st).value) items.push({ tone: 'warn', text: `Something's eating your cash: ad spend went up ${Math.round((last.spend / prevW.spend - 1) * 100)}% (${R.money0(prevW.spend)} → ${R.money0(last.spend)}) but profit didn't (${R.money0(weekProfit(prevW, st).value)} → ${R.money0(weekProfit(last, st).value)}).` });
+  if (last && last.profit != null && last.rev && margin != null) { const lm = (last.profit + last.spend) / last.rev * 100; if (lm <= margin - 4) items.push({ tone: 'warn', text: `Your margin dropped last week (${lm.toFixed(0)}% vs ${margin.toFixed(0)}% average). Check discounts, shipping costs and refunds.` }); }
+  if (last && last.orders && aov) { const la = last.rev / last.orders; if (la <= aov * 0.9) items.push({ tone: 'warn', text: `Orders got smaller: ${R.money(la)} average last week vs ${R.money(aov)} over the last 4 weeks.` }); }
+  const recentStock = stock.find((x) => R.daysBetween(x.day, t) <= 30);
+  if (recentStock) items.push({ tone: 'live', text: `You paid ${R.money0(recentStock.amount)} for stock on ${R.shortDate(recentStock.day)}. Cash is lower this month even if profit looks fine.` });
+  if (mp) { const s0 = mp.steps[0]; if (s0 && s0.tone !== 'good') items.push({ tone: s0.tone, text: 'Main: ' + s0.text, act: ['Open Board', () => { setPid(crew.id); setView('board'); }] }); }
+  if (crew) { const benchN = data.ads.filter((a) => a.product_id === crew.id && a.stage === 'bench').length, nextN = data.ads.filter((a) => a.product_id === crew.id && a.stage === 'next').length, free = R.rulesOf(crew).slots - testingCount(data, crew.id);
+    if (benchN < 2 || free > nextN) items.push({ tone: benchN < 2 ? 'warn' : 'live', text: `Your pipeline: ${benchN} tested backup${benchN === 1 ? '' : 's'} on the Bench, ${free} free test slot${free === 1 ? '' : 's'}, ${nextN} ad${nextN === 1 ? '' : 's'} in Up Next.${free > nextN ? ` Make ${free - nextN} more ad${free - nextN === 1 ? '' : 's'}.` : ''}` }); }
+  const bfLeft = R.daysBetween(t, BF_DAY); if (bfLeft >= 0 && bfLeft <= 45) items.push({ tone: 'live', text: `Black Friday in ${bfLeft} days. Launch your last test batch by ${R.shortDate(R.addDays(BF_DAY, -16))} so winners are tested in time.` });
+  // Calculator
+  // Starts from your current numbers; once you type, your numbers stay until you press Reset.
+  const calcBase = { spend: spendDay ? String(Math.round(spendDay)) : '100', roas: mer ? mer.toFixed(2) : '3.0', margin: String(margin ? Math.round(margin) : (R.num(st.margin) || 35)) };
+  const [calcEdit, setCalc] = useState(null); const calc = calcEdit || calcBase;
+  const cs = R.num(calc.spend) || 0, cr = R.num(calc.roas) || 0, cm = (R.num(calc.margin) || 0) / 100, fixed = R.num(st.fixedMonthly) || 0;
+  const perDollar = cm * cr - 1, monthProfit = cs * 30.4 * perDollar - fixed;
+  const needSpend = perDollar > 0 ? (GOAL.profit + fixed) / (30.4 * perDollar) : null;
+  const needRoas = cs > 0 && cm > 0 ? ((GOAL.profit + fixed) / (30.4 * cs) + 1) / cm : null;
+  const lev = (d) => R.money0(d) + '/month';
+  const aovNow = aov || st.aov || 47.54, dM = (8.5 / aovNow - 8.5 / (aovNow + 5));
+  return html`
+    <div class="row"><h1 style="font-size:30px">Goal</h1><span class="spacer"></span><button class="btn primary" onClick=${() => setModal({ type: WeekForm, props: { end: lastSunday() } })}>Add week's numbers</button></div>
+    <section class="panel accent"><div class="row"><h2 style="margin:0">$12,000 profit a month by September 2027</h2></div>
+      <div class="stages">${STAGES_GOAL.map((g) => html`<div class=${g === stage ? 'on' : ''}><b>${g.name}</b>${g.months}<br/>${R.money0(g.profit[0])}–${R.money0(g.profit[1])}/mo</div>`)}</div>
+      <div class="small muted">Profit = all online sales (ads, organic, email) minus product, shipping, fees, ads and fixed costs (${R.money0(fixed)}/month). Family pay isn't subtracted.</div></section>
+    <div class="grid2">
+      <section class="panel"><h2>This month</h2>
+        ${!covered ? html`<div class="status live small">No numbers for this month yet. Add last week's numbers from Triple Whale.</div>` : html`
+          <div class=${'status ' + status[1]}><b>${status[0]}</b> · ${R.money0(mtd.profit)} profit so far (${covered} day${covered === 1 ? '' : 's'} counted). Stage goal ${R.money0(stage.profit[0])}–${R.money0(stage.profit[1])} for the month.</div>
+          <${GoalBar} label="Profit so far" now=${mtd.profit} lo=${loPace} hi=${hiPace} fmt=${R.money0} sub=${`Where you should be by ${R.shortDate(mtd.last)}: ${R.money0(loPace)}–${R.money0(hiPace)}. At this pace the month ends near ${R.money0(proj)}.`} />`}
+        ${prevM.days > 0 && html`<div class="small muted">Last month: ${R.money0(prevM.profit)} profit${prevM.days < 28 ? ` (${prevM.days} days counted)` : ''}.</div>`}
+      </section>
+      <section class="panel"><h2>Stage: ${stage.name} · ${stage.months}</h2>
+        <${GoalBar} label="Blended ROAS (store sales ÷ ad spend)" now=${mer} lo=${stage.roas[0]} hi=${stage.roas[1]} fmt=${(v) => v.toFixed(2) + 'x'} sub=${recent.length ? `Last ${recent.length} week${recent.length === 1 ? '' : 's'}. Break-even is ${R.xroas(be)}.` : 'Add weekly numbers to see this.'} />
+        <${GoalBar} label="Ad spend per day" now=${spendDay} lo=${stage.spend[0]} hi=${stage.spend[1]} fmt=${R.money0} />
+        <${GoalBar} label="Margin before ads" now=${margin} lo=${stage.margin} hi=${stage.margin + 5} fmt=${(v) => v.toFixed(0) + '%'} sub=${margin == null ? 'Needs Triple Whale net profit in each week.' : ''} />
+        <div class="list">${stage.ms.map(([k, l, how]) => { const done = how === 'auto' ? auto[k] : !!checks[k]; return html`<div class="li"><span class=${'chip t-' + (done ? 'pass' : 'muted')}>${done ? 'Done' : 'Not yet'}</span><span class="grow small">${l}${how === 'auto' ? html` <span class="tiny muted">(checked by the app)</span>` : ''}</span>${how === 'manual' && html`<button class="link small" onClick=${() => toggleCheck(k)}>${done ? 'Undo' : 'Mark done'}</button>`}</div>`; })}</div>
+      </section>
+    </div>
+    <section class="panel"><h2>Let's check together</h2>
+      ${items.length ? html`<ol style="margin:0;padding-left:20px" class="small">${items.map((it) => html`<li style="margin:6px 0"><span class=${'dot ' + it.tone}></span>${it.text}${it.act && html` <button class="link small" onClick=${it.act[1]}>${it.act[0]}</button>`}</li>`)}</ol>` : html`<div class="status good small">Nothing needs attention right now.</div>`}
+      <div class="tiny muted">Suggestions from your numbers. Nothing changes until you act.</div></section>
+    <div class="grid2">
+      <section class="panel"><h2>Calculator</h2>
+        <div class="rulerow"><label for="c-s">Ad spend per day</label><input id="c-s" inputmode="decimal" value=${calc.spend} onInput=${(e) => setCalc({ ...calc, spend: e.target.value })} /><span class="tiny muted">$</span></div>
+        <div class="rulerow"><label for="c-r">Blended ROAS</label><input id="c-r" inputmode="decimal" value=${calc.roas} onInput=${(e) => setCalc({ ...calc, roas: e.target.value })} /><span class="tiny muted">x</span></div>
+        <div class="rulerow"><label for="c-m">Margin before ads</label><input id="c-m" inputmode="decimal" value=${calc.margin} onInput=${(e) => setCalc({ ...calc, margin: e.target.value })} /><span class="tiny muted">%</span></div>
+        <div class=${'status ' + (monthProfit >= GOAL.profit ? 'good' : monthProfit > 0 ? 'live' : 'bad')}><b>${R.money0(monthProfit)} profit a month</b> (after ${R.money0(fixed)} fixed costs)</div>
+        <div class="small">${perDollar <= 0 ? `At ${cr.toFixed(2)}x and ${Math.round(cm * 100)}% margin every ad dollar loses money. Break-even here is ${(1 / cm).toFixed(2)}x.` : `To reach $12,000: spend about ${R.money0(needSpend)}/day at this ROAS, or reach ${needRoas.toFixed(2)}x at this spend.`}</div>
+        <div class="tiny muted">Profit ≈ spend × (margin × ROAS − 1) − fixed costs. Same formula as your growth plan. Starts from your last 4 weeks.${calcEdit ? '' : ''}</div>
+        ${calcEdit && html`<button class="link small" style="align-self:flex-start" onClick=${() => setCalc(null)}>Reset to my numbers</button>`}</section>
+      <section class="panel"><h2>What moves the needle</h2>
+        <div class="small muted">At ${cs ? R.money0(cs) + '/day' : 'your'} spend, each of these adds about:</div>
+        <div class="list">
+          <div class="li"><span class="grow small">ROAS +0.5x</span><b class="mono">${lev(cs * 30.4 * cm * 0.5)}</b></div>
+          <div class="li"><span class="grow small">Margin +5 points (bundles, cheaper shipping, fewer refunds)</span><b class="mono">${lev(cs * 30.4 * 0.05 * cr)}</b></div>
+          <div class="li"><span class="grow small">Average order +$5 (postage paid once per order)</span><b class="mono">${lev(cs * 30.4 * dM * cr)}</b></div>
+        </div></section>
+    </div>
+    <section class="panel"><div class="row"><h2 style="margin:0">Weekly numbers</h2><span class="spacer"></span><button class="btn sm" onClick=${() => setModal({ type: StockForm, props: {} })}>Log a stock order</button></div>
+      ${weeks.length ? html`<div class="tscroll"><table class="t"><thead><tr><th>Week ending</th><th>Revenue</th><th>Ad spend</th><th>Blended ROAS</th><th>Orders</th><th>Avg order</th><th>Profit</th><th></th></tr></thead><tbody>
+        ${weeks.slice().reverse().map((w) => { const pr = weekProfit(w, st); return html`<tr><td>${R.shortDate(w.end)}</td><td>${R.money0(w.rev)}</td><td>${R.money0(w.spend)}</td><td>${w.spend ? R.xroas(w.rev / w.spend) : '—'}</td><td>${w.orders || '—'}</td><td>${w.orders ? R.money(w.rev / w.orders) : '—'}</td><td>${R.money0(pr.value)}${pr.estimated ? html` <span class="tiny muted">est.</span>` : ''}</td><td><button class="link small" onClick=${() => setModal({ type: WeekForm, props: { end: w.end } })}>Edit</button></td></tr>`; })}</tbody></table></div>`
+        : html`<div class="empty">No weeks yet. Every Monday, add last week's numbers from Triple Whale.</div>`}
+      ${stock.length > 0 && html`<div class="small muted">Stock orders: ${stock.slice(0, 4).map((x) => `${R.shortDate(x.day)} ${R.money0(x.amount)}${x.note ? ' (' + x.note + ')' : ''}`).join(' · ')}</div>`}
+    </section>`;
+}
+function WeekForm(ctx) {
+  const { data, end, close, reload, say } = ctx;
+  const existing = goalWeeks(data).find((w) => w.end === end);
+  const [f, setF] = useState({ end, rev: existing ? String(existing.rev) : '', spend: existing ? String(existing.spend) : '', orders: existing ? String(existing.orders || '') : '', profit: existing && existing.profit != null ? String(existing.profit) : '' });
+  const metaSpend = sumRows((data.meta_days || []).filter((r) => r.day >= R.addDays(f.end, -6) && r.day <= f.end)).spend;
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const save = async () => {
+    if (!R.num(f.rev) || !R.num(f.spend)) { say('Add revenue and ad spend.'); return; }
+    const text = JSON.stringify({ rev: R.num(f.rev), spend: R.num(f.spend), orders: R.num(f.orders), profit: f.profit === '' ? null : R.num(f.profit) });
+    const hit = data.learnings.find((l) => l.kind === 'week' && String(l.day).slice(0, 10) === f.end);
+    if (hit) await be.update('learnings', hit.id, { text }); else await be.insert('learnings', { kind: 'week', day: f.end, text, source: 'Triple Whale' });
+    await reload(); close(); say('Week saved');
+  };
+  const del = async () => { const hit = data.learnings.find((l) => l.kind === 'week' && String(l.day).slice(0, 10) === f.end); if (!hit || !confirm('Delete this week?')) return; await be.remove('learnings', hit.id); await reload(); close(); say('Week deleted'); };
+  return html`<${Modal} title="Week's numbers" sub="From Triple Whale, for the 7 days ending on the date below" onClose=${close}>
+    <div class="form">
+      <${Field} label="Week ending (Sunday)"><input type="date" value=${f.end} onInput=${set('end')} /><//>
+      <${Field} label="Revenue (all online sales)"><input inputmode="decimal" value=${f.rev} onInput=${set('rev')} placeholder="$" /><//>
+      <${Field} label="Ad spend (all ads)"><input inputmode="decimal" value=${f.spend} onInput=${set('spend')} placeholder=${metaSpend ? 'Meta files say $' + Math.round(metaSpend) : '$'} /><//>
+      <${Field} label="Orders"><input inputmode="decimal" value=${f.orders} onInput=${set('orders')} /><//>
+      <${Field} full label="Net profit (optional; leave blank and the app estimates it)"><input inputmode="decimal" value=${f.profit} onInput=${set('profit')} placeholder="$" /><//>
+    </div>
+    <div class="row"><button class="btn primary" onClick=${save}>Save</button><button class="btn ghost" onClick=${close}>Cancel</button><span class="spacer"></span>${existing && html`<button class="link small" style="color:var(--fail)" onClick=${del}>Delete week</button>`}</div>
+  <//>`;
+}
+function StockForm(ctx) {
+  const { close, reload, say } = ctx;
+  const [f, setF] = useState({ day: R.today(), amount: '', note: '' });
+  const save = async () => { if (!R.num(f.amount)) { say('Add the amount.'); return; } await be.insert('learnings', { kind: 'stock', day: f.day, text: JSON.stringify({ amount: R.num(f.amount), note: f.note }), source: 'stock' }); await reload(); close(); say('Stock order logged'); };
+  return html`<${Modal} title="Log a stock order" sub="So the Goal page can tell cash apart from profit" onClose=${close}>
+    <div class="form"><${Field} label="Date paid"><input type="date" value=${f.day} onInput=${(e) => setF({ ...f, day: e.target.value })} /><//><${Field} label="Amount"><input inputmode="decimal" value=${f.amount} onInput=${(e) => setF({ ...f, amount: e.target.value })} placeholder="$" /><//>
+      <${Field} full label="Note (optional)"><input value=${f.note} onInput=${(e) => setF({ ...f, note: e.target.value })} placeholder="Crew restock" /><//></div>
+    <div class="row"><button class="btn primary" onClick=${save}>Save</button><button class="btn ghost" onClick=${close}>Cancel</button></div><//>`;
+}
+
 // ---------- rules ----------
 const RULE_ROWS = [
   ['Budgets', [['stage1Budget', 'Stage 1 budget per ad set', '$/day'], ['boostedBudget', 'Boosted budget', '$/day'], ['boostAt', 'Boost when 30-day blended ROAS is at least', 'x']]],
@@ -2024,7 +2202,7 @@ function Rules(ctx) {
     const storeChanged = Object.keys(R.STORE_DEFAULTS).some((k) => String(os[k] ?? '') !== String(storeNow[k] ?? ''));
     if (storeChanged) changes.push(`Store economics: avg order $${storeNow.aov}, break-even ${sb.roas ? R.xroas(sb.roas) : 'not set'}${sb.estimated ? ' (est.)' : ''}`);
     try {
-      if (storeChanged) { await be.saveStore(storeNow); R.setStoreEcon(storeNow); }
+      if (storeChanged) { const merged = { ...R.storeEcon(), ...storeNow }; await be.saveStore(merged); R.setStoreEcon(merged); }
       await be.update('products', product.id, { rules: nr, economics: ne });
       if (changes.length) await be.insert('learnings', { product_id: product.id, kind: 'rule_change', text: 'Rules changed: ' + changes.join('; ') });
       await reload(); say(changes.length ? 'Saved · logged in Learnings' : 'Saved');
@@ -2078,7 +2256,7 @@ function Learn(ctx) {
   const [text, setText] = useState(''); const [kind, setKind] = useState('learning');
   const [ev, setEv] = useState({ day: R.today(), kind: 'Website change', note: '', all: true });
   const items = [
-    ...data.learnings.filter((l) => !l.product_id || l.product_id === product.id).map((l) => ({ day: l.day, tag: l.kind === 'rule_change' ? 'Rule change' : l.kind === 'hypothesis' ? 'Hypothesis' : 'Learning', tone: l.kind === 'rule_change' ? 'mid' : l.kind === 'hypothesis' ? 'muted' : 'pass', text: l.text, src: l.source, id: l.id, t: 'learnings' })),
+    ...data.learnings.filter((l) => !['week', 'stock'].includes(l.kind) && (!l.product_id || l.product_id === product.id)).map((l) => ({ day: l.day, tag: l.kind === 'rule_change' ? 'Rule change' : l.kind === 'hypothesis' ? 'Hypothesis' : 'Learning', tone: l.kind === 'rule_change' ? 'mid' : l.kind === 'hypothesis' ? 'muted' : 'pass', text: l.text, src: l.source, id: l.id, t: 'learnings' })),
     ...data.events.filter((e) => !e.product_id || e.product_id === product.id).map((e) => ({ day: e.day, tag: 'Change', tone: 'ins', text: `${e.kind}${e.note ? ': ' + e.note : ''}`, id: e.id, t: 'events' })),
     ...data.decisions.filter((d) => d.product_id === product.id).map((d) => { const ad = data.ads.find((a) => a.id === d.ad_id); return { day: d.day, tag: 'Decision', tone: 'live', text: `${d.choice}${ad ? ' · ' + ad.base_name : ''}${d.reason ? ' · ' + d.reason : ''}` }; }),
   ].sort((a, b) => String(b.day).localeCompare(String(a.day)));
