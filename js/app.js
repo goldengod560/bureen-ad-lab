@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=59';
-import * as R from './rules.js?v=59';
-import { importHistory } from './importer.js?v=59';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=59';
+import { createBackend } from './data.js?v=60';
+import * as R from './rules.js?v=60';
+import { importHistory } from './importer.js?v=60';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=60';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2054,6 +2054,7 @@ function Goal(ctx) {
     vneck: data.ads.some((a) => a.stage === 'main' && (products.find((p) => p.id === a.product_id) || {}).kind === 'vneck'),
     tank: data.ads.some((a) => a.stage === 'main' && (products.find((p) => p.id === a.product_id) || {}).kind === 'tank'),
   };
+  const editFixed = async () => { const v = prompt('Fixed costs per month (Shopify plan + apps), in dollars:', String(R.num(st.fixedMonthly) ?? '')); if (v == null || R.num(v) == null) return; const next = { ...st, fixedMonthly: R.num(v) }; await be.saveStore(next); R.setStoreEcon(next); await reload(); say('Fixed costs saved'); };
   const toggleCheck = async (k) => { const next = { ...st, goalChecks: { ...checks, [k]: !checks[k] } }; await be.saveStore(next); R.setStoreEcon(next); await reload(); };
   // Let's check together: most important first
   const items = [];
@@ -2083,7 +2084,7 @@ function Goal(ctx) {
     <div class="row"><h1 style="font-size:30px">Goal</h1><span class="spacer"></span><button class="btn primary" onClick=${() => setModal({ type: WeekForm, props: { end: lastSunday() } })}>Add week's numbers</button></div>
     <section class="panel accent"><div class="row"><h2 style="margin:0">$12,000 profit a month by September 2027</h2></div>
       <div class="stages">${STAGES_GOAL.map((g) => html`<div class=${g === stage ? 'on' : ''}><b>${g.name}</b>${g.months}<br/>${R.money0(g.profit[0])}–${R.money0(g.profit[1])}/mo</div>`)}</div>
-      <div class="small muted">Profit = all online sales (ads, organic, email) minus product, shipping, fees, ads and fixed costs (${R.money0(fixed)}/month). Family pay isn't subtracted.</div></section>
+      <div class="small muted">Profit = all online sales (ads, organic, email) minus product, shipping, fees, ads and fixed costs (${R.money0(fixed)}/month: Shopify and apps). Family pay isn't subtracted. <button class="link small" onClick=${editFixed}>Change fixed costs</button></div></section>
     <div class="grid2">
       <section class="panel"><h2>This month</h2>
         ${!covered ? html`<div class="status live small">No numbers for this month yet. Add last week's numbers from Triple Whale.</div>` : html`
