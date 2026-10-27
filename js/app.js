@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=53';
-import * as R from './rules.js?v=53';
-import { importHistory } from './importer.js?v=53';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=53';
+import { createBackend } from './data.js?v=54';
+import * as R from './rules.js?v=54';
+import { importHistory } from './importer.js?v=54';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=54';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -911,10 +911,22 @@ function AdDetail(ctx) {
           ${hist.yourNote && html`<div class="status live">Your note: ${hist.yourNote}</div>`}
           ${hist.context && html`<div class="small muted">${hist.context}</div>`}</div>`}
         ${tests.map((t) => html`<${TestPanel} key=${t.id} ...${ctx} test=${t} rules=${rules} econ=${econ} />`)}
-        ${decisions.length > 0 && html`<div class="panel"><h2>Decisions</h2><div class="list">${decisions.map((d) => html`<div class="li"><span class="mono small muted">${R.shortDate(d.day)}</span><span class="grow small"><b>${d.choice}</b>${d.reason ? ' · ' + d.reason : ''}</span></div>`)}</div></div>`}
+        ${decisions.length > 0 && html`<div class="panel"><h2>Decisions</h2><div class="list">${decisions.map((d) => html`<${DecisionRow} key=${d.id} d=${d} reload=${reload} say=${say} />`)}</div></div>`}
       </div>
     </div>
   <//>`;
+}
+
+// One decision in the log. The note can be fixed or the entry removed.
+function DecisionRow({ d, reload, say }) {
+  const [edit, setEdit] = useState(false); const [txt, setTxt] = useState(d.reason || ''); const [busy, setBusy] = useState(false);
+  const save = async () => { setBusy(true); try { await be.update('decisions', d.id, { reason: txt.trim() }); await reload(); setEdit(false); say('Note updated'); } catch (e) { say('Could not save: ' + e.message); } setBusy(false); };
+  const del = async () => { if (!confirm('Delete this entry from the log?')) return; try { await be.remove('decisions', d.id); await reload(); say('Entry deleted'); } catch (e) { say('Could not delete: ' + e.message); } };
+  return html`<div class="li" style="align-items:flex-start"><span class="mono small muted">${R.shortDate(d.day)}</span>
+    <span class="grow small"><b>${d.choice}</b>${!edit && d.reason ? ' · ' + d.reason : ''}
+      ${edit && html`<textarea class="inp" style="width:100%;min-height:80px;margin-top:6px" value=${txt} onInput=${(e) => setTxt(e.target.value)} placeholder="Note"></textarea>
+        <div class="row" style="margin-top:6px"><button class="btn sm primary" disabled=${busy} onClick=${save}>Save note</button><button class="btn sm ghost" onClick=${() => { setTxt(d.reason || ''); setEdit(false); }}>Cancel</button><span class="spacer"></span><button class="link small" style="color:var(--fail)" onClick=${del}>Delete entry</button></div>`}</span>
+    ${!edit && html`<button class="link small" onClick=${() => setEdit(true)}>Edit</button>`}</div>`;
 }
 
 // Profit view: real numbers vs. break-even at this ad's own average order. Separate from the test rule.
