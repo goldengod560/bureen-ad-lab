@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=54';
-import * as R from './rules.js?v=54';
-import { importHistory } from './importer.js?v=54';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=54';
+import { createBackend } from './data.js?v=55';
+import * as R from './rules.js?v=55';
+import { importHistory } from './importer.js?v=55';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=55';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -315,7 +315,10 @@ function cardInfo(ad, ctx) {
     const trial = data.tests.some((x) => x.ad_id === ad.id && x.stage === 2 && x.status === 'active');
     const h = mainHealth(ad, data, product);
     const chip = trial ? ['On trial', 'live'] : tags.fatiguing ? ['Fatiguing', 'mid'] : h && h.money === 'below' ? ['Below break-even', 'fail'] : h && h.creative === 'fatigue' ? ['Possible fatigue', 'mid'] : null;
-    return { line: stats || 'In Main', chip: chip && chip[0], tone: chip && chip[1], glow: tags.fatiguing ? 'mid' : 'pass' };
+    // Two lines: the last 7 days (what the tag is about) and all time.
+    const wk = h && h.cur.spend > 0 ? `Last 7 days ${R.xroas(h.cur.roas)} · ${h.cur.purchases} buys · ${shortMoney(h.cur.spend)}` : h ? 'Last 7 days: no spend' : null;
+    const at = q ? `All time ${R.xroas(q.roas)} · ${shortMoney(q.spend)}` : null;
+    return { line: wk || stats || 'In Main', line2: wk ? at : null, chip: chip && chip[0], tone: chip && chip[1], glow: tags.fatiguing ? 'mid' : 'pass' };
   }
   if (ad.stage === 'next') {
     const q = data.ads.filter((a) => a.stage === 'next' && a.product_id === ad.product_id).sort((a, b) => R.queueOf(a) - R.queueOf(b));
