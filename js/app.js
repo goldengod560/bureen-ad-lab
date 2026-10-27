@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=60';
-import * as R from './rules.js?v=60';
-import { importHistory } from './importer.js?v=60';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=60';
+import { createBackend } from './data.js?v=61';
+import * as R from './rules.js?v=61';
+import { importHistory } from './importer.js?v=61';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=61';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2000,14 +2000,15 @@ const STAGES_GOAL = [
 const stageNow = () => { const t = R.today(); return STAGES_GOAL.find((g) => t <= g.to) || STAGES_GOAL[STAGES_GOAL.length - 1]; };
 const lastSunday = () => { const d = R.parseDay(R.today()); d.setDate(d.getDate() - ((d.getDay() + 7) % 7 || 7)); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
 function goalWeeks(data) {
-  return data.learnings.filter((l) => l.kind === 'week').map((l) => { let v = {}; try { v = JSON.parse(l.text); } catch (e) {} return { id: l.id, end: String(l.day).slice(0, 10), rev: R.num(v.rev) || 0, spend: R.num(v.spend) || 0, orders: R.num(v.orders) || 0, profit: R.num(v.profit) }; })
+  return data.learnings.filter((l) => l.kind === 'week').map((l) => { let v = {}; try { v = JSON.parse(l.text); } catch (e) {} return { id: l.id, end: String(l.day).slice(0, 10), rev: R.num(v.rev) || 0, spend: R.num(v.spend) || 0, orders: R.num(v.orders) || 0, profit: R.num(v.profit), refunds: R.num(v.refunds) || 0 }; })
     .sort((a, b) => a.end.localeCompare(b.end));
 }
 // Profit for a week: Triple Whale's net profit when typed, otherwise an estimate from your margin. Fixed costs come off either way.
 function weekProfit(w, st) {
   const fixedWk = (R.num(st.fixedMonthly) || 0) * 12 / 52;
   const base = w.profit != null ? w.profit : w.rev * (R.num(st.margin) || 35) / 100 - w.spend;
-  return { value: base - fixedWk, estimated: w.profit == null };
+  // Triple Whale doesn't take off returns and refunds, so any you enter come off here.
+  return { value: base - fixedWk - (w.refunds || 0), estimated: w.profit == null };
 }
 // Spread each week over its 7 days and add up the days that fall in [a, b].
 function sumDays(weeks, st, a, b) {
@@ -2059,7 +2060,7 @@ function Goal(ctx) {
   // Let's check together: most important first
   const items = [];
   const last = weeks[weeks.length - 1], prevW = weeks[weeks.length - 2];
-  if (!last || last.end < lastSunday()) items.push({ tone: 'live', text: `Add last week's numbers from Triple Whale (week ending ${R.shortDate(lastSunday())}). Takes a minute.`, act: ['Add numbers', () => setModal({ type: WeekForm, props: { end: lastSunday() } })] });
+  if (!last || last.end < lastSunday()) items.push({ tone: 'live', text: `Add last week's numbers from Triple Whale (Mon ${R.shortDate(R.addDays(lastSunday(), -6))} to Sun ${R.shortDate(lastSunday())}). Takes a minute.`, act: ['Add numbers', () => setModal({ type: WeekForm, props: { end: lastSunday() } })] });
   if (last && last.spend && last.rev / last.spend < be) items.push({ tone: 'bad', text: `Your ads aren't paying for themselves: last week the store took in ${R.xroas(last.rev / last.spend)} what you spent on ads, under the ${R.xroas(be)} it takes to break even.` });
   if (last && prevW && prevW.spend && last.spend >= prevW.spend * 1.2 && weekProfit(last, st).value <= weekProfit(prevW, st).value) items.push({ tone: 'warn', text: `Something's eating your cash: ad spend went up ${Math.round((last.spend / prevW.spend - 1) * 100)}% (${R.money0(prevW.spend)} → ${R.money0(last.spend)}) but profit didn't (${R.money0(weekProfit(prevW, st).value)} → ${R.money0(weekProfit(last, st).value)}).` });
   if (last && last.profit != null && last.rev && margin != null) { const lm = (last.profit + last.spend) / last.rev * 100; if (lm <= margin - 4) items.push({ tone: 'warn', text: `Your margin dropped last week (${lm.toFixed(0)}% vs ${margin.toFixed(0)}% average). Check discounts, shipping costs and refunds.` }); }
@@ -2120,8 +2121,8 @@ function Goal(ctx) {
         </div></section>
     </div>
     <section class="panel"><div class="row"><h2 style="margin:0">Weekly numbers</h2><span class="spacer"></span><button class="btn sm" onClick=${() => setModal({ type: StockForm, props: {} })}>Log a stock order</button></div>
-      ${weeks.length ? html`<div class="tscroll"><table class="t"><thead><tr><th>Week ending</th><th>Revenue</th><th>Ad spend</th><th>Blended ROAS</th><th>Orders</th><th>Avg order</th><th>Profit</th><th></th></tr></thead><tbody>
-        ${weeks.slice().reverse().map((w) => { const pr = weekProfit(w, st); return html`<tr><td>${R.shortDate(w.end)}</td><td>${R.money0(w.rev)}</td><td>${R.money0(w.spend)}</td><td>${w.spend ? R.xroas(w.rev / w.spend) : '—'}</td><td>${w.orders || '—'}</td><td>${w.orders ? R.money(w.rev / w.orders) : '—'}</td><td>${R.money0(pr.value)}${pr.estimated ? html` <span class="tiny muted">est.</span>` : ''}</td><td><button class="link small" onClick=${() => setModal({ type: WeekForm, props: { end: w.end } })}>Edit</button></td></tr>`; })}</tbody></table></div>`
+      ${weeks.length ? html`<div class="tscroll"><table class="t"><thead><tr><th>Week</th><th>Revenue</th><th>Ad spend</th><th>Blended ROAS</th><th>Orders</th><th>Avg order</th><th>Profit</th><th></th></tr></thead><tbody>
+        ${weeks.slice().reverse().map((w) => { const pr = weekProfit(w, st); return html`<tr><td class="mono">${R.shortDate(R.addDays(w.end, -6))} to ${R.shortDate(w.end)}</td><td>${R.money0(w.rev)}</td><td>${R.money0(w.spend)}</td><td>${w.spend ? R.xroas(w.rev / w.spend) : '—'}</td><td>${w.orders || '—'}</td><td>${w.orders ? R.money(w.rev / w.orders) : '—'}</td><td>${R.money0(pr.value)}${pr.estimated ? html` <span class="tiny muted">est.</span>` : ''}${w.refunds ? html`<br/><span class="tiny muted">after ${R.money0(w.refunds)} refunds</span>` : ''}</td><td><button class="link small" onClick=${() => setModal({ type: WeekForm, props: { end: w.end } })}>Edit</button></td></tr>`; })}</tbody></table></div>`
         : html`<div class="empty">No weeks yet. Every Monday, add last week's numbers from Triple Whale.</div>`}
       ${stock.length > 0 && html`<div class="small muted">Stock orders: ${stock.slice(0, 4).map((x) => `${R.shortDate(x.day)} ${R.money0(x.amount)}${x.note ? ' (' + x.note + ')' : ''}`).join(' · ')}</div>`}
     </section>`;
@@ -2129,24 +2130,27 @@ function Goal(ctx) {
 function WeekForm(ctx) {
   const { data, end, close, reload, say } = ctx;
   const existing = goalWeeks(data).find((w) => w.end === end);
-  const [f, setF] = useState({ end, rev: existing ? String(existing.rev) : '', spend: existing ? String(existing.spend) : '', orders: existing ? String(existing.orders || '') : '', profit: existing && existing.profit != null ? String(existing.profit) : '' });
+  const [f, setF] = useState({ end, rev: existing ? String(existing.rev) : '', spend: existing ? String(existing.spend) : '', orders: existing ? String(existing.orders || '') : '', profit: existing && existing.profit != null ? String(existing.profit) : '', refunds: existing && existing.refunds ? String(existing.refunds) : '' });
   const metaSpend = sumRows((data.meta_days || []).filter((r) => r.day >= R.addDays(f.end, -6) && r.day <= f.end)).spend;
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const save = async () => {
     if (!R.num(f.rev) || !R.num(f.spend)) { say('Add revenue and ad spend.'); return; }
-    const text = JSON.stringify({ rev: R.num(f.rev), spend: R.num(f.spend), orders: R.num(f.orders), profit: f.profit === '' ? null : R.num(f.profit) });
+    const text = JSON.stringify({ rev: R.num(f.rev), spend: R.num(f.spend), orders: R.num(f.orders), profit: f.profit === '' ? null : R.num(f.profit), refunds: R.num(f.refunds) || 0 });
     const hit = data.learnings.find((l) => l.kind === 'week' && String(l.day).slice(0, 10) === f.end);
     if (hit) await be.update('learnings', hit.id, { text }); else await be.insert('learnings', { kind: 'week', day: f.end, text, source: 'Triple Whale' });
     await reload(); close(); say('Week saved');
   };
   const del = async () => { const hit = data.learnings.find((l) => l.kind === 'week' && String(l.day).slice(0, 10) === f.end); if (!hit || !confirm('Delete this week?')) return; await be.remove('learnings', hit.id); await reload(); close(); say('Week deleted'); };
-  return html`<${Modal} title="Week's numbers" sub="From Triple Whale, for the 7 days ending on the date below" onClose=${close}>
+  return html`<${Modal} title="Week's numbers" sub=${`From Triple Whale · Mon ${R.shortDate(R.addDays(f.end, -6))} to Sun ${R.shortDate(f.end)}`} onClose=${close}>
     <div class="form">
       <${Field} label="Week ending (Sunday)"><input type="date" value=${f.end} onInput=${set('end')} /><//>
+      <div class="status live small full">This week: Monday ${R.shortDate(R.addDays(f.end, -6))} to Sunday ${R.shortDate(f.end)}. Use the same dates in Triple Whale.</div>
       <${Field} label="Revenue (all online sales)"><input inputmode="decimal" value=${f.rev} onInput=${set('rev')} placeholder="$" /><//>
       <${Field} label="Ad spend (all ads)"><input inputmode="decimal" value=${f.spend} onInput=${set('spend')} placeholder=${metaSpend ? 'Meta files say $' + Math.round(metaSpend) : '$'} /><//>
       <${Field} label="Orders"><input inputmode="decimal" value=${f.orders} onInput=${set('orders')} /><//>
-      <${Field} full label="Net profit (optional; leave blank and the app estimates it)"><input inputmode="decimal" value=${f.profit} onInput=${set('profit')} placeholder="$" /><//>
+      <${Field} label="Net profit (optional; blank = app estimates)"><input inputmode="decimal" value=${f.profit} onInput=${set('profit')} placeholder="$" /><//>
+      <${Field} label="Returns and refunds (optional)"><input inputmode="decimal" value=${f.refunds} onInput=${set('refunds')} placeholder="$ from Shopify" /><//>
+      <div class="tiny muted full">Triple Whale doesn't take off returns and refunds. If you add them here (Shopify → Analytics → Returns), they come off this week's profit.</div>
     </div>
     <div class="row"><button class="btn primary" onClick=${save}>Save</button><button class="btn ghost" onClick=${close}>Cancel</button><span class="spacer"></span>${existing && html`<button class="link small" style="color:var(--fail)" onClick=${del}>Delete week</button>`}</div>
   <//>`;
