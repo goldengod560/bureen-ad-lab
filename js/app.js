@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=61';
-import * as R from './rules.js?v=61';
-import { importHistory } from './importer.js?v=61';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=61';
+import { createBackend } from './data.js?v=62';
+import * as R from './rules.js?v=62';
+import { importHistory } from './importer.js?v=62';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=62';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2110,7 +2110,16 @@ function Goal(ctx) {
         <div class="rulerow"><label for="c-m">Margin before ads</label><input id="c-m" inputmode="decimal" value=${calc.margin} onInput=${(e) => setCalc({ ...calc, margin: e.target.value })} /><span class="tiny muted">%</span></div>
         <div class=${'status ' + (monthProfit >= GOAL.profit ? 'good' : monthProfit > 0 ? 'live' : 'bad')}><b>${R.money0(monthProfit)} profit a month</b> (after ${R.money0(fixed)} fixed costs)</div>
         <div class="small">${perDollar <= 0 ? `At ${cr.toFixed(2)}x and ${Math.round(cm * 100)}% margin every ad dollar loses money. Break-even here is ${(1 / cm).toFixed(2)}x.` : `To reach $12,000: spend about ${R.money0(needSpend)}/day at this ROAS, or reach ${needRoas.toFixed(2)}x at this spend.`}</div>
-        <div class="tiny muted">Profit ≈ spend × (margin × ROAS − 1) − fixed costs. Same formula as your growth plan. Starts from your last 4 weeks.${calcEdit ? '' : ''}</div>
+        ${(() => { // Per order: what one sale leaves after its share of the ads, at this ROAS
+          const one = crewE.set ? R.beAt(crewE, crewE.price) : null, ao = aov || R.num(st.aov) || 47.54;
+          const row = (label, price, before) => { const ad = cr > 0 ? price / cr : null, left = ad == null ? null : before - ad;
+            return html`<tr><td>${label}</td><td>${R.money(price)}</td><td>${R.money(before)}</td><td>${R.money(ad)}</td><td class=${left == null ? '' : left >= 0 ? 'good' : 'bad'}><b>${left == null ? '—' : (left < 0 ? '−' : '') + R.money(Math.abs(left))}</b></td></tr>`; };
+          return html`<div class="tscroll"><table class="t"><thead><tr><th>Per order</th><th>Price</th><th>Left before ads</th><th>Ad cost at ${cr ? cr.toFixed(2) + 'x' : '—'}</th><th>Profit</th></tr></thead><tbody>
+            ${one && row(`One Crew 6-pack`, crewE.price, one.contrib)}
+            ${row('Your average order', ao, ao * cm)}
+          </tbody></table></div>
+          <div class="tiny muted">Ad cost per order = price ÷ ROAS. "Left before ads" is after product, shipping, packaging and card fees${one ? ` (one 6-pack: $${crewE.packCost} product, $${(crewE.ship + crewE.pack).toFixed(2)} shipping and packaging, fees)` : ''}.</div>`; })()}
+        <div class="tiny muted">Profit ≈ spend × (margin × ROAS − 1) − fixed costs. Same formula as your growth plan. Starts from your last 4 weeks.</div>
         ${calcEdit && html`<button class="link small" style="align-self:flex-start" onClick=${() => setCalc(null)}>Reset to my numbers</button>`}</section>
       <section class="panel"><h2>What moves the needle</h2>
         <div class="small muted">At ${cs ? R.money0(cs) + '/day' : 'your'} spend, each of these adds about:</div>
