@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=74';
-import * as R from './rules.js?v=74';
-import { importHistory } from './importer.js?v=74';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=74';
+import { createBackend } from './data.js?v=75';
+import * as R from './rules.js?v=75';
+import { importHistory } from './importer.js?v=75';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=75';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2076,12 +2076,12 @@ function periodProfit(x, st, ce = goalCE) {
   const value = base - (x.refunds || 0) - x.other - fixedEst;
   return { value, how: x.profit != null ? 'tw' : 'est', before: base - (x.refunds || 0) - x.other, lines: null, est: [] };
 }
-// Spread every period evenly over its days. Where two overlap, the shorter (more specific) one wins.
+// Spread every period evenly over its days. Where two overlap, the one you saved last wins.
 function dayMap(periods, st) {
   const m = new Map();
   for (const x of periods) {
     const pr = periodProfit(x, st), per = { profit: pr.value / x.days, before: pr.before / x.days, rev: x.rev / x.days, spend: x.spend / x.days, orders: x.orders / x.days, how: pr.how, len: x.days, created: x.created };
-    for (let k = 0; k < x.days; k++) { const d = R.addDays(x.from, k), cur = m.get(d); if (!cur || per.len < cur.len || (per.len === cur.len && per.created > cur.created)) m.set(d, per); }
+    for (let k = 0; k < x.days; k++) { const d = R.addDays(x.from, k), cur = m.get(d); if (!cur || per.created >= cur.created) m.set(d, per); }
   }
   return m;
 }
@@ -2281,13 +2281,16 @@ function PeriodForm(ctx) {
   const days = f.from && f.to && f.to >= f.from ? R.daysBetween(f.from, f.to) + 1 : 0;
   const metaSpend = sumRows((data.meta_days || []).filter((r) => r.day >= f.from && r.day <= f.to)).spend;
   const overlap = goalPeriods(data).filter((x) => x.id !== id && x.from <= f.to && x.to >= f.from);
+  const inside = overlap.filter((x) => x.from >= f.from && x.to <= f.to), partial = overlap.filter((x) => !inside.includes(x));
   const save = async () => {
     if (!days) { say('Pick the dates.'); return; }
     if (!R.num(f.rev) && R.num(f.exact) == null) { say('Add revenue (or the exact profit).'); return; }
     const opt = (k) => (f[k] === '' ? null : R.num(f[k]));
     const text = JSON.stringify({ from: f.from, rev: R.num(f.rev) || 0, revType: f.revType, spend: R.num(f.spend) || 0, orders: R.num(f.orders) || 0, profit: opt('profit'), refunds: R.num(f.refunds) || 0, other: R.num(f.other) || 0, exact: opt('exact'),
       shipIn: opt('shipIn'), retFees: opt('retFees'), cogs: opt('cogs'), packs: opt('packs'), labels: opt('labels'), packaging: opt('packaging'), fees: opt('fees'), fixedCost: opt('fixedCost'), costFinal: !!f.costFinal });
-    if (ex) await be_.update('learnings', ex.id, { kind: 'period', day: f.to, text }); else await be_.insert('learnings', { kind: 'period', day: f.to, text, source: f.revType === 'net' ? 'Shopify' : 'Triple Whale' });
+    for (const x of inside) await be_.remove('learnings', x.id); // the new dates cover these completely
+    if (ex) await be_.remove('learnings', ex.id); // re-saved as new, so it counts as the latest
+    await be_.insert('learnings', { kind: 'period', day: f.to, text, source: f.revType === 'net' ? 'Shopify' : 'Triple Whale' });
     await reload(); close(); say('Numbers saved');
   };
   const del = async () => { if (!ex || !confirm('Delete these numbers?')) return; await be_.remove('learnings', ex.id); await reload(); close(); say('Deleted'); };
@@ -2296,7 +2299,8 @@ function PeriodForm(ctx) {
     <div class="form">
       <${Field} label="From"><input type="date" value=${f.from} onInput=${(e) => setF({ ...f, from: e.target.value, preset: 'custom' })} /><//>
       <${Field} label="To"><input type="date" value=${f.to} onInput=${(e) => setF({ ...f, to: e.target.value, preset: 'custom' })} /><//>
-      ${overlap.length > 0 && html`<div class="status warn small full">These dates overlap numbers you already added (${overlap.map((x) => `${R.shortDate(x.from)} to ${R.shortDate(x.to)}`).join(', ')}). Where they overlap, the shorter period counts.</div>`}
+      ${inside.length > 0 && html`<div class="status warn small full">Saving replaces what you added for ${inside.map((x) => `${R.shortDate(x.from)} to ${R.shortDate(x.to)}`).join(', ')}, since these dates cover ${inside.length === 1 ? 'it' : 'them'}.</div>`}
+      ${partial.length > 0 && html`<div class="status live small full">Partly overlaps ${partial.map((x) => `${R.shortDate(x.from)} to ${R.shortDate(x.to)}`).join(', ')}. On the days they share, these new numbers count.</div>`}
       <${Field} full label="Where are the numbers from?"><select value=${f.revType} onChange=${set('revType')}><option value="net">Shopify (exact: Analytics → Reports → Finance summary)</option><option value="tw">Triple Whale (quick, ignores returns)</option></select><//>
       ${f.revType === 'net' ? html`
         <div class="fsec full">Sales · Shopify → Analytics → Reports → Finance summary</div>
@@ -2456,7 +2460,7 @@ function Learn(ctx) {
   const [text, setText] = useState(''); const [kind, setKind] = useState('learning');
   const [ev, setEv] = useState({ day: R.today(), kind: 'Website change', note: '', all: true });
   const items = [
-    ...data.learnings.filter((l) => !['week', 'stock'].includes(l.kind) && (!l.product_id || l.product_id === product.id)).map((l) => ({ day: l.day, tag: l.kind === 'rule_change' ? 'Rule change' : l.kind === 'hypothesis' ? 'Hypothesis' : 'Learning', tone: l.kind === 'rule_change' ? 'mid' : l.kind === 'hypothesis' ? 'muted' : 'pass', text: l.text, src: l.source, id: l.id, t: 'learnings' })),
+    ...data.learnings.filter((l) => !['week', 'stock', 'period'].includes(l.kind) && (!l.product_id || l.product_id === product.id)).map((l) => ({ day: l.day, tag: l.kind === 'rule_change' ? 'Rule change' : l.kind === 'hypothesis' ? 'Hypothesis' : 'Learning', tone: l.kind === 'rule_change' ? 'mid' : l.kind === 'hypothesis' ? 'muted' : 'pass', text: l.text, src: l.source, id: l.id, t: 'learnings' })),
     ...data.events.filter((e) => !e.product_id || e.product_id === product.id).map((e) => ({ day: e.day, tag: 'Change', tone: 'ins', text: `${e.kind}${e.note ? ': ' + e.note : ''}`, id: e.id, t: 'events' })),
     ...data.decisions.filter((d) => d.product_id === product.id).map((d) => { const ad = data.ads.find((a) => a.id === d.ad_id); return { day: d.day, tag: 'Decision', tone: 'live', text: `${d.choice}${ad ? ' · ' + ad.base_name : ''}${d.reason ? ' · ' + d.reason : ''}` }; }),
   ].sort((a, b) => String(b.day).localeCompare(String(a.day)));
