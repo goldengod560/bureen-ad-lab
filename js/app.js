@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=63';
-import * as R from './rules.js?v=63';
-import { importHistory } from './importer.js?v=63';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=63';
+import { createBackend } from './data.js?v=64';
+import * as R from './rules.js?v=64';
+import { importHistory } from './importer.js?v=64';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=64';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2231,8 +2231,8 @@ function Rules(ctx) {
     <div class="grid2">
       <section class="panel accent"><h2>${product.name} economics</h2>
         ${pv.opBE && html`<div class="tiles"><div class="tile"><div class="k">Break-even used to judge ads</div><div class="v" style="color:var(--accent2)">${R.xroas(pv.opBE)}</div><div class="s">${pv.opBEOwn ? 'Set by you' : product.kind === 'crew' ? 'Estimate: store average order with your bundle discounts' : 'Single-pack estimate until you set it'}</div></div></div>`}
-        <div class="rulerow"><label for="e-opbe">Break-even ROAS used to judge ads (blank = estimate)</label><input id="e-opbe" inputmode="decimal" value=${pe.opBE} placeholder=${product.kind === 'crew' ? '2.85' : '—'} onInput=${setP('opBE')} />${unit('x')}</div>
-        ${pv.set ? html`<div class="fsec">For reference</div><div class="tiles">
+        <div class="rulerow" key="e-opbe"><label for="e-opbe">Break-even ROAS used to judge ads (blank = estimate)</label><input id="e-opbe" inputmode="decimal" value=${pe.opBE} placeholder=${product.kind === 'crew' ? '2.85' : '—'} onInput=${setP('opBE')} />${unit('x')}</div>
+        <div key="econ-ref" class="stack" style="gap:8px">${pv.set ? html`<div class="fsec">For reference</div><div class="tiles">
           <div class="tile"><div class="k">Break-even · 1 pack</div><div class="v" style="color:var(--accent2)">${R.xroas(b1 && b1.roas)}</div><div class="s">${R.money(b1 && b1.cpa)} CPA at ${R.money(pv.price)}</div></div>
           <div class="tile"><div class="k">Break-even · 2 packs</div><div class="v" style="color:var(--accent2)">${R.xroas(b2 && b2.roas)}</div><div class="s">${R.money(b2 && b2.cpa)} CPA at ${R.money(pv.price * 2)}, if sold at full price</div></div>
           ${bA && html`<div class="tile"><div class="k">At its avg order</div><div class="v" style="color:var(--accent2)">${R.xroas(bA.roas)}</div><div class="s">${R.money(bA.cpa)} CPA at ${R.money(pv.ownAov)} · estimate</div></div>`}
@@ -2244,12 +2244,12 @@ function Rules(ctx) {
               <tr><td><b>Profit</b></td>${[2.5, 3, 3.5, 4, 4.5].map((r) => { const v = b1.contrib - pv.price / r; return html`<td class=${v >= 0 ? 'good' : 'bad'}><b>${(v < 0 ? '−' : '') + R.money(Math.abs(v))}</b></td>`; })}</tr>
             </tbody></table></div>
             <div class="tiny muted">One ${R.money(pv.price)} pack leaves ${R.money(b1.contrib)} after product (${R.money(pv.packCost)}), shipping and packaging (${R.money((pv.ship || 0) + (pv.pack || 0))}) and card fees (${R.money(b1.fees)}). The ad cost per sale is the price ÷ ROAS.</div>`}`
-        : html`<div class="status warn small">Costs not set. Enter the pack price and product cost to see break-even. Nothing is guessed.</div>`}
-        <div class="rulerow"><label for="e-price">Pack price</label><input id="e-price" inputmode="decimal" value=${pe.price} onInput=${setP('price')} />${unit('$')}</div>
-        <div class="rulerow"><label for="e-cost">Product cost per pack</label><input id="e-cost" inputmode="decimal" value=${pe.packCost} onInput=${setP('packCost')} />${unit('$')}</div>
-        <div class="rulerow"><label for="e-aov">This product's average order (optional)</label><input id="e-aov" inputmode="decimal" value=${pe.aov} onInput=${setP('aov')} placeholder="—" />${unit('$')}</div>
+        : html`<div class="status warn small">Costs not set. Enter the pack price and product cost to see break-even. Nothing is guessed.</div>`}</div>
+        <div class="rulerow" key="e-price"><label for="e-price">Pack price</label><input id="e-price" inputmode="decimal" value=${pe.price} onInput=${setP('price')} />${unit('$')}</div>
+        <div class="rulerow" key="e-cost"><label for="e-cost">Product cost per pack</label><input id="e-cost" inputmode="decimal" value=${pe.packCost} onInput=${setP('packCost')} />${unit('$')}</div>
+        <div class="rulerow" key="e-aov"><label for="e-aov">This product's average order (optional)</label><input id="e-aov" inputmode="decimal" value=${pe.aov} onInput=${setP('aov')} placeholder="—" />${unit('$')}</div>
         <div class="fsec">Shared costs · blank uses the store's</div>
-        ${R.SHARED_COSTS.map(([k, l, u]) => html`<div class="rulerow"><label for=${'e-' + k}>${l}${pe[k] === '' ? html` <span class="tiny muted">(store)</span>` : html` <button class="link tiny" onClick=${() => setPe({ ...pe, [k]: '' })}>use store</button>`}</label><input id=${'e-' + k} inputmode="decimal" value=${pe[k]} placeholder=${st[k] || '0'} onInput=${setP(k)} />${unit(u)}</div>`)}
+        ${R.SHARED_COSTS.map(([k, l, u]) => html`<div class="rulerow" key=${'e-' + k}><label for=${'e-' + k}>${l}${pe[k] === '' ? html` <span class="tiny muted">(store)</span>` : html` <button class="link tiny" onClick=${() => setPe({ ...pe, [k]: '' })}>use store</button>`}</label><input id=${'e-' + k} inputmode="decimal" value=${pe[k]} placeholder=${st[k] || '0'} onInput=${setP(k)} />${unit(u)}</div>`)}
       </section>
       <section class="panel"><h2>Store economics</h2>
         <p class="small muted" style="margin:0">The whole shop, blended. Shared by every product. Used for MER and profit on Stats.</p>
