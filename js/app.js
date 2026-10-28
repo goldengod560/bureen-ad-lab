@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=62';
-import * as R from './rules.js?v=62';
-import { importHistory } from './importer.js?v=62';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=62';
+import { createBackend } from './data.js?v=63';
+import * as R from './rules.js?v=63';
+import { importHistory } from './importer.js?v=63';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=63';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2111,14 +2111,16 @@ function Goal(ctx) {
         <div class=${'status ' + (monthProfit >= GOAL.profit ? 'good' : monthProfit > 0 ? 'live' : 'bad')}><b>${R.money0(monthProfit)} profit a month</b> (after ${R.money0(fixed)} fixed costs)</div>
         <div class="small">${perDollar <= 0 ? `At ${cr.toFixed(2)}x and ${Math.round(cm * 100)}% margin every ad dollar loses money. Break-even here is ${(1 / cm).toFixed(2)}x.` : `To reach $12,000: spend about ${R.money0(needSpend)}/day at this ROAS, or reach ${needRoas.toFixed(2)}x at this spend.`}</div>
         ${(() => { // Per order: what one sale leaves after its share of the ads, at this ROAS
-          const one = crewE.set ? R.beAt(crewE, crewE.price) : null, ao = aov || R.num(st.aov) || 47.54;
+          const ao = aov || R.num(st.aov) || 47.54;
+          const packs = products.map((p) => ({ p, e: R.econOf(p) })).filter((x) => x.e.set).map((x) => ({ ...x, one: R.beAt(x.e, x.e.price) }));
+          const missing = products.filter((p) => !R.econOf(p).set).map((p) => p.name);
           const row = (label, price, before) => { const ad = cr > 0 ? price / cr : null, left = ad == null ? null : before - ad;
             return html`<tr><td>${label}</td><td>${R.money(price)}</td><td>${R.money(before)}</td><td>${R.money(ad)}</td><td class=${left == null ? '' : left >= 0 ? 'good' : 'bad'}><b>${left == null ? '—' : (left < 0 ? '−' : '') + R.money(Math.abs(left))}</b></td></tr>`; };
           return html`<div class="tscroll"><table class="t"><thead><tr><th>Per order</th><th>Price</th><th>Left before ads</th><th>Ad cost at ${cr ? cr.toFixed(2) + 'x' : '—'}</th><th>Profit</th></tr></thead><tbody>
-            ${one && row(`One Crew 6-pack`, crewE.price, one.contrib)}
+            ${packs.map((x) => row(`One ${x.p.name} pack`, x.e.price, x.one.contrib))}
             ${row('Your average order', ao, ao * cm)}
           </tbody></table></div>
-          <div class="tiny muted">Ad cost per order = price ÷ ROAS. "Left before ads" is after product, shipping, packaging and card fees${one ? ` (one 6-pack: $${crewE.packCost} product, $${(crewE.ship + crewE.pack).toFixed(2)} shipping and packaging, fees)` : ''}.</div>`; })()}
+          <div class="tiny muted">Ad cost per order = price ÷ ROAS. "Left before ads" is after product, shipping, packaging and card fees.${missing.length ? ` Add costs in Rules to see ${missing.join(', ')}.` : ''}</div>`; })()}
         <div class="tiny muted">Profit ≈ spend × (margin × ROAS − 1) − fixed costs. Same formula as your growth plan. Starts from your last 4 weeks.</div>
         ${calcEdit && html`<button class="link small" style="align-self:flex-start" onClick=${() => setCalc(null)}>Reset to my numbers</button>`}</section>
       <section class="panel"><h2>What moves the needle</h2>
@@ -2235,7 +2237,13 @@ function Rules(ctx) {
           <div class="tile"><div class="k">Break-even · 2 packs</div><div class="v" style="color:var(--accent2)">${R.xroas(b2 && b2.roas)}</div><div class="s">${R.money(b2 && b2.cpa)} CPA at ${R.money(pv.price * 2)}, if sold at full price</div></div>
           ${bA && html`<div class="tile"><div class="k">At its avg order</div><div class="v" style="color:var(--accent2)">${R.xroas(bA.roas)}</div><div class="s">${R.money(bA.cpa)} CPA at ${R.money(pv.ownAov)} · estimate</div></div>`}
           <div class="tile"><div class="k">Testing pass line</div><div class="v">${R.xroas(R.num(rules.passARoas))}</div><div class="s">Your rule, not break-even</div></div></div>
-          <p class="tiny muted" style="margin:0">Every ad is judged against the one break-even above, so the line doesn't move with each order. These two are context only.</p>`
+          <p class="tiny muted" style="margin:0">Every ad is judged against the one break-even above, so the line doesn't move with each order. These two are context only.</p>
+          ${b1 && html`<div class="fsec">Profit per pack sold</div>
+            <div class="tscroll"><table class="t"><thead><tr><th>At ROAS</th>${[2.5, 3, 3.5, 4, 4.5].map((r) => html`<th>${r.toFixed(1)}x</th>`)}</tr></thead><tbody>
+              <tr><td>Ad cost</td>${[2.5, 3, 3.5, 4, 4.5].map((r) => html`<td>${R.money(pv.price / r)}</td>`)}</tr>
+              <tr><td><b>Profit</b></td>${[2.5, 3, 3.5, 4, 4.5].map((r) => { const v = b1.contrib - pv.price / r; return html`<td class=${v >= 0 ? 'good' : 'bad'}><b>${(v < 0 ? '−' : '') + R.money(Math.abs(v))}</b></td>`; })}</tr>
+            </tbody></table></div>
+            <div class="tiny muted">One ${R.money(pv.price)} pack leaves ${R.money(b1.contrib)} after product (${R.money(pv.packCost)}), shipping and packaging (${R.money((pv.ship || 0) + (pv.pack || 0))}) and card fees (${R.money(b1.fees)}). The ad cost per sale is the price ÷ ROAS.</div>`}`
         : html`<div class="status warn small">Costs not set. Enter the pack price and product cost to see break-even. Nothing is guessed.</div>`}
         <div class="rulerow"><label for="e-price">Pack price</label><input id="e-price" inputmode="decimal" value=${pe.price} onInput=${setP('price')} />${unit('$')}</div>
         <div class="rulerow"><label for="e-cost">Product cost per pack</label><input id="e-cost" inputmode="decimal" value=${pe.packCost} onInput=${setP('packCost')} />${unit('$')}</div>
