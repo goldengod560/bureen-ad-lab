@@ -379,3 +379,4 @@ table.stats tr.click{cursor:pointer} table.stats tr.click:hover td{background:va
 .mp-tile .mp-ad b{font-family:var(--mono);margin-left:6px}
 .mp-tile .dot,.mainplan .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle;background:var(--accent)}
 @media (max-width:900px){.mp-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.mp-tile span b{font:600 12px var(--mono)}.mp-tile span b.good{color:var(--pass)}.mp-tile span b.bad{color:var(--fail)}

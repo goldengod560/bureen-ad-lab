@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=67';
-import * as R from './rules.js?v=67';
-import { importHistory } from './importer.js?v=67';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=67';
+import { createBackend } from './data.js?v=69';
+import * as R from './rules.js?v=69';
+import { importHistory } from './importer.js?v=69';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=69';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1749,6 +1749,12 @@ function mainPlan(data, product) {
   const cur = tot('cur'), prev = tot('prev');
   const bandOf = (t) => (!be || !t.spend ? null : t.roas >= be * 1.05 ? 'above' : t.roas <= be * 0.95 ? 'below' : 'near');
   const nowB = bandOf(cur), prevB = bandOf(prev);
+  // Calendar weeks (Mon–Sun), the way you think about weeks: this week so far and last week.
+  const td = R.parseDay(R.today()), mon = R.addDays(R.today(), -((td.getDay() + 6) % 7));
+  const span = (a, b) => sumRows(per.flatMap(({ ad }) => rowsForAd(ad, data.meta_days).filter((r) => r.day >= a && r.day <= b)));
+  const thisWk = mon <= w.end ? { ...span(mon, w.end), from: mon, to: w.end } : null;
+  const lastWk = { ...span(R.addDays(mon, -7), R.addDays(mon, -1)), from: R.addDays(mon, -7), to: R.addDays(mon, -1) };
+  const thisB = thisWk && thisWk.spend >= 30 ? bandOf(thisWk) : null;
   // Did every Main ad drop together? Then it's most likely Meta / the market, not one ad.
   const both = per.filter((x) => x.h.cur.spend > 0 && x.h.prev.spend > 0 && x.h.prev.roas);
   const market = both.length >= 2 && both.every((x) => (x.h.cur.roas || 0) <= x.h.prev.roas * 0.85);
@@ -1778,18 +1784,26 @@ function mainPlan(data, product) {
   steps.push({ tone: free ? 'warn' : 'good', text: free ? `${free} of ${slots} test slots free; Up Next has ${next} ${product.name} ad${next === 1 ? '' : 's'}.${free > next ? ` Make ${free - next} more.` : ''}` : `All ${slots} test slots in use${usedBy.length ? ` (${usedBy.join(', ')})` : ''}.` });
   if (daysLeft >= 0) steps.push({ tone: 'live', text: `Black Friday: launch your last test batch by ${R.shortDate(lastLaunch)} (${daysLeft} days left) so winners are tested in time.` });
   if (new Date().getDay() === 5) steps.push({ tone: 'live', text: `It's Friday: if Main is weak, lowering it ~30% before the weekend lock limits weekend overspending.` });
-  return { w, cur, prev, be, nowB, prevB, market, ads, weak, best, swapNow, budget, slots, used, free, usedBy, next, lastLaunch, daysLeft, steps, mainCount: main.length };
+  return { w, cur, prev, be, nowB, prevB, thisWk, lastWk, thisB, market, ads, weak, best, swapNow, budget, slots, used, free, usedBy, next, lastLaunch, daysLeft, steps, mainCount: main.length };
 }
 
 function MainPlan({ data, product, setModal }) {
   const [more, setMore] = useState(false);
   const p = mainPlan(data, product); if (!p) return null;
   const open = (ad) => setModal({ type: AdDetail, props: { adId: ad.id } });
-  const head = p.budget.tone === 'good' ? 'Main is making money.' : p.nowB === 'below' && p.market ? 'Bad week for Main, but it looks like Meta, not your ads.' : p.nowB === 'below' && p.swapNow ? 'Main is losing money. Time to act.' : p.nowB === 'below' ? 'Bad week for Main. Hold for now.' : p.nowB === 'near' ? 'Main is around break-even.' : p.budget.why;
+  const d7 = `the last 7 days (${R.shortDate(p.w.a)} to ${R.shortDate(p.w.end)})`;
+  const better = p.thisB && p.thisB !== 'below' && p.nowB === 'below';
+  const head = p.budget.tone === 'good' ? 'Main is making money.'
+    : better ? `Under break-even over ${d7}, but this week is starting better (${R.xroas(p.thisWk.roas)} since Monday). Hold.`
+    : p.nowB === 'below' && p.market ? `Under break-even over ${d7}, and every Main ad dropped together, so it looks like Meta. Hold.`
+    : p.nowB === 'below' && p.swapNow ? 'Main has lost money two weeks running. Time to act.'
+    : p.nowB === 'below' ? `Under break-even over ${d7}. Hold for now.`
+    : p.nowB === 'near' ? `Around break-even over ${d7}.` : p.budget.why;
   return html`<section class="panel mainplan">
     <div class="row" style="gap:10px;flex-wrap:wrap"><h2 style="margin:0">Main plan</h2><span class=${'chip t-' + (p.budget.tone === 'good' ? 'pass' : p.budget.tone === 'bad' ? 'fail' : p.budget.tone === 'warn' ? 'mid' : 'live')}>${p.budget.call}</span><span class="small"><b>${head}</b></span></div>
     <div class="mp-tiles">
-      <div class="mp-tile"><small>Main · last 7 days</small><b class=${p.nowB === 'above' ? 'good' : p.nowB === 'below' ? 'bad' : ''}>${R.xroas(p.cur.roas)}</b><span>week before ${R.xroas(p.prev.roas)} · break-even ${R.xroas(p.be)}</span></div>
+      <div class="mp-tile"><small>Main · last 7 days</small><b class=${p.nowB === 'above' ? 'good' : p.nowB === 'below' ? 'bad' : ''}>${R.xroas(p.cur.roas)}</b><span>${R.shortDate(p.w.a)} to ${R.shortDate(p.w.end)} · break-even ${R.xroas(p.be)}</span>
+        <span>${p.thisWk && p.thisWk.spend ? html`This week so far <b class=${p.thisB === 'below' ? 'bad' : p.thisB ? 'good' : ''}>${R.xroas(p.thisWk.roas)}</b> · ` : ''}Last week (Mon–Sun) ${R.xroas(p.lastWk.roas)}${p.lastWk.to > p.w.end ? ` (files through ${R.shortDate(p.w.end)})` : ''}</span></div>
       <div class="mp-tile"><small>Main ads</small>${p.ads.length ? p.ads.map((x) => html`<button class="link mp-ad" onClick=${() => open(x.ad)}><i class=${'dot ' + (x.band === 'above' ? 'good' : x.band === 'below' ? 'bad' : 'warn')}></i>${displayName(x.ad).replace(/^(IMG|VID|Image|Video)\s*[|–-]\s*/i, '').slice(0, 26)} <b>${R.xroas(x.roas)}</b></button>`) : html`<span>No spend this week</span>`}${p.market && html`<span>All fell together → likely Meta</span>`}</div>
       <div class="mp-tile"><small>Backup ready</small>${p.best ? html`<button class="link mp-ad" onClick=${() => open(p.best.a)}>${displayName(p.best.a).replace(/^(IMG|VID|Image|Video)\s*[|–-]\s*/i, '').replace(/\s*\|\s*\d{1,2}-\d{1,2}$/, '').slice(0, 26)} <b>${R.xroas(p.best.r && p.best.r.full.roas)}</b></button><span>${p.swapNow ? 'Swap it in now' : 'Swap only if next week is also bad'}</span>` : html`<b class="bad">None</b><span>Bench is empty</span>`}</div>
       <div class="mp-tile"><small>Testing</small><b>${p.used}/${p.slots}</b><span>${p.free ? `${p.free} free · Up Next ${p.next}${p.free > p.next ? ` · make ${p.free - p.next}` : ''}` : `in use${p.usedBy.length ? ': ' + p.usedBy.join(', ') : ''}`}${p.daysLeft >= 0 ? ` · Black Friday batch by ${R.shortDate(p.lastLaunch)}` : ''}</span></div>
