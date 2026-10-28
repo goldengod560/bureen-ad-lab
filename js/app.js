@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=72';
-import * as R from './rules.js?v=72';
-import { importHistory } from './importer.js?v=72';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=72';
+import { createBackend } from './data.js?v=73';
+import * as R from './rules.js?v=73';
+import { importHistory } from './importer.js?v=73';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=73';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2039,18 +2039,42 @@ function goalPeriods(data) {
     const to = String(l.day).slice(0, 10), from = v.from || R.addDays(to, -6);
     return { id: l.id, kind: l.kind, from, to, days: R.daysBetween(from, to) + 1, created: l.created_at || '',
       rev: R.num(v.rev) || 0, revType: v.revType || 'tw', spend: R.num(v.spend) || 0, orders: R.num(v.orders) || 0,
-      profit: R.num(v.profit), refunds: R.num(v.refunds) || 0, other: R.num(v.other) || 0, exact: R.num(v.exact) };
+      profit: R.num(v.profit), refunds: R.num(v.refunds) || 0, other: R.num(v.other) || 0, exact: R.num(v.exact),
+      shipIn: R.num(v.shipIn), retFees: R.num(v.retFees), cogs: R.num(v.cogs), packs: R.num(v.packs), labels: R.num(v.labels), packaging: R.num(v.packaging), fees: R.num(v.fees), fixedCost: R.num(v.fixedCost) };
   }).sort((x, y) => x.from.localeCompare(y.from));
 }
 // Profit for a period. Exact profit (if you know it) wins. Otherwise Triple Whale's net profit, else an estimate from
 // your margin; then returns (only if revenue is Triple Whale's, which ignores them), other costs and fixed costs come off.
-function periodProfit(x, st) {
-  const fixed = (R.num(st.fixedMonthly) || 0) * 12 / 365 * x.days;
-  if (x.exact != null) return { value: x.exact, how: 'exact', before: x.exact + fixed };
+// Crew's costs, used to estimate any cost line you leave blank. Set when the Goal tab or the form renders.
+let goalCE = null;
+// Full profit for a period. Exact profit (if you know it) wins. Shopify numbers get a full breakdown:
+// net sales + shipping charged + return fees − product cost − shipping labels − packaging − payment fees − ads − other − apps.
+// Any cost left blank is estimated (and listed as an estimate). Triple Whale entries keep the simpler method.
+function periodProfit(x, st, ce = goalCE) {
+  const fixedEst = (R.num(st.fixedMonthly) || 0) * 12 / 365 * x.days;
+  if (x.exact != null) return { value: x.exact, how: 'exact', before: x.exact + (x.fixedCost ?? fixedEst), lines: null, est: [] };
+  if (x.revType === 'net') {
+    const ord = x.orders || 0, ratio = ce && ce.set ? ce.packCost / ce.price : 15 / 36;
+    const shipCost = R.num(st.ship) || 7.6, packCost = R.num(st.pack) || 0.6, feePct = (R.num(st.feePct) || 2.9) / 100, feeFix = R.num(st.feeFixed) || 0.3;
+    const sales = x.rev + (x.shipIn || 0) + (x.retFees || 0);
+    const est = [];
+    const pick = (v, guess, label) => { if (v != null) return v; est.push(label); return guess; };
+    const lines = [
+      ['Product cost', pick(x.cogs != null ? x.cogs : x.packs != null && ce && ce.set ? x.packs * ce.packCost : null, x.rev * ratio, 'product cost')],
+      ['Shipping labels', pick(x.labels, ord * shipCost, 'shipping labels')],
+      ['Packaging', pick(x.packaging, ord * packCost, 'packaging')],
+      ['Payment fees', pick(x.fees, sales * feePct + ord * feeFix, 'payment fees')],
+      ['Ad spend', x.spend],
+      ['Other costs', x.other || 0],
+      ['Apps and fixed', pick(x.fixedCost, fixedEst, 'apps and fixed')],
+    ];
+    const costs = lines.reduce((t, l) => t + l[1], 0);
+    const value = sales - costs;
+    return { value, how: est.length ? (est.length >= 3 ? 'est' : 'mixed') : 'full', before: value + x.spend + (x.fixedCost ?? fixedEst), lines, sales, est };
+  }
   const base = x.profit != null ? x.profit : x.rev * (R.num(st.margin) || 35) / 100 - x.spend;
-  const returns = x.revType === 'tw' ? x.refunds : 0;
-  const value = base - returns - x.other - fixed;
-  return { value, how: x.profit != null ? 'tw' : 'est', before: base - returns - x.other };
+  const value = base - (x.refunds || 0) - x.other - fixedEst;
+  return { value, how: x.profit != null ? 'tw' : 'est', before: base - (x.refunds || 0) - x.other, lines: null, est: [] };
 }
 // Spread every period evenly over its days. Where two overlap, the shorter (more specific) one wins.
 function dayMap(periods, st) {
@@ -2111,10 +2135,12 @@ function Goal(ctx) {
   const { data, products, reload, say, setModal, setView, setPid } = ctx;
   const [whatif, setWhatif] = useState(false); const [moreChecks, setMoreChecks] = useState(false); const [showNums, setShowNums] = useState(false);
   const st = R.storeEcon(), stage = stageNow(), t = R.today(), y = R.addDays(t, -1);
+  goalCE = R.econOf(products.find((p) => p.kind === 'crew') || products[0]);
   const periods = goalPeriods(data), dm = dayMap(periods, st);
   const stock = data.learnings.filter((l) => l.kind === 'stock').map((l) => { let v = {}; try { v = JSON.parse(l.text); } catch (e) {} return { id: l.id, day: String(l.day).slice(0, 10), amount: R.num(v.amount) || 0, note: v.note || '' }; }).sort((a, b) => b.day.localeCompare(a.day));
   const crew = products.find((p) => p.kind === 'crew') || products[0];
   const crewE = R.econOf(crew), be = crewE.opBE || 2.85, fixed = R.num(st.fixedMonthly) || 0;
+  goalCE = crewE;
   // Months from Oct 2026 to Sep 2027
   const yms = []; for (let d = '2026-10-01'; d <= GOAL.by; d = R.addDays(monthEnd(monthKey(d)), 1)) yms.push(monthKey(d));
   const curYm = monthKey(t);
@@ -2211,7 +2237,7 @@ function Goal(ctx) {
     <section class="panel"><div class="row"><h2 style="margin:0">Your numbers</h2><span class="spacer"></span><button class="btn sm" onClick=${() => setModal({ type: StockForm, props: {} })}>Log a stock order</button><button class="link small" onClick=${() => setShowNums(!showNums)}>${showNums ? 'Hide' : `Show all (${periods.length})`}</button></div>
       <div class="tiny muted">Profit = online sales (ads, organic, email) minus product, shipping, fees, ads, returns, other costs and fixed costs (${R.money0(fixed)}/month). Family pay isn't subtracted. <button class="link tiny" onClick=${editFixed}>Change fixed costs</button></div>
       ${showNums && (periods.length ? html`<div class="tscroll"><table class="t"><thead><tr><th>Dates</th><th>Revenue</th><th>Ad spend</th><th>Blended</th><th>Orders</th><th>Profit</th><th></th></tr></thead><tbody>
-        ${periods.slice().reverse().map((x) => { const pr = periodProfit(x, st); return html`<tr><td class="mono">${R.shortDate(x.from)} to ${R.shortDate(x.to)}</td><td>${R.money0(x.rev)}<br/><span class="tiny muted">${x.revType === 'net' ? 'Shopify net' : 'Triple Whale'}</span></td><td>${R.money0(x.spend)}</td><td>${x.spend ? R.xroas(x.rev / x.spend) : '—'}</td><td>${x.orders || '—'}</td><td>${R.money0(pr.value)}<br/><span class="tiny muted">${pr.how === 'exact' ? 'exact' : pr.how === 'tw' ? 'Triple Whale' : 'estimate'}</span></td><td><button class="link small" onClick=${() => setModal({ type: PeriodForm, props: { id: x.id } })}>Edit</button></td></tr>`; })}</tbody></table></div>` : html`<div class="empty">No numbers yet.</div>`)}
+        ${periods.slice().reverse().map((x) => { const pr = periodProfit(x, st); return html`<tr><td class="mono">${R.shortDate(x.from)} to ${R.shortDate(x.to)}</td><td>${R.money0(x.rev)}<br/><span class="tiny muted">${x.revType === 'net' ? 'Shopify net' : 'Triple Whale'}</span></td><td>${R.money0(x.spend)}</td><td>${x.spend ? R.xroas(x.rev / x.spend) : '—'}</td><td>${x.orders || '—'}</td><td>${R.money0(pr.value)}<br/><span class="tiny muted">${pr.how === 'exact' ? 'exact' : pr.how === 'full' ? 'from your numbers' : pr.how === 'mixed' ? 'some costs estimated' : pr.how === 'tw' ? 'Triple Whale' : 'estimate'}</span></td><td><button class="link small" onClick=${() => setModal({ type: PeriodForm, props: { id: x.id } })}>Edit</button></td></tr>`; })}</tbody></table></div>` : html`<div class="empty">No numbers yet.</div>`)}
       ${stock.length > 0 && html`<div class="tiny muted">Stock orders: ${stock.slice(0, 4).map((x) => `${R.shortDate(x.day)} ${R.money0(x.amount)}${x.note ? ' (' + x.note + ')' : ''}`).join(' · ')}</div>`}
     </section>
     <section class="panel"><div class="row"><h2 style="margin:0">Plan and what-ifs</h2><span class="spacer"></span><button class="link small" onClick=${() => setWhatif(!whatif)}>${whatif ? 'Hide' : 'Show'}</button></div>
@@ -2239,12 +2265,13 @@ function Goal(ctx) {
 // Add numbers for any dates: this week, last week, a month or custom.
 function PeriodForm(ctx) {
   const { data, id, from: f0, to: t0, close, reload, say } = ctx;
+  goalCE = R.econOf(data.products.find((p) => p.kind === 'crew') || data.products[0]);
   const ex = id ? goalPeriods(data).find((x) => x.id === id) : null;
   const t = R.today(), y = R.addDays(t, -1), td = R.parseDay(t), mon = R.addDays(t, -((td.getDay() + 6) % 7));
   const lm = R.addDays(t.slice(0, 8) + '01', -1);
   const presets = [['thisweek', 'This week', mon <= y ? mon : R.addDays(mon, -7), y], ['lastweek', 'Last week', R.addDays(mon, -7), R.addDays(mon, -1)], ['thismonth', 'This month', t.slice(0, 8) + '01' <= y ? t.slice(0, 8) + '01' : lm.slice(0, 8) + '01', y], ['lastmonth', 'Last month', lm.slice(0, 8) + '01', lm], ['custom', 'Custom dates', null, null]];
-  const [f, setF] = useState(() => ex ? { from: ex.from, to: ex.to, rev: String(ex.rev || ''), revType: ex.revType, spend: String(ex.spend || ''), orders: ex.orders ? String(ex.orders) : '', profit: ex.profit != null ? String(ex.profit) : '', refunds: ex.refunds ? String(ex.refunds) : '', other: ex.other ? String(ex.other) : '', exact: ex.exact != null ? String(ex.exact) : '', preset: 'custom' }
-    : { from: f0 || presets[1][2], to: t0 || presets[1][3], rev: '', revType: 'net', spend: '', orders: '', profit: '', refunds: '', other: '', exact: '', preset: f0 ? 'custom' : 'lastweek' });
+  const [f, setF] = useState(() => ex ? { from: ex.from, to: ex.to, rev: String(ex.rev || ''), revType: ex.revType, spend: String(ex.spend || ''), orders: ex.orders ? String(ex.orders) : '', profit: ex.profit != null ? String(ex.profit) : '', refunds: ex.refunds ? String(ex.refunds) : '', other: ex.other ? String(ex.other) : '', exact: ex.exact != null ? String(ex.exact) : '', preset: 'custom', ...Object.fromEntries(['shipIn', 'retFees', 'cogs', 'packs', 'labels', 'packaging', 'fees', 'fixedCost'].map((k) => [k, ex[k] != null ? String(ex[k]) : ''])) }
+    : { from: f0 || presets[1][2], to: t0 || presets[1][3], rev: '', revType: 'net', spend: '', orders: '', profit: '', refunds: '', other: '', exact: '', shipIn: '', retFees: '', cogs: '', packs: '', labels: '', packaging: '', fees: '', fixedCost: '', preset: f0 ? 'custom' : 'lastweek' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const pick = (k) => { const pr = presets.find((x) => x[0] === k); setF({ ...f, preset: k, ...(pr[2] ? { from: pr[2], to: pr[3] } : {}) }); };
   const days = f.from && f.to && f.to >= f.from ? R.daysBetween(f.from, f.to) + 1 : 0;
@@ -2253,7 +2280,9 @@ function PeriodForm(ctx) {
   const save = async () => {
     if (!days) { say('Pick the dates.'); return; }
     if (!R.num(f.rev) && R.num(f.exact) == null) { say('Add revenue (or the exact profit).'); return; }
-    const text = JSON.stringify({ from: f.from, rev: R.num(f.rev) || 0, revType: f.revType, spend: R.num(f.spend) || 0, orders: R.num(f.orders) || 0, profit: f.profit === '' ? null : R.num(f.profit), refunds: R.num(f.refunds) || 0, other: R.num(f.other) || 0, exact: f.exact === '' ? null : R.num(f.exact) });
+    const opt = (k) => (f[k] === '' ? null : R.num(f[k]));
+    const text = JSON.stringify({ from: f.from, rev: R.num(f.rev) || 0, revType: f.revType, spend: R.num(f.spend) || 0, orders: R.num(f.orders) || 0, profit: opt('profit'), refunds: R.num(f.refunds) || 0, other: R.num(f.other) || 0, exact: opt('exact'),
+      shipIn: opt('shipIn'), retFees: opt('retFees'), cogs: opt('cogs'), packs: opt('packs'), labels: opt('labels'), packaging: opt('packaging'), fees: opt('fees'), fixedCost: opt('fixedCost') });
     if (ex) await be_.update('learnings', ex.id, { kind: 'period', day: f.to, text }); else await be_.insert('learnings', { kind: 'period', day: f.to, text, source: f.revType === 'net' ? 'Shopify' : 'Triple Whale' });
     await reload(); close(); say('Numbers saved');
   };
@@ -2264,15 +2293,43 @@ function PeriodForm(ctx) {
       <${Field} label="From"><input type="date" value=${f.from} onInput=${(e) => setF({ ...f, from: e.target.value, preset: 'custom' })} /><//>
       <${Field} label="To"><input type="date" value=${f.to} onInput=${(e) => setF({ ...f, to: e.target.value, preset: 'custom' })} /><//>
       ${overlap.length > 0 && html`<div class="status warn small full">These dates overlap numbers you already added (${overlap.map((x) => `${R.shortDate(x.from)} to ${R.shortDate(x.to)}`).join(', ')}). Where they overlap, the shorter period counts.</div>`}
-      <${Field} label="Revenue"><input inputmode="decimal" value=${f.rev} onInput=${set('rev')} placeholder="$" /><//>
-      <${Field} label="Revenue is from"><select value=${f.revType} onChange=${set('revType')}><option value="net">Shopify net sales (returns and cancels already out)</option><option value="tw">Triple Whale (doesn't take out returns)</option></select><//>
-      <${Field} label="Ad spend (all ads)"><input inputmode="decimal" value=${f.spend} onInput=${set('spend')} placeholder=${metaSpend ? 'Meta files say $' + Math.round(metaSpend) : '$'} /><//>
-      <${Field} label="Orders"><input inputmode="decimal" value=${f.orders} onInput=${set('orders')} /><//>
-      ${f.revType === 'tw' && html`<${Field} label="Returns, refunds and cancels"><input inputmode="decimal" value=${f.refunds} onInput=${set('refunds')} placeholder="$ from Shopify" /><//>`}
-      <${Field} label="Other costs (chargebacks, extra shipping…)"><input inputmode="decimal" value=${f.other} onInput=${set('other')} placeholder="$" /><//>
-      <${Field} label="Triple Whale net profit (optional)"><input inputmode="decimal" value=${f.profit} onInput=${set('profit')} placeholder="blank = app estimates" /><//>
-      <${Field} label="Exact profit, if you know it (optional)"><input inputmode="decimal" value=${f.exact} onInput=${set('exact')} placeholder="overrides everything" /><//>
-      <div class="tiny muted full">For true numbers: in Shopify go to <b>Analytics → Reports → Finance summary</b> (or Sales over time) for these dates and use <b>Net sales</b>. Returns, refunds, cancels and discounts are already taken out, so you don't need the returns box. "Exact profit" is for when your brother has the real number from the books; it's used as-is, after everything except family pay.</div>
+      <${Field} full label="Where are the numbers from?"><select value=${f.revType} onChange=${set('revType')}><option value="net">Shopify (exact: Analytics → Reports → Finance summary)</option><option value="tw">Triple Whale (quick, ignores returns)</option></select><//>
+      ${f.revType === 'net' ? html`
+        <div class="fsec full">Sales · Shopify → Analytics → Reports → Finance summary</div>
+        <${Field} label="Net sales"><input inputmode="decimal" value=${f.rev} onInput=${set('rev')} placeholder="$ (returns and discounts already out)" /><//>
+        <${Field} label="Shipping charges"><input inputmode="decimal" value=${f.shipIn} onInput=${set('shipIn')} placeholder="$ customers paid" /><//>
+        <${Field} label="Return fees"><input inputmode="decimal" value=${f.retFees} onInput=${set('retFees')} placeholder="$" /><//>
+        <${Field} label="Orders"><input inputmode="decimal" value=${f.orders} onInput=${set('orders')} placeholder="used for estimates" /><//>
+        <div class="fsec full">Costs · leave any blank and the app estimates it</div>
+        <${Field} label="Product cost"><input inputmode="decimal" value=${f.cogs} onInput=${set('cogs')} placeholder=${'$ or fill packs sold →'} /><//>
+        <${Field} label="…or 6-packs sold"><input inputmode="decimal" value=${f.packs} onInput=${set('packs')} placeholder=${goalCE && goalCE.set ? `× $${goalCE.packCost} each` : 'packs'} /><//>
+        <${Field} label="Shipping labels"><input inputmode="decimal" value=${f.labels} onInput=${set('labels')} placeholder="$ Shipping labels report" /><//>
+        <${Field} label="Packaging"><input inputmode="decimal" value=${f.packaging} onInput=${set('packaging')} placeholder="$" /><//>
+        <${Field} label="Payment fees"><input inputmode="decimal" value=${f.fees} onInput=${set('fees')} placeholder="$ Shopify Payments fees" /><//>
+        <${Field} label="Ad spend (all ads)"><input inputmode="decimal" value=${f.spend} onInput=${set('spend')} placeholder=${metaSpend ? 'Meta files say $' + Math.round(metaSpend) : '$'} /><//>
+        <${Field} label="Apps and subscriptions"><input inputmode="decimal" value=${f.fixedCost} onInput=${set('fixedCost')} placeholder="$" /><//>
+        <${Field} label="Other costs"><input inputmode="decimal" value=${f.other} onInput=${set('other')} placeholder="$ chargebacks, extra shipping…" /><//>
+        <div class="fsec full">Optional</div>
+        <${Field} full label="Exact profit, if you already know it (overrides everything above)"><input inputmode="decimal" value=${f.exact} onInput=${set('exact')} placeholder="$" /><//>
+        ${(() => { // live profit for these dates
+          const opt = (k) => (f[k] === '' ? null : R.num(f[k]));
+          const x = { from: f.from, to: f.to, days: days || 1, rev: R.num(f.rev) || 0, revType: 'net', spend: R.num(f.spend) || 0, orders: R.num(f.orders) || 0, other: R.num(f.other) || 0, exact: opt('exact'), shipIn: opt('shipIn'), retFees: opt('retFees'), cogs: opt('cogs'), packs: opt('packs'), labels: opt('labels'), packaging: opt('packaging'), fees: opt('fees'), fixedCost: opt('fixedCost') };
+          const pr = periodProfit(x, R.storeEcon());
+          if (!x.rev && x.exact == null) return null;
+          return html`<div class="full stack" style="gap:4px"><div class="tscroll"><table class="t"><tbody>
+            ${pr.lines ? html`<tr><td>Sales (net + shipping charged + return fees)</td><td class="mono">${R.money(pr.sales)}</td></tr>
+              ${pr.lines.map(([l, v]) => html`<tr><td>${l}${pr.est.includes(l.toLowerCase()) ? html` <span class="tiny muted">estimate</span>` : ''}</td><td class="mono">−${R.money(v)}</td></tr>`)}` : ''}
+            <tr><td><b>Profit for these dates</b></td><td class=${'mono ' + (pr.value >= 0 ? 'good' : 'bad')}><b>${(pr.value < 0 ? '−' : '') + R.money(Math.abs(pr.value))}</b></td></tr>
+          </tbody></table></div>${pr.est.length ? html`<div class="tiny muted">Estimated: ${pr.est.join(', ')}. Fill those in for an exact number.</div>` : ''}</div>`; })()}`
+      : html`
+        <${Field} label="Revenue"><input inputmode="decimal" value=${f.rev} onInput=${set('rev')} placeholder="$" /><//>
+        <${Field} label="Ad spend (all ads)"><input inputmode="decimal" value=${f.spend} onInput=${set('spend')} placeholder=${metaSpend ? 'Meta files say $' + Math.round(metaSpend) : '$'} /><//>
+        <${Field} label="Orders"><input inputmode="decimal" value=${f.orders} onInput=${set('orders')} /><//>
+        <${Field} label="Returns, refunds and cancels"><input inputmode="decimal" value=${f.refunds} onInput=${set('refunds')} placeholder="$ from Shopify" /><//>
+        <${Field} label="Other costs"><input inputmode="decimal" value=${f.other} onInput=${set('other')} placeholder="$" /><//>
+        <${Field} label="Triple Whale net profit (optional)"><input inputmode="decimal" value=${f.profit} onInput=${set('profit')} placeholder="blank = app estimates" /><//>
+        <${Field} full label="Exact profit, if you know it (optional)"><input inputmode="decimal" value=${f.exact} onInput=${set('exact')} placeholder="overrides everything" /><//>
+        <div class="tiny muted full">Triple Whale doesn't take out returns, refunds or cancels; add them in the box above. For exact numbers, switch to Shopify.</div>`}
     </div>
     <div class="row"><button class="btn primary" onClick=${save}>Save</button><button class="btn ghost" onClick=${close}>Cancel</button><span class="spacer"></span>${ex && html`<button class="link small" style="color:var(--fail)" onClick=${del}>Delete</button>`}</div>
   <//>`;

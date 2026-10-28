@@ -320,7 +320,7 @@ function testStatusRaw(test, cps, rules, aov, live) {
 
 export function isWeekendLock(d = new Date()) { const g = d.getDay(), h = d.getHours(); return g === 0 || g === 6 || (g === 5 && h >= 17); }
 
-export const money = (n) => (n == null || !isFinite(n)) ? '—' : '$' + Number(n).toFixed(2);
+export const money = (n) => (n == null || !isFinite(n)) ? '—' : '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export const money0 = (n) => (n == null || !isFinite(n)) ? '—' : '$' + Math.round(n).toLocaleString();
 export const xroas = (n) => (n == null || !isFinite(n)) ? '—' : Number(n).toFixed(2) + 'x';
 export const pct = (n) => (n == null || !isFinite(n)) ? '—' : Number(n).toFixed(1) + '%';
