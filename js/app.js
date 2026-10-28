@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=69';
-import * as R from './rules.js?v=69';
-import { importHistory } from './importer.js?v=69';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=69';
+import { createBackend } from './data.js?v=70';
+import * as R from './rules.js?v=70';
+import { importHistory } from './importer.js?v=70';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=70';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1359,46 +1359,55 @@ function Today(ctx) {
   for (const t of data.tests.filter((x) => x.status === 'active')) {
     const ad = data.ads.find((a) => a.id === t.ad_id); const p = products.find((x) => x.id === t.product_id); if (!ad || !p) continue;
     const rules = R.rulesOf(p);
-    if (t.stage === 2) { const d = R.daysBetween(t.start_date, R.today()); if (d >= rules.stage2Min) items.push({ tone: 'blue', title: `Judge in Main: ${ad.base_name}`, sub: `${d} days in Main · ${p.name}`, tag: 'TODAY', go: () => setModal({ type: MainForm, props: { adId: ad.id, mode: 'record', testId: t.id } }) }); continue; }
+    if (t.stage === 2) { const d = R.daysBetween(t.start_date, R.today()); if (d >= rules.stage2Min) items.push({ kind: 'todo', tone: 'blue', title: `Judge in Main: ${ad.base_name}`, sub: `${d} days in Main · ${p.name}`, tag: 'RECORD', go: () => setModal({ type: MainForm, props: { adId: ad.id, mode: 'record', testId: t.id } }) }); continue; }
     const st = R.testStatus(t, data.checkpoints.filter((c) => c.test_id === t.id), rules, R.econOf(p).aov, liveFor(t, ad, data));
-    if (st.early) items.push({ tone: 'red', title: `Pause? ${displayName(ad)}`, sub: st.text, tag: 'DECIDE', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) });
-    if (st.final) items.push({ tone: 'blue', title: `Finalize: ${displayName(ad)}`, sub: `${p.name} · window complete`, tag: 'TODAY', go: () => setModal({ type: FinalizeForm, props: { testId: t.id } }) });
-    else if (st.due.length) items.push({ tone: 'amber', title: `Day ${st.due[st.due.length - 1]} results: ${displayName(ad)}`, sub: `${p.name} · day ${st.day} of ${st.planned}`, tag: 'DUE', go: () => setModal({ type: CheckinForm, props: { testId: t.id } }) });
+    if (st.early) items.push({ kind: 'todo', tone: 'red', title: `Pause or keep running? ${displayName(ad)}`, sub: st.text, tag: 'DECIDE', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) });
+    if (st.final) items.push({ kind: 'todo', tone: 'blue', title: `Finalize: ${displayName(ad)}`, sub: `${p.name} · the 7 days are done. Record the result when you turn it off.`, tag: 'FINALIZE', go: () => setModal({ type: FinalizeForm, props: { testId: t.id } }) });
+    else if (st.due.length) items.push({ kind: 'todo', tone: 'amber', title: `Day ${st.due[st.due.length - 1]} results: ${displayName(ad)}`, sub: `${p.name} · add an Ads Manager file that covers day ${st.due[st.due.length - 1]}, or type the numbers.`, tag: 'RESULTS', go: () => setModal({ type: CheckinForm, props: { testId: t.id } }) });
   }
   for (const t of data.tests.filter((x) => x.stage === 1 && x.status === 'complete')) {
     const ad = data.ads.find((a) => a.id === t.ad_id); if (!ad) continue;
     const rr = runsFor(t, ad, data), lc = lateChange(t, rr);
-    if (lc) items.push({ tone: 'amber', title: `Check result: ${displayName(ad)}`, sub: `Newer files: your rules now say ${R.RESULTS[lc.now].label} (filed as ${R.RESULTS[t.result] ? R.RESULTS[t.result].label : t.result}).`, tag: 'REVIEW', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) });
+    if (lc) items.push({ kind: 'todo', tone: 'amber', title: `Check result: ${displayName(ad)}`, sub: `Newer files: your rules now say ${R.RESULTS[lc.now].label} (filed as ${R.RESULTS[t.result] ? R.RESULTS[t.result].label : t.result}).`, tag: 'REVIEW', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) });
   }
   for (const p of products) {
     const bh = benchHealth(data, p);
-    if (bh.urgent) items.unshift({ tone: 'red', title: `${p.name}: Bench is ${bh.bench ? 'low' : 'empty'} and Main is fatiguing`, sub: `${bh.fatiguing.map((a) => a.base_name).join(', ')} fatiguing. ${bh.bench} of ${bh.target} tested backups ready. Test now so September doesn't repeat.`, tag: 'ACT', go: () => { setPid(p.id); setView('board'); } });
-    else if (bh.low && bh.main) items.push({ tone: 'amber', title: `${p.name}: Bench under target`, sub: `${bh.bench} of ${bh.target} tested backups ready.`, tag: 'PLAN', go: () => { setPid(p.id); setView('board'); } });
+    if (bh.urgent) items.unshift({ kind: 'heads', tone: 'red', title: `${p.name}: Bench is ${bh.bench ? 'low' : 'empty'} and Main is fatiguing`, sub: `${bh.fatiguing.map((a) => a.base_name).join(', ')} fatiguing. ${bh.bench} of ${bh.target} tested backups ready. Test now so September doesn't repeat.`, tag: 'ACT', go: () => { setPid(p.id); setView('board'); } });
+    else if (bh.low && bh.main) items.push({ kind: 'heads', tone: 'amber', title: `${p.name}: Bench under target`, sub: `${bh.bench} of ${bh.target} tested backups ready.`, tag: 'PLAN', go: () => { setPid(p.id); setView('board'); } });
   }
-  for (const p of products) for (const ad of data.ads.filter((x) => x.product_id === p.id && x.stage === 'main')) {
-    const h = mainHealth(ad, data, p); if (!h) continue;
-    const t = healthText(h);
-    if (h.money === 'below') items.unshift({ tone: 'red', title: `${displayName(ad)}: below break-even (last 7 days)`, sub: t.m, tag: 'CHECK', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) });
-    if (h.creative === 'fatigue' && !(ad.tags || {}).fatiguing) items.push({ tone: 'amber', title: `${displayName(ad)}: possible fatigue`, sub: t.c, tag: 'CHECK', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) });
+  // Main: one line per product from the Main plan (same advice as the Board), not one alarm per ad.
+  for (const p of products) {
+    if (!data.ads.some((x) => x.product_id === p.id && x.stage === 'main')) continue;
+    const mp = mainPlan(data, p); if (!mp) continue;
+    const toBoard = () => { setPid(p.id); setView('board'); };
+    if (mp.swapNow && mp.best) items.unshift({ kind: 'todo', tone: 'red', title: `${p.name} Main: swap in ${displayName(mp.best.a)}`, sub: mp.head, tag: 'ACT', go: toBoard });
+    else if (mp.budget.tone !== 'good') items.push({ kind: 'heads', tone: mp.budget.tone === 'bad' ? 'red' : 'amber', title: `${p.name} Main: ${mp.budget.call}`, sub: mp.head, tag: 'MAIN', go: toBoard });
+    for (const ad of data.ads.filter((x) => x.product_id === p.id && x.stage === 'main')) {
+      const h = mainHealth(ad, data, p);
+      if (h && h.creative === 'fatigue' && !(ad.tags || {}).fatiguing) items.push({ kind: 'heads', tone: 'amber', title: `${displayName(ad)}: possible fatigue`, sub: healthText(h).c, tag: 'CHECK', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) });
+    }
   }
 
   const lastMeta = data.meta_days.reduce((m, r) => (r.day > m ? r.day : m), '');
-  if (!lastMeta || lastMeta < R.addDays(R.today(), -1)) items.push({ tone: 'blue', title: lastMeta ? `Add yesterday's Ads Manager file (last one: ${lastMeta})` : 'Add your first Ads Manager file', sub: 'Keeps check-ins, fatigue warnings and Stats up to date.', tag: 'DAILY', go: () => setView('stats') });
+  if (!lastMeta || lastMeta < R.addDays(R.today(), -1)) items.push({ kind: 'todo', tone: 'blue', title: lastMeta ? `Add yesterday's Ads Manager file (last one: ${lastMeta})` : 'Add your first Ads Manager file', sub: 'Keeps check-ins, fatigue warnings and Stats up to date.', tag: 'DAILY', go: () => setView('stats') });
   const ready = data.ads.filter((a) => a.stage === 'next').sort((a, b) => R.queueOf(a) - R.queueOf(b));
   const live = testingCount(data);
   const rules0 = R.rulesOf(products[0]);
   const running = data.tests.filter((t) => t.status === 'active');
+  const todo = items.filter((x) => x.kind !== 'heads'), heads = items.filter((x) => x.kind === 'heads');
+  const row = (list) => html`<div class="list">${list.map((it) => html`<button class="li" style="background:none;border-left:0;border-right:0;border-bottom:0;color:inherit;text-align:left;cursor:pointer;width:100%" onClick=${it.go}><span class=${'bar ' + it.tone}></span><span class="grow"><b>${it.title}</b><br/><span class="small muted">${it.sub}</span></span><span class="mono tiny" style="color:var(--accent2)">${it.tag}</span></button>`)}</div>`;
+  const live1 = (t) => { const ad = data.ads.find((a) => a.id === t.ad_id), p = products.find((x) => x.id === t.product_id); if (!ad || !p || t.stage !== 1) return null; const st = R.testStatus(t, data.checkpoints.filter((c) => c.test_id === t.id), R.rulesOf(p), R.econOf(p).aov, liveFor(t, ad, data)); return st.m ? ` · ${R.xroas(st.m.roas)} · ${st.m.purchases} buy${st.m.purchases === 1 ? '' : 's'} on ${R.money0(st.m.spend)}` : ''; };
   return html`
     <div class="row"><div class="stack" style="gap:0"><span class="small" style="color:var(--accent2);letter-spacing:.16em;font-weight:600">${new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }).toUpperCase()}</span><h1 style="font-size:34px">Today</h1></div></div>
     <${MetaDrop} ...${ctx} />
-    <section class="panel"><h2>Due</h2>
-      ${items.length ? html`<div class="list">${items.map((it) => html`<button class="li" style="background:none;border-left:0;border-right:0;border-bottom:0;color:inherit;text-align:left;cursor:pointer;width:100%" onClick=${it.go}><span class=${'bar ' + it.tone}></span><span class="grow"><b>${it.title}</b><br/><span class="small muted">${it.sub}</span></span><span class="mono tiny" style="color:var(--accent2)">${it.tag}</span></button>`)}</div>`
-        : html`<div class="empty">Nothing due. ${running.length ? `${running.length} test${running.length > 1 ? 's' : ''} running.` : 'No tests running.'}</div>`}
+    <section class="panel"><h2>To do today</h2>
+      ${todo.length ? row(todo) : html`<div class="empty">Nothing to do today.</div>`}
     </section>
+    ${heads.length > 0 && html`<section class="panel"><h2>Heads up</h2><div class="tiny muted" style="margin-top:-6px">Things to know. No action needed unless it says so.</div>${row(heads)}</section>`}
     ${ready.length > 0 && live < rules0.slots && html`<section class="panel"><h2>Slot open</h2><div class="small">${rules0.slots - live} test slot${rules0.slots - live > 1 ? 's' : ''} free. Launch next from Up Next:</div>
       <div class="list">${ready.map((a) => html`<button class="li" style="background:none;border-left:0;border-right:0;border-bottom:0;color:inherit;text-align:left;cursor:pointer;width:100%" onClick=${() => setModal({ type: AdDetail, props: { adId: a.id } })}><${Media} path=${a.media_path} type=${a.media_type} poster=${a.tags && a.tags.poster} cls="" /><span class="grow small"><b>#${ready.indexOf(a) + 1} · ${a.base_name}</b><br/><span class="muted">${(products.find((p) => p.id === a.product_id) || {}).name}</span></span></button>`)}</div></section>`}
     <section class="panel"><h2>Running</h2>
-      ${running.length ? html`<div class="list">${running.map((t) => { const ad = data.ads.find((a) => a.id === t.ad_id); return ad && html`<button class="li" style="background:none;border-left:0;border-right:0;border-bottom:0;color:inherit;text-align:left;cursor:pointer;width:100%" onClick=${() => setModal({ type: AdDetail, props: { adId: ad.id } })}><span class="bar blue"></span><span class="grow small"><b>${displayName(ad)}</b><br/><span class="muted">${t.stage === 2 ? 'Trial in Main' : 'Stage 1'} · ${R.testDay(t) < 1 ? 'partial day, day 1 tomorrow' : 'day ' + R.testDay(t)}</span></span></button>`; })}</div>` : html`<div class="empty">No live tests</div>`}
+      ${running.length ? html`<div class="list">${running.map((t) => { const ad = data.ads.find((a) => a.id === t.ad_id); return ad && html`<button class="li" style="background:none;border-left:0;border-right:0;border-bottom:0;color:inherit;text-align:left;cursor:pointer;width:100%" onClick=${() => setModal({ type: AdDetail, props: { adId: ad.id } })}><span class="bar blue"></span><span class="grow small"><b>${displayName(ad)}</b><br/><span class="muted">${t.stage === 2 ? 'Trial in Main' : (products.find((p) => p.id === t.product_id) || {}).name} · ${R.testDay(t) < 1 ? 'partial day, day 1 tomorrow' : 'day ' + Math.min(R.testDay(t), t.planned_days || 7) + ' of ' + (t.planned_days || 7)}${live1(t) || ''}</span></span></button>`; })}</div>` : html`<div class="empty">No live tests</div>`}
     </section>`;
 }
 
@@ -1784,21 +1793,22 @@ function mainPlan(data, product) {
   steps.push({ tone: free ? 'warn' : 'good', text: free ? `${free} of ${slots} test slots free; Up Next has ${next} ${product.name} ad${next === 1 ? '' : 's'}.${free > next ? ` Make ${free - next} more.` : ''}` : `All ${slots} test slots in use${usedBy.length ? ` (${usedBy.join(', ')})` : ''}.` });
   if (daysLeft >= 0) steps.push({ tone: 'live', text: `Black Friday: launch your last test batch by ${R.shortDate(lastLaunch)} (${daysLeft} days left) so winners are tested in time.` });
   if (new Date().getDay() === 5) steps.push({ tone: 'live', text: `It's Friday: if Main is weak, lowering it ~30% before the weekend lock limits weekend overspending.` });
-  return { w, cur, prev, be, nowB, prevB, thisWk, lastWk, thisB, market, ads, weak, best, swapNow, budget, slots, used, free, usedBy, next, lastLaunch, daysLeft, steps, mainCount: main.length };
+  const d7 = `the last 7 days (${R.shortDate(w.a)} to ${R.shortDate(w.end)})`;
+  const better = thisB && thisB !== 'below' && nowB === 'below';
+  const head = budget.tone === 'good' ? 'Main is making money.'
+    : better ? `Under break-even over ${d7}, but this week is starting better (${R.xroas(thisWk.roas)} since Monday). Hold.`
+    : nowB === 'below' && market ? `Under break-even over ${d7}, and every Main ad dropped together, so it looks like Meta. Hold.`
+    : nowB === 'below' && swapNow ? 'Main has lost money two weeks running. Time to act.'
+    : nowB === 'below' ? `Under break-even over ${d7}. Hold for now.`
+    : nowB === 'near' ? `Around break-even over ${d7}.` : budget.why;
+  return { head, w, cur, prev, be, nowB, prevB, thisWk, lastWk, thisB, market, ads, weak, best, swapNow, budget, slots, used, free, usedBy, next, lastLaunch, daysLeft, steps, mainCount: main.length };
 }
 
 function MainPlan({ data, product, setModal }) {
   const [more, setMore] = useState(false);
   const p = mainPlan(data, product); if (!p) return null;
   const open = (ad) => setModal({ type: AdDetail, props: { adId: ad.id } });
-  const d7 = `the last 7 days (${R.shortDate(p.w.a)} to ${R.shortDate(p.w.end)})`;
-  const better = p.thisB && p.thisB !== 'below' && p.nowB === 'below';
-  const head = p.budget.tone === 'good' ? 'Main is making money.'
-    : better ? `Under break-even over ${d7}, but this week is starting better (${R.xroas(p.thisWk.roas)} since Monday). Hold.`
-    : p.nowB === 'below' && p.market ? `Under break-even over ${d7}, and every Main ad dropped together, so it looks like Meta. Hold.`
-    : p.nowB === 'below' && p.swapNow ? 'Main has lost money two weeks running. Time to act.'
-    : p.nowB === 'below' ? `Under break-even over ${d7}. Hold for now.`
-    : p.nowB === 'near' ? `Around break-even over ${d7}.` : p.budget.why;
+  const head = p.head;
   return html`<section class="panel mainplan">
     <div class="row" style="gap:10px;flex-wrap:wrap"><h2 style="margin:0">Main plan</h2><span class=${'chip t-' + (p.budget.tone === 'good' ? 'pass' : p.budget.tone === 'bad' ? 'fail' : p.budget.tone === 'warn' ? 'mid' : 'live')}>${p.budget.call}</span><span class="small"><b>${head}</b></span></div>
     <div class="mp-tiles">
