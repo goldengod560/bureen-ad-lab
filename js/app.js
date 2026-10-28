@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=76';
-import * as R from './rules.js?v=76';
-import { importHistory } from './importer.js?v=76';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=76';
+import { createBackend } from './data.js?v=77';
+import * as R from './rules.js?v=77';
+import { importHistory } from './importer.js?v=77';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=77';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2070,7 +2070,7 @@ function periodProfit(x, st, ce = goalCE) {
     ];
     const costs = lines.reduce((t, l) => t + l[1], 0);
     const value = sales - costs;
-    return { value, how: est.length ? (est.length >= 3 ? 'est' : 'mixed') : 'full', before: value + x.spend + (x.fixedCost ?? fixedEst), lines, sales, est };
+    return { value, how: est.length ? (est.length >= 3 ? 'est' : 'mixed') : 'full', before: value + (x.fixedCost ?? fixedEst), lines, sales, est }; // 'before' = profit after ads, before apps (ads get added back for margin)
   }
   const base = x.profit != null ? x.profit : x.rev * (R.num(st.margin) || 35) / 100 - x.spend;
   const value = base - (x.refunds || 0) - x.other - fixedEst;
