@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=65';
-import * as R from './rules.js?v=65';
-import { importHistory } from './importer.js?v=65';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=65';
+import { createBackend } from './data.js?v=67';
+import * as R from './rules.js?v=67';
+import { importHistory } from './importer.js?v=67';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=67';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -375,7 +375,7 @@ function SummaryStrip({ data, product }) {
   return html`<div class="strip">
     <span>${econ.opBE ? html`Break-even <b>${R.xroas(econ.opBE)}</b> (est.)` : html`Break-even <em class="warn">costs not set</em>`}</span>
     <span>Up Next <b>${data.ads.filter((a) => a.product_id === product.id && a.stage === 'next').length}</b></span>
-    <span>Testing <b>${live}/${rules.slots}</b> slots</span>
+    <span>Testing <b>${live}</b> here · slots <b>${testingCount(data)}/${rules.slots}</b> used</span>
     <span>In Main <b>${bh.main}</b>${bh.fatiguing.length ? html` <em class="warn">${bh.fatiguing.length} fatiguing</em>` : ''}</span>
     <span class=${bh.urgent ? 'warn' : ''}>Bench <b>${bh.bench}/${bh.target}</b>${bh.urgent ? ' · low' : ''}</span>
   </div>`;
@@ -1749,47 +1749,54 @@ function mainPlan(data, product) {
   const cur = tot('cur'), prev = tot('prev');
   const bandOf = (t) => (!be || !t.spend ? null : t.roas >= be * 1.05 ? 'above' : t.roas <= be * 0.95 ? 'below' : 'near');
   const nowB = bandOf(cur), prevB = bandOf(prev);
-  const steps = [];
-  if (!main.length) steps.push({ tone: 'bad', text: 'Nothing is in Main. Put your best Bench ad in Main.' });
-  else if (!cur.spend) steps.push({ tone: 'live', text: 'No Main spend in your files for the last 7 days. Add an Ads Manager file with a daily breakdown.' });
-  else if (nowB === 'below' && prevB === 'below') steps.push({ tone: 'bad', text: `Main has been under break-even two weeks in a row (${R.xroas(prev.roas)}, then ${R.xroas(cur.roas)} vs ${R.xroas(be)}). Lower Main's budget about ${rules.raiseStep}% until it recovers.` });
-  else if (nowB === 'below') steps.push({ tone: 'warn', text: `Main had a bad week (${R.xroas(cur.roas)} vs ${R.xroas(be)} break-even; the week before ${R.xroas(prev.roas)}). Hold the budget, don't raise it. If next week is also under, lower it about ${rules.raiseStep}%.` });
-  else if (nowB === 'near') steps.push({ tone: 'warn', text: `Main is around break-even this week (${R.xroas(cur.roas)} vs ${R.xroas(be)}). Hold the budget.` });
-  else steps.push({ tone: 'good', text: `Main is making money this week (${R.xroas(cur.roas)} vs ${R.xroas(be)} break-even). Leave it alone${prevB === 'above' ? `, or raise it ${rules.raiseStep}% if you want more volume` : ''}.` });
-  // Which Main ad is dragging, and who could replace it
-  const weak = per.filter((x) => x.h.cur.spend > 0 && x.h.money === 'below').sort((a, b) => b.h.cur.spend - a.h.cur.spend)[0];
+  // Did every Main ad drop together? Then it's most likely Meta / the market, not one ad.
+  const both = per.filter((x) => x.h.cur.spend > 0 && x.h.prev.spend > 0 && x.h.prev.roas);
+  const market = both.length >= 2 && both.every((x) => (x.h.cur.roas || 0) <= x.h.prev.roas * 0.85);
+  const ads = per.filter((x) => x.h.cur.spend > 0).map((x) => ({ ad: x.ad, roas: x.h.cur.roas, prev: x.h.prev.roas, spend: x.h.cur.spend, band: x.h.money })).sort((a, b) => (a.roas || 0) - (b.roas || 0));
+  const weak = ads.find((x) => x.band === 'below');
   const bench = data.ads.filter((a) => a.product_id === product.id && a.stage === 'bench').map((a) => { const t = lastStage1(a, data), r = t && runsFor(t, a, data); return { a, r, score: r ? (r.full.roas || 0) : 0 }; }).sort((x, y) => y.score - x.score);
   const best = bench[0];
-  if (weak && main.length) steps.push({ tone: 'warn', ad: weak.ad, text: `Weakest in Main: ${displayName(weak.ad)}, ${R.xroas(weak.h.cur.roas)} on ${R.money0(weak.h.cur.spend)} this week${weak.h.prevBand === 'below' ? ', and under break-even the week before too' : ''}.` });
-  if (best && (nowB === 'below' || weak)) {
-    const bt = `${displayName(best.a)}${best.r ? ` (full run ${R.xroas(best.r.full.roas)}, ${best.r.full.purchases} buys)` : ''}`;
-    const now = nowB === 'below' && (prevB === 'below' || (weak && weak.h.prevBand === 'below'));
-    steps.push({ tone: 'live', ad: best.a, text: now
-      ? `Swap in your best Bench ad: ${bt}${weak ? ` for ${displayName(weak.ad)}` : ''}. Adding an ad to the Main ad set restarts Meta's learning, but with Main losing money two weeks running it's worth it.`
-      : `Ready if needed: ${bt} is your best Bench ad. If ${weak ? displayName(weak.ad) : 'Main'} is still under break-even next week, swap it in. Adding an ad to Main restarts Meta's learning, so don't do it for one bad week.` });
-  }
-  else if (!bench.length && main.length) steps.push({ tone: 'bad', text: 'Your Bench is empty, so there is nothing tested to swap in. Testing matters most right now.' });
-  // Testing pipeline vs Black Friday
-  const slots = rules.slots, live = testingCount(data, product.id), next = data.ads.filter((a) => a.product_id === product.id && a.stage === 'next').length;
-  const lastLaunch = R.addDays(BF_DAY, -16); // partial day + 7 days + review, with about a week to spare before BF
-  const daysLeft = R.daysBetween(R.today(), lastLaunch);
-  if (live < slots) {
-    const need = slots - live;
-    steps.push({ tone: next >= need ? 'live' : 'warn', text: `${slots - live} of ${slots} test slots are free${next ? ` and Up Next has ${next} ad${next === 1 ? '' : 's'}` : ' and Up Next is empty'}. ${next >= need ? 'Launch them.' : `Make ${need - next} more ad${need - next === 1 ? '' : 's'} so a full batch can launch.`}${daysLeft >= 0 ? ` To have tested backups for Black Friday, launch by ${R.shortDate(lastLaunch)} (${daysLeft} day${daysLeft === 1 ? '' : 's'} left).` : ''}` });
-  }
-  if (new Date().getDay() === 5) steps.push({ tone: 'live', text: `It's Friday. If Main has been weak, lowering it about 30% before the weekend lock and raising it Monday limits weekend overspending.` });
-  return { cur, prev, be, nowB, steps, mainCount: main.length };
+  // Budget call
+  let budget;
+  if (!main.length) budget = { call: 'Fill Main', tone: 'bad', why: 'Nothing is in Main. Put your best Bench ad in.' };
+  else if (!cur.spend) budget = { call: 'No data', tone: 'live', why: 'No Main spend in your files for the last 7 days.' };
+  else if (nowB === 'below' && prevB === 'below') budget = { call: `Lower ~${rules.raiseStep}%`, tone: 'bad', why: 'Under break-even two weeks in a row.' };
+  else if (nowB === 'below') budget = { call: 'Hold', tone: 'warn', why: market ? 'One bad week, and every Main ad fell together, so it looks like Meta, not your ads.' : 'One bad week. Lower it only if next week is also under.' };
+  else if (nowB === 'near') budget = { call: 'Hold', tone: 'warn', why: 'Around break-even.' };
+  else budget = { call: prevB === 'above' ? 'Can raise 20%' : 'Leave it', tone: 'good', why: 'Making money this week.' };
+  const swapNow = nowB === 'below' && (prevB === 'below' || (weak && per.find((x) => x.ad === weak.ad).h.prevBand === 'below'));
+  // Testing: one testing campaign for every product, so slots are shared
+  const slots = rules.slots, used = testingCount(data), free = Math.max(0, slots - used);
+  const usedBy = [...new Set(data.ads.filter((a) => a.stage === 'testing').map((a) => (data.products.find((p) => p.id === a.product_id) || {}).name))].filter(Boolean);
+  const next = data.ads.filter((a) => a.product_id === product.id && a.stage === 'next').length;
+  const lastLaunch = R.addDays(BF_DAY, -16), daysLeft = R.daysBetween(R.today(), lastLaunch);
+  // Detail lines (Show details)
+  const steps = [];
+  steps.push({ tone: budget.tone, text: `Budget: ${budget.call}. ${budget.why} Main made ${R.xroas(cur.roas)} on ${R.money0(cur.spend)} in the last 7 days (${R.shortDate(w.a)} to ${R.shortDate(w.end)}); the week before ${R.xroas(prev.roas)}. Break-even ${R.xroas(be)}.` });
+  if (weak) steps.push({ tone: 'warn', ad: weak.ad, text: `${displayName(weak.ad)} is the weakest in Main (${R.xroas(weak.roas)} on ${R.money0(weak.spend)}).${market ? ' The others dropped too, so this is likely the market; keep an eye on it rather than act.' : ''}` });
+  if (best) steps.push({ tone: 'live', ad: best.a, text: swapNow ? `Swap in ${displayName(best.a)} (full run ${R.xroas(best.r && best.r.full.roas)}). Main has been losing money two weeks, so restarting Meta's learning is worth it.` : `${displayName(best.a)} is ready on the Bench (full run ${R.xroas(best.r && best.r.full.roas)}). Swap it in only if Main stays under break-even next week, since adding an ad restarts Meta's learning.` });
+  steps.push({ tone: free ? 'warn' : 'good', text: free ? `${free} of ${slots} test slots free; Up Next has ${next} ${product.name} ad${next === 1 ? '' : 's'}.${free > next ? ` Make ${free - next} more.` : ''}` : `All ${slots} test slots in use${usedBy.length ? ` (${usedBy.join(', ')})` : ''}.` });
+  if (daysLeft >= 0) steps.push({ tone: 'live', text: `Black Friday: launch your last test batch by ${R.shortDate(lastLaunch)} (${daysLeft} days left) so winners are tested in time.` });
+  if (new Date().getDay() === 5) steps.push({ tone: 'live', text: `It's Friday: if Main is weak, lowering it ~30% before the weekend lock limits weekend overspending.` });
+  return { w, cur, prev, be, nowB, prevB, market, ads, weak, best, swapNow, budget, slots, used, free, usedBy, next, lastLaunch, daysLeft, steps, mainCount: main.length };
 }
+
 function MainPlan({ data, product, setModal }) {
-  const [open, setOpen] = useState(() => { try { return localStorage.getItem('adlab-mainplan') !== '0'; } catch (e) { return true; } });
-  const toggle = () => { setOpen(!open); try { localStorage.setItem('adlab-mainplan', open ? '0' : '1'); } catch (e) {} };
-  const p = mainPlan(data, product); if (!p || !p.steps.length) return null;
-  const head = p.steps[0];
-  return html`<section class=${'panel mainplan'} style="gap:8px">
-    <div class="row"><h2 style="margin:0">Main plan</h2><span class="tiny muted">${p.cur.spend ? `Main, last 7 days: ${R.xroas(p.cur.roas)} on ${R.money0(p.cur.spend)}${p.be ? ` · break-even ${R.xroas(p.be)}` : ''}` : ''}</span><span class="spacer"></span><button class="link small" onClick=${toggle}>${open ? 'Hide' : 'Show'}</button></div>
-    ${open ? html`<ol style="margin:0;padding-left:20px" class="small">${p.steps.map((st) => html`<li style="margin:4px 0"><span class=${'dot ' + st.tone}></span>${st.text}${st.ad && html` <button class="link small" onClick=${() => setModal({ type: AdDetail, props: { adId: st.ad.id } })}>Open</button>`}</li>`)}</ol>
-      <div class="tiny muted">Suggestions from your numbers. Nothing changes until you act.</div>`
-    : html`<div class="small">${head.text}</div>`}
+  const [more, setMore] = useState(false);
+  const p = mainPlan(data, product); if (!p) return null;
+  const open = (ad) => setModal({ type: AdDetail, props: { adId: ad.id } });
+  const head = p.budget.tone === 'good' ? 'Main is making money.' : p.nowB === 'below' && p.market ? 'Bad week for Main, but it looks like Meta, not your ads.' : p.nowB === 'below' && p.swapNow ? 'Main is losing money. Time to act.' : p.nowB === 'below' ? 'Bad week for Main. Hold for now.' : p.nowB === 'near' ? 'Main is around break-even.' : p.budget.why;
+  return html`<section class="panel mainplan">
+    <div class="row" style="gap:10px;flex-wrap:wrap"><h2 style="margin:0">Main plan</h2><span class=${'chip t-' + (p.budget.tone === 'good' ? 'pass' : p.budget.tone === 'bad' ? 'fail' : p.budget.tone === 'warn' ? 'mid' : 'live')}>${p.budget.call}</span><span class="small"><b>${head}</b></span></div>
+    <div class="mp-tiles">
+      <div class="mp-tile"><small>Main · last 7 days</small><b class=${p.nowB === 'above' ? 'good' : p.nowB === 'below' ? 'bad' : ''}>${R.xroas(p.cur.roas)}</b><span>week before ${R.xroas(p.prev.roas)} · break-even ${R.xroas(p.be)}</span></div>
+      <div class="mp-tile"><small>Main ads</small>${p.ads.length ? p.ads.map((x) => html`<button class="link mp-ad" onClick=${() => open(x.ad)}><i class=${'dot ' + (x.band === 'above' ? 'good' : x.band === 'below' ? 'bad' : 'warn')}></i>${displayName(x.ad).replace(/^(IMG|VID|Image|Video)\s*[|–-]\s*/i, '').slice(0, 26)} <b>${R.xroas(x.roas)}</b></button>`) : html`<span>No spend this week</span>`}${p.market && html`<span>All fell together → likely Meta</span>`}</div>
+      <div class="mp-tile"><small>Backup ready</small>${p.best ? html`<button class="link mp-ad" onClick=${() => open(p.best.a)}>${displayName(p.best.a).replace(/^(IMG|VID|Image|Video)\s*[|–-]\s*/i, '').replace(/\s*\|\s*\d{1,2}-\d{1,2}$/, '').slice(0, 26)} <b>${R.xroas(p.best.r && p.best.r.full.roas)}</b></button><span>${p.swapNow ? 'Swap it in now' : 'Swap only if next week is also bad'}</span>` : html`<b class="bad">None</b><span>Bench is empty</span>`}</div>
+      <div class="mp-tile"><small>Testing</small><b>${p.used}/${p.slots}</b><span>${p.free ? `${p.free} free · Up Next ${p.next}${p.free > p.next ? ` · make ${p.free - p.next}` : ''}` : `in use${p.usedBy.length ? ': ' + p.usedBy.join(', ') : ''}`}${p.daysLeft >= 0 ? ` · Black Friday batch by ${R.shortDate(p.lastLaunch)}` : ''}</span></div>
+    </div>
+    <button class="link small" style="align-self:flex-start" onClick=${() => setMore(!more)}>${more ? 'Hide details' : 'Show details'}</button>
+    ${more && html`<ol style="margin:0;padding-left:20px" class="small">${p.steps.map((st) => html`<li style="margin:4px 0"><span class=${'dot ' + st.tone}></span>${st.text}${st.ad && html` <button class="link small" onClick=${() => open(st.ad)}>Open</button>`}</li>`)}</ol>
+      <div class="tiny muted">Suggestions from your numbers. Nothing changes until you act.</div>`}
   </section>`;
 }
 

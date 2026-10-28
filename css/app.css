@@ -368,3 +368,14 @@ table.stats tr.click{cursor:pointer} table.stats tr.click:hover td{background:va
 @media (max-width:700px){.stages{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .panel .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:middle;background:var(--accent)}
 .panel .dot.good{background:var(--pass)}.panel .dot.warn{background:var(--mid)}.panel .dot.bad{background:var(--fail)}
+
+.mainplan{gap:10px}
+.mp-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.mp-tile{display:flex;flex-direction:column;gap:3px;min-width:0;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px}
+.mp-tile small{font:500 10.5px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.mp-tile>b{font:600 20px var(--mono)}.mp-tile b.good{color:var(--pass)}.mp-tile b.bad{color:var(--fail)}
+.mp-tile span{font-size:12px;color:var(--muted)}
+.mp-tile .mp-ad{text-align:left;font-size:12.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:1px 0}
+.mp-tile .mp-ad b{font-family:var(--mono);margin-left:6px}
+.mp-tile .dot,.mainplan .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle;background:var(--accent)}
+@media (max-width:900px){.mp-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
