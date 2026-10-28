@@ -1,13 +1,14 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=70';
-import * as R from './rules.js?v=70';
-import { importHistory } from './importer.js?v=70';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=70';
+import { createBackend } from './data.js?v=72';
+import * as R from './rules.js?v=72';
+import { importHistory } from './importer.js?v=72';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=72';
 
 const html = htm.bind(h);
 const be = createBackend();
+const be_ = be; // same backend, for code where "be" means break-even
 
 // ---------- small helpers ----------
 const byCreated = (a, b) => String(a.created_at).localeCompare(String(b.created_at));
@@ -2030,171 +2031,250 @@ const STAGES_GOAL = [
 ];
 const stageNow = () => { const t = R.today(); return STAGES_GOAL.find((g) => t <= g.to) || STAGES_GOAL[STAGES_GOAL.length - 1]; };
 const lastSunday = () => { const d = R.parseDay(R.today()); d.setDate(d.getDate() - ((d.getDay() + 7) % 7 || 7)); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
-function goalWeeks(data) {
-  return data.learnings.filter((l) => l.kind === 'week').map((l) => { let v = {}; try { v = JSON.parse(l.text); } catch (e) {} return { id: l.id, end: String(l.day).slice(0, 10), rev: R.num(v.rev) || 0, spend: R.num(v.spend) || 0, orders: R.num(v.orders) || 0, profit: R.num(v.profit), refunds: R.num(v.refunds) || 0 }; })
-    .sort((a, b) => a.end.localeCompare(b.end));
+// ---- numbers you enter for any date range (a week, a month, custom dates) ----
+// Older "week" entries are read as Mon–Sun periods ending on that Sunday.
+function goalPeriods(data) {
+  return data.learnings.filter((l) => l.kind === 'period' || l.kind === 'week').map((l) => {
+    let v = {}; try { v = JSON.parse(l.text); } catch (e) {}
+    const to = String(l.day).slice(0, 10), from = v.from || R.addDays(to, -6);
+    return { id: l.id, kind: l.kind, from, to, days: R.daysBetween(from, to) + 1, created: l.created_at || '',
+      rev: R.num(v.rev) || 0, revType: v.revType || 'tw', spend: R.num(v.spend) || 0, orders: R.num(v.orders) || 0,
+      profit: R.num(v.profit), refunds: R.num(v.refunds) || 0, other: R.num(v.other) || 0, exact: R.num(v.exact) };
+  }).sort((x, y) => x.from.localeCompare(y.from));
 }
-// Profit for a week: Triple Whale's net profit when typed, otherwise an estimate from your margin. Fixed costs come off either way.
-function weekProfit(w, st) {
-  const fixedWk = (R.num(st.fixedMonthly) || 0) * 12 / 52;
-  const base = w.profit != null ? w.profit : w.rev * (R.num(st.margin) || 35) / 100 - w.spend;
-  // Triple Whale doesn't take off returns and refunds, so any you enter come off here.
-  return { value: base - fixedWk - (w.refunds || 0), estimated: w.profit == null };
+// Profit for a period. Exact profit (if you know it) wins. Otherwise Triple Whale's net profit, else an estimate from
+// your margin; then returns (only if revenue is Triple Whale's, which ignores them), other costs and fixed costs come off.
+function periodProfit(x, st) {
+  const fixed = (R.num(st.fixedMonthly) || 0) * 12 / 365 * x.days;
+  if (x.exact != null) return { value: x.exact, how: 'exact', before: x.exact + fixed };
+  const base = x.profit != null ? x.profit : x.rev * (R.num(st.margin) || 35) / 100 - x.spend;
+  const returns = x.revType === 'tw' ? x.refunds : 0;
+  const value = base - returns - x.other - fixed;
+  return { value, how: x.profit != null ? 'tw' : 'est', before: base - returns - x.other };
 }
-// Spread each week over its 7 days and add up the days that fall in [a, b].
-function sumDays(weeks, st, a, b) {
-  let profit = 0, rev = 0, spend = 0, days = 0, last = null;
-  for (const w of weeks) for (let k = 0; k < 7; k++) {
-    const d = R.addDays(w.end, -k); if (d < a || d > b) continue;
-    profit += weekProfit(w, st).value / 7; rev += w.rev / 7; spend += w.spend / 7; days++; if (!last || d > last) last = d;
+// Spread every period evenly over its days. Where two overlap, the shorter (more specific) one wins.
+function dayMap(periods, st) {
+  const m = new Map();
+  for (const x of periods) {
+    const pr = periodProfit(x, st), per = { profit: pr.value / x.days, before: pr.before / x.days, rev: x.rev / x.days, spend: x.spend / x.days, orders: x.orders / x.days, how: pr.how, len: x.days, created: x.created };
+    for (let k = 0; k < x.days; k++) { const d = R.addDays(x.from, k), cur = m.get(d); if (!cur || per.len < cur.len || (per.len === cur.len && per.created > cur.created)) m.set(d, per); }
   }
-  return { profit, rev, spend, days, last };
+  return m;
 }
+function sumRange(m, a, b) {
+  const o = { profit: 0, before: 0, rev: 0, spend: 0, orders: 0, days: 0, measured: 0, missing: [] };
+  for (let d = a; d <= b; d = R.addDays(d, 1)) { const v = m.get(d); if (!v) { o.missing.push(d); continue; } o.profit += v.profit; o.before += v.before; o.rev += v.rev; o.spend += v.spend; o.orders += v.orders; o.days++; if (v.how !== 'est') o.measured++; }
+  return o;
+}
+const monthKey = (d) => d.slice(0, 7);
+const monthEnd = (ym) => { const [y, m] = ym.split('-').map(Number); return `${ym}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`; };
+const MON_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const stageFor = (d) => STAGES_GOAL.find((g) => d >= g.from && d <= g.to) || (d < STAGES_GOAL[0].from ? STAGES_GOAL[0] : STAGES_GOAL[STAGES_GOAL.length - 1]);
+const ranges = (days) => { const out = []; let s0 = null, prev = null; for (const d of days) { if (s0 && R.addDays(prev, 1) === d) { prev = d; continue; } if (s0) out.push([s0, prev]); s0 = prev = d; } if (s0) out.push([s0, prev]); return out; };
 function GoalBar({ label, now, lo, hi, fmt, sub }) {
   const tone = now == null ? '' : now >= lo ? 'good' : now >= lo * 0.9 ? 'warn' : 'bad';
   const max = hi * 1.15, pct = now == null ? 0 : Math.max(2, Math.min(100, now / max * 100));
   return html`<div class="goalrow"><div class="row small" style="gap:6px"><b>${label}</b><span class="spacer"></span><span class="mono">${now == null ? '—' : fmt(now)}</span><span class="muted tiny">goal ${fmt(lo)}–${fmt(hi)}</span></div>
     <div class="gbar"><i class=${tone} style=${`width:${pct}%`}></i><b style=${`left:${lo / max * 100}%`}></b></div>${sub && html`<div class="tiny muted">${sub}</div>`}</div>`;
 }
+// A small confetti burst, once per goal per month.
+function confetti() {
+  const c = document.createElement('canvas'); c.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:99'; c.width = innerWidth; c.height = innerHeight; document.body.appendChild(c);
+  const g = c.getContext('2d'), cols = ['#3D8BFF', '#22C55E', '#F5B841', '#C2669E', '#E8EEF8'];
+  const ps = Array.from({ length: 140 }, () => ({ x: innerWidth / 2 + (Math.random() - 0.5) * 200, y: innerHeight / 3, vx: (Math.random() - 0.5) * 12, vy: -Math.random() * 12 - 4, s: 4 + Math.random() * 5, c: cols[Math.floor(Math.random() * cols.length)], r: Math.random() * 6 }));
+  const t0 = performance.now();
+  const step = (t) => { g.clearRect(0, 0, c.width, c.height); for (const p of ps) { p.vy += 0.35; p.x += p.vx; p.y += p.vy; p.r += 0.2; g.save(); g.translate(p.x, p.y); g.rotate(p.r); g.fillStyle = p.c; g.fillRect(-p.s / 2, -p.s / 2, p.s, p.s * 0.6); g.restore(); } if (t - t0 < 2600) requestAnimationFrame(step); else c.remove(); };
+  requestAnimationFrame(step);
+}
+// Month by month toward $12k: actual profit bars against each month's target range.
+function RoadChart({ months }) {
+  const [box, W] = useWidth(); const [hi, setHi] = useState(null);
+  const H = 190, L = 46, Rt = 8, T = 10, B = 24, n = months.length, step = (W - L - Rt) / n;
+  const max = Math.max(GOAL.profit * 1.05, ...months.map((m) => m.actual || 0));
+  const minV = Math.min(0, ...months.map((m) => m.actual || 0));
+  const y = (v) => T + (H - T - B) * (1 - (v - minV) / (max - minV));
+  const bw = Math.max(8, Math.min(34, step * 0.55)), x = (i) => L + step * (i + 0.5);
+  const col = (m) => (m.status === 'hit' || m.status === 'crushed' ? 'var(--pass)' : m.status === 'close' ? 'var(--mid)' : m.status === 'missed' ? 'var(--fail)' : 'var(--accent)');
+  const h = hi != null ? months[hi] : null;
+  return html`<div class="chart" ref=${box}>
+    <svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${(e) => { const r = e.currentTarget.getBoundingClientRect(); const i = Math.floor((e.clientX - r.left - L) / step); setHi(i >= 0 && i < n ? i : null); }} onPointerLeave=${() => setHi(null)} role="img" aria-label="Monthly profit toward the goal">
+      ${[0, 6000, 12000].map((v) => html`<line x1=${L} x2=${W - Rt} y1=${y(v)} y2=${y(v)} class="grid" /><text x=${L - 6} y=${y(v) + 4} class="ax" text-anchor="end">${v ? '$' + v / 1000 + 'k' : '$0'}</text>`)}
+      ${months.map((m, i) => html`<rect x=${x(i) - step * 0.42} y=${y(m.hi)} width=${step * 0.84} height=${Math.max(1, y(m.lo) - y(m.hi))} rx="3" fill="var(--line2)" opacity=${m.future ? 0.35 : 0.55} />`)}
+      ${months.map((m, i) => m.actual != null && html`<rect x=${x(i) - bw / 2} y=${Math.min(y(m.actual), y(0))} width=${bw} height=${Math.max(2, Math.abs(y(0) - y(m.actual)))} rx="3" fill=${col(m)} opacity=${hi == null || hi === i ? 1 : 0.6} />`)}
+      ${months.map((m, i) => html`<text x=${x(i)} y=${H - 6} class="ax" text-anchor="middle" style=${m.current ? 'fill:var(--ink);font-weight:600' : ''}>${MON_LONG[+m.ym.slice(5) - 1].slice(0, 3)}</text>`)}
+    </svg>
+    ${h && html`<div class="tip" style=${`left:${Math.min(W - 90, Math.max(90, x(hi)))}px;top:8px`}><b>${MON_LONG[+h.ym.slice(5) - 1]} ${h.ym.slice(0, 4)}</b><div>Goal ${R.money0(h.lo)}–${R.money0(h.hi)}</div>${h.actual != null ? html`<div>Profit ${R.money0(h.actual)}${h.partial ? ` (${h.days} of ${h.dim} days)` : ''}</div>` : html`<div>${h.future ? 'Not started' : 'No numbers yet'}</div>`}</div>`}
+    <div class="legend"><span><i style="background:var(--line2)"></i>Goal range</span><span><i style="background:var(--pass)"></i>Hit</span><span><i style="background:var(--mid)"></i>Close</span><span><i style="background:var(--fail)"></i>Missed</span></div>
+  </div>`;
+}
 function Goal(ctx) {
   const { data, products, reload, say, setModal, setView, setPid } = ctx;
-  const st = R.storeEcon(), stage = stageNow();
-  const weeks = goalWeeks(data);
+  const [whatif, setWhatif] = useState(false); const [moreChecks, setMoreChecks] = useState(false); const [showNums, setShowNums] = useState(false);
+  const st = R.storeEcon(), stage = stageNow(), t = R.today(), y = R.addDays(t, -1);
+  const periods = goalPeriods(data), dm = dayMap(periods, st);
   const stock = data.learnings.filter((l) => l.kind === 'stock').map((l) => { let v = {}; try { v = JSON.parse(l.text); } catch (e) {} return { id: l.id, day: String(l.day).slice(0, 10), amount: R.num(v.amount) || 0, note: v.note || '' }; }).sort((a, b) => b.day.localeCompare(a.day));
   const crew = products.find((p) => p.kind === 'crew') || products[0];
-  const crewE = R.econOf(crew), be = crewE.opBE || 2.85;
-  const t = R.today(), mStart = t.slice(0, 8) + '01';
-  const dim = new Date(+t.slice(0, 4), +t.slice(5, 7), 0).getDate();
-  const mtd = sumDays(weeks, st, mStart, t);
-  const pm = R.addDays(mStart, -1), pmStart = pm.slice(0, 8) + '01', prevM = sumDays(weeks, st, pmStart, pm);
-  const covered = mtd.days, proj = covered ? mtd.profit / covered * dim : null;
-  const loPace = stage.profit[0] * covered / dim, hiPace = stage.profit[1] * covered / dim;
-  const status = !covered ? null : mtd.profit >= hiPace ? ['Ahead', 'good'] : mtd.profit >= loPace ? ['On track', 'good'] : mtd.profit >= loPace - Math.max(100, stage.profit[0] * 0.25 * covered / dim) ? ['Slightly behind', 'warn'] : ['Behind', 'bad'];
-  // Last 4 check-ins: the "where you stand now" numbers
-  const recent = weeks.slice(-4), R4 = recent.reduce((o, w) => ({ rev: o.rev + w.rev, spend: o.spend + w.spend, orders: o.orders + w.orders, prof: o.prof + (w.profit != null ? w.profit : 0), withP: o.withP + (w.profit != null ? 1 : 0) }), { rev: 0, spend: 0, orders: 0, prof: 0, withP: 0 });
-  const mer = R4.spend ? R4.rev / R4.spend : null, spendDay = recent.length ? R4.spend / (7 * recent.length) : null;
-  const margin = R4.withP === recent.length && recent.length && R4.rev ? (R4.prof + R4.spend) / R4.rev * 100 : null;
-  const aov = R4.orders ? R4.rev / R4.orders : null;
-  // Milestones
-  const checks = st.goalChecks || {};
-  const mp = crew ? mainPlan(data, crew) : null;
+  const crewE = R.econOf(crew), be = crewE.opBE || 2.85, fixed = R.num(st.fixedMonthly) || 0;
+  // Months from Oct 2026 to Sep 2027
+  const yms = []; for (let d = '2026-10-01'; d <= GOAL.by; d = R.addDays(monthEnd(monthKey(d)), 1)) yms.push(monthKey(d));
+  const curYm = monthKey(t);
+  const months = yms.map((ym) => {
+    const g = stageFor(ym + '-01'), start = ym + '-01', end = monthEnd(ym), dim = R.daysBetween(start, end) + 1;
+    const last = end < y ? end : y, future = start > y;
+    const s0 = future ? null : sumRange(dm, start, last);
+    const actual = s0 && s0.days ? s0.profit : null, partial = s0 ? s0.days < dim : false;
+    const done = end <= y && s0 && s0.days === dim;
+    const proj = actual != null ? actual / s0.days * dim : null;
+    const judge = done ? actual : null;
+    // Finished months are judged; the current month shows green as soon as it reaches its goal.
+    const status = judge == null ? (future ? 'future' : actual != null && actual >= g.profit[1] ? 'crushed' : actual != null && actual >= g.profit[0] ? 'hit' : 'open') : judge >= g.profit[1] ? 'crushed' : judge >= g.profit[0] ? 'hit' : judge >= g.profit[0] * 0.8 ? 'close' : 'missed';
+    return { ym, lo: g.profit[0], hi: g.profit[1], actual, partial, done, proj, status, future, current: ym === curYm, days: s0 ? s0.days : 0, dim, missing: s0 ? s0.missing : [], s: s0 };
+  });
+  const cm = months.find((m) => m.current) || { lo: stage.profit[0], hi: stage.profit[1], actual: null, days: 0, dim: 30, missing: [] };
+  const dimNow = cm.dim, elapsed = R.daysBetween(curYm + '-01', y) + 1;
+  const paceLo = cm.lo * elapsed / dimNow;
+  const hitNow = cm.actual != null && cm.actual >= cm.lo, crushNow = cm.actual != null && cm.actual >= cm.hi;
+  let streak = 0; for (const m of months.filter((m) => m.done).reverse()) { if (m.status === 'hit' || m.status === 'crushed') streak++; else break; }
+  useEffect(() => { if (!hitNow) return; const k = `adlab-goalhit-${curYm}-${crushNow ? 'hi' : 'lo'}`; try { if (localStorage.getItem(k)) return; localStorage.setItem(k, '1'); } catch (e) {} confetti(); }, [hitNow, crushNow]);
+  const lastMonth = [...months].reverse().find((m) => m.done);
+  // Stage goals: last 28 days with numbers
+  const s28 = sumRange(dm, R.addDays(y, -27), y);
+  const mer = s28.spend ? s28.rev / s28.spend : null, spendDay = s28.days ? s28.spend / s28.days : null;
+  const margin = s28.measured === s28.days && s28.days && s28.rev ? (s28.before + s28.spend) / s28.rev * 100 : null;
+  const aov = s28.orders ? s28.rev / s28.orders : null;
+  const checks = st.goalChecks || {}, mp = crew ? mainPlan(data, crew) : null;
+  const kindOf = (a) => (products.find((p) => p.id === a.product_id) || {}).kind;
   const auto = {
     mainBE: !!(mp && mp.cur.spend && mp.cur.roas >= be),
     bench2: data.ads.filter((a) => a.product_id === (crew && crew.id) && a.stage === 'bench').length >= 2,
-    ls: data.ads.some((a) => a.stage === 'main' && (products.find((p) => p.id === a.product_id) || {}).kind === 'long'),
+    ls: data.ads.some((a) => a.stage === 'main' && kindOf(a) === 'long'),
     mains3: crew ? data.ads.filter((a) => a.product_id === crew.id && a.stage === 'main').filter((a) => { const h = mainHealth(a, data, crew); return !h || h.money !== 'below'; }).length >= 3 : false,
-    vneck: data.ads.some((a) => a.stage === 'main' && (products.find((p) => p.id === a.product_id) || {}).kind === 'vneck'),
-    tank: data.ads.some((a) => a.stage === 'main' && (products.find((p) => p.id === a.product_id) || {}).kind === 'tank'),
+    vneck: data.ads.some((a) => a.stage === 'main' && kindOf(a) === 'vneck'),
+    tank: data.ads.some((a) => a.stage === 'main' && kindOf(a) === 'tank'),
   };
-  const editFixed = async () => { const v = prompt('Fixed costs per month (Shopify plan + apps), in dollars:', String(R.num(st.fixedMonthly) ?? '')); if (v == null || R.num(v) == null) return; const next = { ...st, fixedMonthly: R.num(v) }; await be.saveStore(next); R.setStoreEcon(next); await reload(); say('Fixed costs saved'); };
-  const toggleCheck = async (k) => { const next = { ...st, goalChecks: { ...checks, [k]: !checks[k] } }; await be.saveStore(next); R.setStoreEcon(next); await reload(); };
-  // Let's check together: most important first
+  const msDone = stage.ms.map(([k, , how]) => (how === 'auto' ? auto[k] : !!checks[k]));
+  const stageOk = mer != null && mer >= stage.roas[0] && spendDay >= stage.spend[0] && (margin == null || margin >= stage.margin) && msDone.every(Boolean);
+  const nextStage = STAGES_GOAL[STAGES_GOAL.indexOf(stage) + 1];
+  const toggleCheck = async (k) => { const next = { ...st, goalChecks: { ...checks, [k]: !checks[k] } }; await be_.saveStore(next); R.setStoreEcon(next); await reload(); };
+  const editFixed = async () => { const v = prompt('Fixed costs per month (Shopify plan + apps), in dollars:', String(fixed)); if (v == null || R.num(v) == null) return; const next = { ...st, fixedMonthly: R.num(v) }; await be_.saveStore(next); R.setStoreEcon(next); await reload(); say('Fixed costs saved'); };
+  // Check together
   const items = [];
-  const last = weeks[weeks.length - 1], prevW = weeks[weeks.length - 2];
-  if (!last || last.end < lastSunday()) items.push({ tone: 'live', text: `Add last week's numbers from Triple Whale (Mon ${R.shortDate(R.addDays(lastSunday(), -6))} to Sun ${R.shortDate(lastSunday())}). Takes a minute.`, act: ['Add numbers', () => setModal({ type: WeekForm, props: { end: lastSunday() } })] });
-  if (last && last.spend && last.rev / last.spend < be) items.push({ tone: 'bad', text: `Your ads aren't paying for themselves: last week the store took in ${R.xroas(last.rev / last.spend)} what you spent on ads, under the ${R.xroas(be)} it takes to break even.` });
-  if (last && prevW && prevW.spend && last.spend >= prevW.spend * 1.2 && weekProfit(last, st).value <= weekProfit(prevW, st).value) items.push({ tone: 'warn', text: `Something's eating your cash: ad spend went up ${Math.round((last.spend / prevW.spend - 1) * 100)}% (${R.money0(prevW.spend)} → ${R.money0(last.spend)}) but profit didn't (${R.money0(weekProfit(prevW, st).value)} → ${R.money0(weekProfit(last, st).value)}).` });
-  if (last && last.profit != null && last.rev && margin != null) { const lm = (last.profit + last.spend) / last.rev * 100; if (lm <= margin - 4) items.push({ tone: 'warn', text: `Your margin dropped last week (${lm.toFixed(0)}% vs ${margin.toFixed(0)}% average). Check discounts, shipping costs and refunds.` }); }
-  if (last && last.orders && aov) { const la = last.rev / last.orders; if (la <= aov * 0.9) items.push({ tone: 'warn', text: `Orders got smaller: ${R.money(la)} average last week vs ${R.money(aov)} over the last 4 weeks.` }); }
+  const gaps = cm.missing ? ranges(cm.missing) : [];
+  if (!periods.length) items.push({ tone: 'live', text: 'Add your numbers to start: this week, last week, a whole month or custom dates.', act: ['Add numbers', () => setModal({ type: PeriodForm, props: {} })] });
+  else if (gaps.length) items.push({ tone: 'live', text: `No numbers yet for ${gaps.map(([a, b]) => (a === b ? R.shortDate(a) : `${R.shortDate(a)} to ${R.shortDate(b)}`)).join(', ')}.`, act: ['Add numbers', () => setModal({ type: PeriodForm, props: { from: gaps[0][0], to: gaps[gaps.length - 1][1] } })] });
+  const w7 = sumRange(dm, R.addDays(y, -6), y), w7p = sumRange(dm, R.addDays(y, -13), R.addDays(y, -7));
+  if (w7.days >= 4 && w7.spend && w7.rev / w7.spend < be) items.push({ tone: 'bad', text: `Your ads aren't paying for themselves: the last 7 days the store took in ${R.xroas(w7.rev / w7.spend)} of what you spent on ads. Break-even is ${R.xroas(be)}.` });
+  if (w7.days >= 4 && w7p.days >= 4 && w7p.spend && w7.spend >= w7p.spend * 1.2 && w7.profit <= w7p.profit) items.push({ tone: 'warn', text: `Something's eating your cash: ad spend went up ${Math.round((w7.spend / w7p.spend - 1) * 100)}% but profit didn't (${R.money0(w7p.profit)} → ${R.money0(w7.profit)}).` });
+  if (w7.orders && aov && w7.rev / w7.orders <= aov * 0.9) items.push({ tone: 'warn', text: `Orders got smaller: ${R.money(w7.rev / w7.orders)} average the last 7 days vs ${R.money(aov)} over 4 weeks.` });
   const recentStock = stock.find((x) => R.daysBetween(x.day, t) <= 30);
-  if (recentStock) items.push({ tone: 'live', text: `You paid ${R.money0(recentStock.amount)} for stock on ${R.shortDate(recentStock.day)}. Cash is lower this month even if profit looks fine.` });
-  if (mp) { const s0 = mp.steps[0]; if (s0 && s0.tone !== 'good') items.push({ tone: s0.tone, text: 'Main: ' + s0.text, act: ['Open Board', () => { setPid(crew.id); setView('board'); }] }); }
-  if (crew) { const benchN = data.ads.filter((a) => a.product_id === crew.id && a.stage === 'bench').length, nextN = data.ads.filter((a) => a.product_id === crew.id && a.stage === 'next').length, free = R.rulesOf(crew).slots - testingCount(data, crew.id);
-    if (benchN < 2 || free > nextN) items.push({ tone: benchN < 2 ? 'warn' : 'live', text: `Your pipeline: ${benchN} tested backup${benchN === 1 ? '' : 's'} on the Bench, ${free} free test slot${free === 1 ? '' : 's'}, ${nextN} ad${nextN === 1 ? '' : 's'} in Up Next.${free > nextN ? ` Make ${free - nextN} more ad${free - nextN === 1 ? '' : 's'}.` : ''}` }); }
-  const bfLeft = R.daysBetween(t, BF_DAY); if (bfLeft >= 0 && bfLeft <= 45) items.push({ tone: 'live', text: `Black Friday in ${bfLeft} days. Launch your last test batch by ${R.shortDate(R.addDays(BF_DAY, -16))} so winners are tested in time.` });
-  // Calculator
-  // Starts from your current numbers; once you type, your numbers stay until you press Reset.
+  if (recentStock) items.push({ tone: 'live', text: `You paid ${R.money0(recentStock.amount)} for stock on ${R.shortDate(recentStock.day)}. Cash is tighter this month even if profit looks fine.` });
+  if (mp && mp.budget.tone !== 'good') items.push({ tone: mp.budget.tone, text: `Main: ${mp.head}`, act: ['Open Board', () => { setPid(crew.id); setView('board'); }] });
+  if (crew) { const benchN = data.ads.filter((a) => a.product_id === crew.id && a.stage === 'bench').length; if (benchN < 2) items.push({ tone: 'warn', text: benchN ? `Only ${benchN} tested backup on the Crew Bench. Keep testing.` : 'No tested backups on the Crew Bench. Keep testing.' }); }
+  const bfLeft = R.daysBetween(t, BF_DAY); if (bfLeft >= 0 && bfLeft <= 45) items.push({ tone: 'live', text: `Black Friday in ${bfLeft} days. Launch your last test batch by ${R.shortDate(R.addDays(BF_DAY, -16))}.` });
+  // What-ifs
   const calcBase = { spend: spendDay ? String(Math.round(spendDay)) : '100', roas: mer ? mer.toFixed(2) : '3.0', margin: String(margin ? Math.round(margin) : (R.num(st.margin) || 35)) };
   const [calcEdit, setCalc] = useState(null); const calc = calcEdit || calcBase;
-  const cs = R.num(calc.spend) || 0, cr = R.num(calc.roas) || 0, cm = (R.num(calc.margin) || 0) / 100, fixed = R.num(st.fixedMonthly) || 0;
-  const perDollar = cm * cr - 1, monthProfit = cs * 30.4 * perDollar - fixed;
+  const cs = R.num(calc.spend) || 0, cr = R.num(calc.roas) || 0, cmg = (R.num(calc.margin) || 0) / 100;
+  const perDollar = cmg * cr - 1, monthProfit = cs * 30.4 * perDollar - fixed;
   const needSpend = perDollar > 0 ? (GOAL.profit + fixed) / (30.4 * perDollar) : null;
-  const needRoas = cs > 0 && cm > 0 ? ((GOAL.profit + fixed) / (30.4 * cs) + 1) / cm : null;
-  const lev = (d) => R.money0(d) + '/month';
+  const needRoas = cs > 0 && cmg > 0 ? ((GOAL.profit + fixed) / (30.4 * cs) + 1) / cmg : null;
   const aovNow = aov || st.aov || 47.54, dM = (8.5 / aovNow - 8.5 / (aovNow + 5));
+  const pct = cm.actual == null ? 0 : Math.max(0, Math.min(100, cm.actual / (cm.hi * 1.1) * 100));
+  const heroTone = cm.actual == null ? 'live' : crushNow ? 'good' : hitNow ? 'good' : cm.actual >= paceLo ? 'good' : cm.actual >= paceLo * 0.8 ? 'warn' : 'bad';
+  const heroHead = cm.actual == null ? `${MON_LONG[+curYm.slice(5) - 1]}: no numbers yet` : crushNow ? 'Crushed it 🎉' : hitNow ? 'Goal hit 🎉' : cm.actual >= paceLo ? 'On track' : cm.actual >= paceLo * 0.8 ? 'Slightly behind' : 'Behind';
   return html`
-    <div class="row"><h1 style="font-size:30px">Goal</h1><span class="spacer"></span><button class="btn primary" onClick=${() => setModal({ type: WeekForm, props: { end: lastSunday() } })}>Add week's numbers</button></div>
-    <section class="panel accent"><div class="row"><h2 style="margin:0">$12,000 profit a month by September 2027</h2></div>
+    <div class="row"><h1 style="font-size:30px">Goal</h1><span class="spacer"></span><button class="btn primary" onClick=${() => setModal({ type: PeriodForm, props: {} })}>Add numbers</button></div>
+    <section class=${'panel goalhero g-' + heroTone}>
+      <div class="row" style="gap:10px;flex-wrap:wrap"><span class="tiny muted" style="letter-spacing:.12em">${MON_LONG[+curYm.slice(5) - 1].toUpperCase()} · ${stage.name.toUpperCase()} STAGE</span><span class="spacer"></span>${streak > 0 && html`<span class="chip t-pass">${streak} month${streak > 1 ? 's' : ''} in a row on target</span>`}</div>
+      <div class="gh-head">${heroHead}</div>
+      <div class="gh-num"><b>${cm.actual == null ? '—' : R.money0(cm.actual)}</b> <span>of ${R.money0(cm.lo)} goal this month${cm.hi > cm.lo ? ` · stretch ${R.money0(cm.hi)}` : ''}</span></div>
+      <div class="gh-bar"><i style=${`width:${pct}%`}></i><b title="Goal" style=${`left:${cm.lo / (cm.hi * 1.1) * 100}%`}></b><b class="s" title="Stretch" style=${`left:${cm.hi / (cm.hi * 1.1) * 100}%`}></b>${cm.actual != null && !hitNow && html`<em title="Where you should be by now" style=${`left:${Math.min(100, paceLo / (cm.hi * 1.1) * 100)}%`}></em>`}</div>
+      <div class="small muted">${cm.actual == null ? 'Add numbers for this month to see your progress.' : hitNow ? `${crushNow ? 'Past your stretch goal' : 'Goal reached'} with ${dimNow - elapsed} day${dimNow - elapsed === 1 ? '' : 's'} left.` : `By today you'd want about ${R.money0(paceLo)}. At this pace the month ends near ${R.money0(cm.proj)}.`}${cm.actual != null && cm.days < elapsed ? ` Counted ${cm.days} of ${elapsed} days so far.` : ''}${lastMonth ? ` Last month (${MON_LONG[+lastMonth.ym.slice(5) - 1]}): ${R.money0(lastMonth.actual)}${lastMonth.status === 'hit' || lastMonth.status === 'crushed' ? ', goal hit.' : '.'}` : ''}</div>
+    </section>
+    <section class="panel"><div class="row"><h2 style="margin:0">Road to $12,000 a month</h2><span class="spacer"></span><span class="tiny muted">Sep 2027</span></div>
+      <${RoadChart} months=${months} />
       <div class="stages">${STAGES_GOAL.map((g) => html`<div class=${g === stage ? 'on' : ''}><b>${g.name}</b>${g.months}<br/>${R.money0(g.profit[0])}–${R.money0(g.profit[1])}/mo</div>`)}</div>
-      <div class="small muted">Profit = all online sales (ads, organic, email) minus product, shipping, fees, ads and fixed costs (${R.money0(fixed)}/month: Shopify and apps). Family pay isn't subtracted. <button class="link small" onClick=${editFixed}>Change fixed costs</button></div></section>
+    </section>
     <div class="grid2">
-      <section class="panel"><h2>This month</h2>
-        ${!covered ? html`<div class="status live small">No numbers for this month yet. Add last week's numbers from Triple Whale.</div>` : html`
-          <div class=${'status ' + status[1]}><b>${status[0]}</b> · ${R.money0(mtd.profit)} profit so far (${covered} day${covered === 1 ? '' : 's'} counted). Stage goal ${R.money0(stage.profit[0])}–${R.money0(stage.profit[1])} for the month.</div>
-          <${GoalBar} label="Profit so far" now=${mtd.profit} lo=${loPace} hi=${hiPace} fmt=${R.money0} sub=${`Where you should be by ${R.shortDate(mtd.last)}: ${R.money0(loPace)}–${R.money0(hiPace)}. At this pace the month ends near ${R.money0(proj)}.`} />`}
-        ${prevM.days > 0 && html`<div class="small muted">Last month: ${R.money0(prevM.profit)} profit${prevM.days < 28 ? ` (${prevM.days} days counted)` : ''}.</div>`}
-      </section>
-      <section class="panel"><h2>Stage: ${stage.name} · ${stage.months}</h2>
-        <${GoalBar} label="Blended ROAS (store sales ÷ ad spend)" now=${mer} lo=${stage.roas[0]} hi=${stage.roas[1]} fmt=${(v) => v.toFixed(2) + 'x'} sub=${recent.length ? `Last ${recent.length} week${recent.length === 1 ? '' : 's'}. Break-even is ${R.xroas(be)}.` : 'Add weekly numbers to see this.'} />
+      <section class="panel"><div class="row"><h2 style="margin:0">${stage.name} stage</h2><span class="spacer"></span><span class="tiny muted">${R.daysBetween(t, stage.to)} days left</span></div>
+        ${stageOk && html`<div class="status good small"><b>Stage complete.</b> ${nextStage ? `${nextStage.name} is next.` : ''}</div>`}
+        <${GoalBar} label="Blended ROAS" now=${mer} lo=${stage.roas[0]} hi=${stage.roas[1]} fmt=${(v) => v.toFixed(2) + 'x'} sub=${s28.days ? `Store sales ÷ ad spend, last ${s28.days} days with numbers. Break-even ${R.xroas(be)}.` : ''} />
         <${GoalBar} label="Ad spend per day" now=${spendDay} lo=${stage.spend[0]} hi=${stage.spend[1]} fmt=${R.money0} />
-        <${GoalBar} label="Margin before ads" now=${margin} lo=${stage.margin} hi=${stage.margin + 5} fmt=${(v) => v.toFixed(0) + '%'} sub=${margin == null ? 'Needs Triple Whale net profit in each week.' : ''} />
-        <div class="list">${stage.ms.map(([k, l, how]) => { const done = how === 'auto' ? auto[k] : !!checks[k]; return html`<div class="li"><span class=${'chip t-' + (done ? 'pass' : 'muted')}>${done ? 'Done' : 'Not yet'}</span><span class="grow small">${l}${how === 'auto' ? html` <span class="tiny muted">(checked by the app)</span>` : ''}</span>${how === 'manual' && html`<button class="link small" onClick=${() => toggleCheck(k)}>${done ? 'Undo' : 'Mark done'}</button>`}</div>`; })}</div>
+        <${GoalBar} label="Margin before ads" now=${margin} lo=${stage.margin} hi=${stage.margin + 5} fmt=${(v) => v.toFixed(0) + '%'} sub=${margin == null && s28.days ? 'Needs real profit (Triple Whale or exact) for these days.' : ''} />
+        <div class="list">${stage.ms.map(([k, l, how], i) => html`<div class="li"><span class=${'chip t-' + (msDone[i] ? 'pass' : 'muted')}>${msDone[i] ? 'Done' : 'Not yet'}</span><span class="grow small">${l}</span>${how === 'manual' ? html`<button class="link small" onClick=${() => toggleCheck(k)}>${msDone[i] ? 'Undo' : 'Mark done'}</button>` : html`<span class="tiny muted">auto</span>`}</div>`)}</div>
+      </section>
+      <section class="panel"><h2>Let's check together</h2>
+        ${items.length ? html`<ol style="margin:0;padding-left:20px" class="small">${(moreChecks ? items : items.slice(0, 3)).map((it) => html`<li style="margin:6px 0"><span class=${'dot ' + it.tone}></span>${it.text}${it.act && html` <button class="link small" onClick=${it.act[1]}>${it.act[0]}</button>`}</li>`)}</ol>
+          ${items.length > 3 && html`<button class="link small" style="align-self:flex-start" onClick=${() => setMoreChecks(!moreChecks)}>${moreChecks ? 'Show less' : `Show ${items.length - 3} more`}</button>`}` : html`<div class="status good small">Nothing needs attention right now.</div>`}
       </section>
     </div>
-    <section class="panel"><h2>Let's check together</h2>
-      ${items.length ? html`<ol style="margin:0;padding-left:20px" class="small">${items.map((it) => html`<li style="margin:6px 0"><span class=${'dot ' + it.tone}></span>${it.text}${it.act && html` <button class="link small" onClick=${it.act[1]}>${it.act[0]}</button>`}</li>`)}</ol>` : html`<div class="status good small">Nothing needs attention right now.</div>`}
-      <div class="tiny muted">Suggestions from your numbers. Nothing changes until you act.</div></section>
-    <div class="grid2">
-      <section class="panel"><h2>Calculator</h2>
-        <div class="rulerow"><label for="c-s">Ad spend per day</label><input id="c-s" inputmode="decimal" value=${calc.spend} onInput=${(e) => setCalc({ ...calc, spend: e.target.value })} /><span class="tiny muted">$</span></div>
-        <div class="rulerow"><label for="c-r">Blended ROAS</label><input id="c-r" inputmode="decimal" value=${calc.roas} onInput=${(e) => setCalc({ ...calc, roas: e.target.value })} /><span class="tiny muted">x</span></div>
-        <div class="rulerow"><label for="c-m">Margin before ads</label><input id="c-m" inputmode="decimal" value=${calc.margin} onInput=${(e) => setCalc({ ...calc, margin: e.target.value })} /><span class="tiny muted">%</span></div>
-        <div class=${'status ' + (monthProfit >= GOAL.profit ? 'good' : monthProfit > 0 ? 'live' : 'bad')}><b>${R.money0(monthProfit)} profit a month</b> (after ${R.money0(fixed)} fixed costs)</div>
-        <div class="small">${perDollar <= 0 ? `At ${cr.toFixed(2)}x and ${Math.round(cm * 100)}% margin every ad dollar loses money. Break-even here is ${(1 / cm).toFixed(2)}x.` : `To reach $12,000: spend about ${R.money0(needSpend)}/day at this ROAS, or reach ${needRoas.toFixed(2)}x at this spend.`}</div>
-        ${(() => { // Per order: what one sale leaves after its share of the ads, at this ROAS
-          const ao = aov || R.num(st.aov) || 47.54;
-          const packs = products.map((p) => ({ p, e: R.econOf(p) })).filter((x) => x.e.set).map((x) => ({ ...x, one: R.beOrder(x.e, 1) }));
-          const missing = products.filter((p) => !R.econOf(p).set).map((p) => p.name);
-          const row = (label, price, before) => { const ad = cr > 0 ? price / cr : null, left = ad == null ? null : before - ad;
-            return html`<tr><td>${label}</td><td>${R.money(price)}</td><td>${R.money(before)}</td><td>${R.money(ad)}</td><td class=${left == null ? '' : left >= 0 ? 'good' : 'bad'}><b>${left == null ? '—' : (left < 0 ? '−' : '') + R.money(Math.abs(left))}</b></td></tr>`; };
-          return html`<div class="tscroll"><table class="t"><thead><tr><th>Per order</th><th>Price</th><th>Left before ads</th><th>Ad cost at ${cr ? cr.toFixed(2) + 'x' : '—'}</th><th>Profit</th></tr></thead><tbody>
-            ${packs.map((x) => row(`One ${x.p.name} pack`, x.e.price, x.one.contrib))}
-            ${row('Your average order', ao, ao * cm)}
-          </tbody></table></div>
-          <div class="tiny muted">Ad cost per order = price ÷ ROAS. "Left before ads" is after product, shipping, packaging and card fees.${missing.length ? ` Add costs in Rules to see ${missing.join(', ')}.` : ''}</div>`; })()}
-        <div class="tiny muted">Profit ≈ spend × (margin × ROAS − 1) − fixed costs. Same formula as your growth plan. Starts from your last 4 weeks.</div>
-        ${calcEdit && html`<button class="link small" style="align-self:flex-start" onClick=${() => setCalc(null)}>Reset to my numbers</button>`}</section>
-      <section class="panel"><h2>What moves the needle</h2>
-        <div class="small muted">At ${cs ? R.money0(cs) + '/day' : 'your'} spend, each of these adds about:</div>
-        <div class="list">
-          <div class="li"><span class="grow small">ROAS +0.5x</span><b class="mono">${lev(cs * 30.4 * cm * 0.5)}</b></div>
-          <div class="li"><span class="grow small">Margin +5 points (bundles, cheaper shipping, fewer refunds)</span><b class="mono">${lev(cs * 30.4 * 0.05 * cr)}</b></div>
-          <div class="li"><span class="grow small">Average order +$5 (postage paid once per order)</span><b class="mono">${lev(cs * 30.4 * dM * cr)}</b></div>
-        </div></section>
-    </div>
-    <section class="panel"><div class="row"><h2 style="margin:0">Weekly numbers</h2><span class="spacer"></span><button class="btn sm" onClick=${() => setModal({ type: StockForm, props: {} })}>Log a stock order</button></div>
-      ${weeks.length ? html`<div class="tscroll"><table class="t"><thead><tr><th>Week</th><th>Revenue</th><th>Ad spend</th><th>Blended ROAS</th><th>Orders</th><th>Avg order</th><th>Profit</th><th></th></tr></thead><tbody>
-        ${weeks.slice().reverse().map((w) => { const pr = weekProfit(w, st); return html`<tr><td class="mono">${R.shortDate(R.addDays(w.end, -6))} to ${R.shortDate(w.end)}</td><td>${R.money0(w.rev)}</td><td>${R.money0(w.spend)}</td><td>${w.spend ? R.xroas(w.rev / w.spend) : '—'}</td><td>${w.orders || '—'}</td><td>${w.orders ? R.money(w.rev / w.orders) : '—'}</td><td>${R.money0(pr.value)}${pr.estimated ? html` <span class="tiny muted">est.</span>` : ''}${w.refunds ? html`<br/><span class="tiny muted">after ${R.money0(w.refunds)} refunds</span>` : ''}</td><td><button class="link small" onClick=${() => setModal({ type: WeekForm, props: { end: w.end } })}>Edit</button></td></tr>`; })}</tbody></table></div>`
-        : html`<div class="empty">No weeks yet. Every Monday, add last week's numbers from Triple Whale.</div>`}
-      ${stock.length > 0 && html`<div class="small muted">Stock orders: ${stock.slice(0, 4).map((x) => `${R.shortDate(x.day)} ${R.money0(x.amount)}${x.note ? ' (' + x.note + ')' : ''}`).join(' · ')}</div>`}
+    <section class="panel"><div class="row"><h2 style="margin:0">Your numbers</h2><span class="spacer"></span><button class="btn sm" onClick=${() => setModal({ type: StockForm, props: {} })}>Log a stock order</button><button class="link small" onClick=${() => setShowNums(!showNums)}>${showNums ? 'Hide' : `Show all (${periods.length})`}</button></div>
+      <div class="tiny muted">Profit = online sales (ads, organic, email) minus product, shipping, fees, ads, returns, other costs and fixed costs (${R.money0(fixed)}/month). Family pay isn't subtracted. <button class="link tiny" onClick=${editFixed}>Change fixed costs</button></div>
+      ${showNums && (periods.length ? html`<div class="tscroll"><table class="t"><thead><tr><th>Dates</th><th>Revenue</th><th>Ad spend</th><th>Blended</th><th>Orders</th><th>Profit</th><th></th></tr></thead><tbody>
+        ${periods.slice().reverse().map((x) => { const pr = periodProfit(x, st); return html`<tr><td class="mono">${R.shortDate(x.from)} to ${R.shortDate(x.to)}</td><td>${R.money0(x.rev)}<br/><span class="tiny muted">${x.revType === 'net' ? 'Shopify net' : 'Triple Whale'}</span></td><td>${R.money0(x.spend)}</td><td>${x.spend ? R.xroas(x.rev / x.spend) : '—'}</td><td>${x.orders || '—'}</td><td>${R.money0(pr.value)}<br/><span class="tiny muted">${pr.how === 'exact' ? 'exact' : pr.how === 'tw' ? 'Triple Whale' : 'estimate'}</span></td><td><button class="link small" onClick=${() => setModal({ type: PeriodForm, props: { id: x.id } })}>Edit</button></td></tr>`; })}</tbody></table></div>` : html`<div class="empty">No numbers yet.</div>`)}
+      ${stock.length > 0 && html`<div class="tiny muted">Stock orders: ${stock.slice(0, 4).map((x) => `${R.shortDate(x.day)} ${R.money0(x.amount)}${x.note ? ' (' + x.note + ')' : ''}`).join(' · ')}</div>`}
+    </section>
+    <section class="panel"><div class="row"><h2 style="margin:0">Plan and what-ifs</h2><span class="spacer"></span><button class="link small" onClick=${() => setWhatif(!whatif)}>${whatif ? 'Hide' : 'Show'}</button></div>
+      ${!whatif ? html`<div class="small muted">Calculator, profit per pack and what moves the needle.</div>` : html`<div class="grid2">
+        <div class="stack">
+          <div class="rulerow"><label for="c-s">Ad spend per day</label><input id="c-s" inputmode="decimal" value=${calc.spend} onInput=${(e) => setCalc({ ...calc, spend: e.target.value })} /><span class="tiny muted">$</span></div>
+          <div class="rulerow"><label for="c-r">Blended ROAS</label><input id="c-r" inputmode="decimal" value=${calc.roas} onInput=${(e) => setCalc({ ...calc, roas: e.target.value })} /><span class="tiny muted">x</span></div>
+          <div class="rulerow"><label for="c-m">Margin before ads</label><input id="c-m" inputmode="decimal" value=${calc.margin} onInput=${(e) => setCalc({ ...calc, margin: e.target.value })} /><span class="tiny muted">%</span></div>
+          <div class=${'status ' + (monthProfit >= GOAL.profit ? 'good' : monthProfit > 0 ? 'live' : 'bad')}><b>${R.money0(monthProfit)} profit a month</b> (after ${R.money0(fixed)} fixed costs)</div>
+          <div class="small">${perDollar <= 0 ? `At ${cr.toFixed(2)}x and ${Math.round(cmg * 100)}% margin every ad dollar loses money. Break-even here is ${(1 / cmg).toFixed(2)}x.` : `To reach $12,000: about ${R.money0(needSpend)}/day at this ROAS, or ${needRoas.toFixed(2)}x at this spend.`}</div>
+          ${calcEdit && html`<button class="link small" style="align-self:flex-start" onClick=${() => setCalc(null)}>Reset to my numbers</button>`}
+        </div>
+        <div class="stack">
+          ${(() => { const ao = aov || R.num(st.aov) || 47.54; const packs = products.map((p) => ({ p, e: R.econOf(p) })).filter((x) => x.e.set).map((x) => ({ ...x, one: R.beOrder(x.e, 1) })); const missing = products.filter((p) => !R.econOf(p).set).map((p) => p.name);
+            const row = (label, price, before) => { const ad = cr > 0 ? price / cr : null, left = ad == null ? null : before - ad; return html`<tr><td>${label}</td><td>${R.money(price)}</td><td>${R.money(ad)}</td><td class=${left == null ? '' : left >= 0 ? 'good' : 'bad'}><b>${left == null ? '—' : (left < 0 ? '−' : '') + R.money(Math.abs(left))}</b></td></tr>`; };
+            return html`<div class="tscroll"><table class="t"><thead><tr><th>Profit per order</th><th>Price</th><th>Ad cost at ${cr ? cr.toFixed(2) + 'x' : '—'}</th><th>Profit</th></tr></thead><tbody>${packs.map((x) => row(`One ${x.p.name} pack`, x.e.price, x.one.contrib))}${row('Your average order', ao, ao * cmg)}</tbody></table></div>${missing.length ? html`<div class="tiny muted">Add costs in Rules to see ${missing.join(', ')}.</div>` : ''}`; })()}
+          <div class="list">
+            <div class="li"><span class="grow small">ROAS +0.5x</span><b class="mono">${R.money0(cs * 30.4 * cmg * 0.5)}/month</b></div>
+            <div class="li"><span class="grow small">Margin +5 points</span><b class="mono">${R.money0(cs * 30.4 * 0.05 * cr)}/month</b></div>
+            <div class="li"><span class="grow small">Average order +$5</span><b class="mono">${R.money0(cs * 30.4 * dM * cr)}/month</b></div>
+          </div>
+        </div></div>`}
     </section>`;
 }
-function WeekForm(ctx) {
-  const { data, end, close, reload, say } = ctx;
-  const existing = goalWeeks(data).find((w) => w.end === end);
-  const [f, setF] = useState({ end, rev: existing ? String(existing.rev) : '', spend: existing ? String(existing.spend) : '', orders: existing ? String(existing.orders || '') : '', profit: existing && existing.profit != null ? String(existing.profit) : '', refunds: existing && existing.refunds ? String(existing.refunds) : '' });
-  const metaSpend = sumRows((data.meta_days || []).filter((r) => r.day >= R.addDays(f.end, -6) && r.day <= f.end)).spend;
+// Add numbers for any dates: this week, last week, a month or custom.
+function PeriodForm(ctx) {
+  const { data, id, from: f0, to: t0, close, reload, say } = ctx;
+  const ex = id ? goalPeriods(data).find((x) => x.id === id) : null;
+  const t = R.today(), y = R.addDays(t, -1), td = R.parseDay(t), mon = R.addDays(t, -((td.getDay() + 6) % 7));
+  const lm = R.addDays(t.slice(0, 8) + '01', -1);
+  const presets = [['thisweek', 'This week', mon <= y ? mon : R.addDays(mon, -7), y], ['lastweek', 'Last week', R.addDays(mon, -7), R.addDays(mon, -1)], ['thismonth', 'This month', t.slice(0, 8) + '01' <= y ? t.slice(0, 8) + '01' : lm.slice(0, 8) + '01', y], ['lastmonth', 'Last month', lm.slice(0, 8) + '01', lm], ['custom', 'Custom dates', null, null]];
+  const [f, setF] = useState(() => ex ? { from: ex.from, to: ex.to, rev: String(ex.rev || ''), revType: ex.revType, spend: String(ex.spend || ''), orders: ex.orders ? String(ex.orders) : '', profit: ex.profit != null ? String(ex.profit) : '', refunds: ex.refunds ? String(ex.refunds) : '', other: ex.other ? String(ex.other) : '', exact: ex.exact != null ? String(ex.exact) : '', preset: 'custom' }
+    : { from: f0 || presets[1][2], to: t0 || presets[1][3], rev: '', revType: 'net', spend: '', orders: '', profit: '', refunds: '', other: '', exact: '', preset: f0 ? 'custom' : 'lastweek' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const pick = (k) => { const pr = presets.find((x) => x[0] === k); setF({ ...f, preset: k, ...(pr[2] ? { from: pr[2], to: pr[3] } : {}) }); };
+  const days = f.from && f.to && f.to >= f.from ? R.daysBetween(f.from, f.to) + 1 : 0;
+  const metaSpend = sumRows((data.meta_days || []).filter((r) => r.day >= f.from && r.day <= f.to)).spend;
+  const overlap = goalPeriods(data).filter((x) => x.id !== id && x.from <= f.to && x.to >= f.from);
   const save = async () => {
-    if (!R.num(f.rev) || !R.num(f.spend)) { say('Add revenue and ad spend.'); return; }
-    const text = JSON.stringify({ rev: R.num(f.rev), spend: R.num(f.spend), orders: R.num(f.orders), profit: f.profit === '' ? null : R.num(f.profit), refunds: R.num(f.refunds) || 0 });
-    const hit = data.learnings.find((l) => l.kind === 'week' && String(l.day).slice(0, 10) === f.end);
-    if (hit) await be.update('learnings', hit.id, { text }); else await be.insert('learnings', { kind: 'week', day: f.end, text, source: 'Triple Whale' });
-    await reload(); close(); say('Week saved');
+    if (!days) { say('Pick the dates.'); return; }
+    if (!R.num(f.rev) && R.num(f.exact) == null) { say('Add revenue (or the exact profit).'); return; }
+    const text = JSON.stringify({ from: f.from, rev: R.num(f.rev) || 0, revType: f.revType, spend: R.num(f.spend) || 0, orders: R.num(f.orders) || 0, profit: f.profit === '' ? null : R.num(f.profit), refunds: R.num(f.refunds) || 0, other: R.num(f.other) || 0, exact: f.exact === '' ? null : R.num(f.exact) });
+    if (ex) await be_.update('learnings', ex.id, { kind: 'period', day: f.to, text }); else await be_.insert('learnings', { kind: 'period', day: f.to, text, source: f.revType === 'net' ? 'Shopify' : 'Triple Whale' });
+    await reload(); close(); say('Numbers saved');
   };
-  const del = async () => { const hit = data.learnings.find((l) => l.kind === 'week' && String(l.day).slice(0, 10) === f.end); if (!hit || !confirm('Delete this week?')) return; await be.remove('learnings', hit.id); await reload(); close(); say('Week deleted'); };
-  return html`<${Modal} title="Week's numbers" sub=${`From Triple Whale · Mon ${R.shortDate(R.addDays(f.end, -6))} to Sun ${R.shortDate(f.end)}`} onClose=${close}>
+  const del = async () => { if (!ex || !confirm('Delete these numbers?')) return; await be_.remove('learnings', ex.id); await reload(); close(); say('Deleted'); };
+  return html`<${Modal} title=${ex ? 'Edit numbers' : 'Add numbers'} sub=${days ? `${R.shortDate(f.from)} to ${R.shortDate(f.to)} · ${days} day${days === 1 ? '' : 's'}` : 'Pick the dates'} onClose=${close}>
+    ${!ex && html`<div class="seg wide" role="group" aria-label="Dates" style="flex-wrap:wrap">${presets.map(([k, l]) => html`<button class=${f.preset === k ? 'on' : ''} onClick=${() => pick(k)}>${l}</button>`)}</div>`}
     <div class="form">
-      <${Field} label="Week ending (Sunday)"><input type="date" value=${f.end} onInput=${set('end')} /><//>
-      <div class="status live small full">This week: Monday ${R.shortDate(R.addDays(f.end, -6))} to Sunday ${R.shortDate(f.end)}. Use the same dates in Triple Whale.</div>
-      <${Field} label="Revenue (all online sales)"><input inputmode="decimal" value=${f.rev} onInput=${set('rev')} placeholder="$" /><//>
+      <${Field} label="From"><input type="date" value=${f.from} onInput=${(e) => setF({ ...f, from: e.target.value, preset: 'custom' })} /><//>
+      <${Field} label="To"><input type="date" value=${f.to} onInput=${(e) => setF({ ...f, to: e.target.value, preset: 'custom' })} /><//>
+      ${overlap.length > 0 && html`<div class="status warn small full">These dates overlap numbers you already added (${overlap.map((x) => `${R.shortDate(x.from)} to ${R.shortDate(x.to)}`).join(', ')}). Where they overlap, the shorter period counts.</div>`}
+      <${Field} label="Revenue"><input inputmode="decimal" value=${f.rev} onInput=${set('rev')} placeholder="$" /><//>
+      <${Field} label="Revenue is from"><select value=${f.revType} onChange=${set('revType')}><option value="net">Shopify net sales (returns and cancels already out)</option><option value="tw">Triple Whale (doesn't take out returns)</option></select><//>
       <${Field} label="Ad spend (all ads)"><input inputmode="decimal" value=${f.spend} onInput=${set('spend')} placeholder=${metaSpend ? 'Meta files say $' + Math.round(metaSpend) : '$'} /><//>
       <${Field} label="Orders"><input inputmode="decimal" value=${f.orders} onInput=${set('orders')} /><//>
-      <${Field} label="Net profit (optional; blank = app estimates)"><input inputmode="decimal" value=${f.profit} onInput=${set('profit')} placeholder="$" /><//>
-      <${Field} label="Returns and refunds (optional)"><input inputmode="decimal" value=${f.refunds} onInput=${set('refunds')} placeholder="$ from Shopify" /><//>
-      <div class="tiny muted full">Triple Whale doesn't take off returns and refunds. If you add them here (Shopify → Analytics → Returns), they come off this week's profit.</div>
+      ${f.revType === 'tw' && html`<${Field} label="Returns, refunds and cancels"><input inputmode="decimal" value=${f.refunds} onInput=${set('refunds')} placeholder="$ from Shopify" /><//>`}
+      <${Field} label="Other costs (chargebacks, extra shipping…)"><input inputmode="decimal" value=${f.other} onInput=${set('other')} placeholder="$" /><//>
+      <${Field} label="Triple Whale net profit (optional)"><input inputmode="decimal" value=${f.profit} onInput=${set('profit')} placeholder="blank = app estimates" /><//>
+      <${Field} label="Exact profit, if you know it (optional)"><input inputmode="decimal" value=${f.exact} onInput=${set('exact')} placeholder="overrides everything" /><//>
+      <div class="tiny muted full">For true numbers: in Shopify go to <b>Analytics → Reports → Finance summary</b> (or Sales over time) for these dates and use <b>Net sales</b>. Returns, refunds, cancels and discounts are already taken out, so you don't need the returns box. "Exact profit" is for when your brother has the real number from the books; it's used as-is, after everything except family pay.</div>
     </div>
-    <div class="row"><button class="btn primary" onClick=${save}>Save</button><button class="btn ghost" onClick=${close}>Cancel</button><span class="spacer"></span>${existing && html`<button class="link small" style="color:var(--fail)" onClick=${del}>Delete week</button>`}</div>
+    <div class="row"><button class="btn primary" onClick=${save}>Save</button><button class="btn ghost" onClick=${close}>Cancel</button><span class="spacer"></span>${ex && html`<button class="link small" style="color:var(--fail)" onClick=${del}>Delete</button>`}</div>
   <//>`;
 }
 function StockForm(ctx) {

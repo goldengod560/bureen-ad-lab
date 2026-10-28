@@ -380,3 +380,15 @@ table.stats tr.click{cursor:pointer} table.stats tr.click:hover td{background:va
 .mp-tile .dot,.mainplan .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle;background:var(--accent)}
 @media (max-width:900px){.mp-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .mp-tile span b{font:600 12px var(--mono)}.mp-tile span b.good{color:var(--pass)}.mp-tile span b.bad{color:var(--fail)}
+.goalhero{gap:8px;border-color:var(--line2)}
+.goalhero.g-good{border-color:var(--pass);box-shadow:0 0 0 1px rgba(34,197,94,.15) inset}
+.goalhero.g-warn{border-color:var(--mid)}.goalhero.g-bad{border-color:var(--fail)}
+.gh-head{font:700 26px var(--display,inherit);letter-spacing:.02em}
+.goalhero.g-good .gh-head{color:var(--pass)}.goalhero.g-warn .gh-head{color:var(--mid)}.goalhero.g-bad .gh-head{color:var(--fail)}
+.gh-num b{font:700 34px var(--mono)}.gh-num span{color:var(--muted);font-size:14px}
+.gh-bar{position:relative;height:14px;border-radius:7px;background:var(--line);margin:6px 0}
+.gh-bar>i{display:block;height:100%;border-radius:7px;background:var(--accent);transition:width .6s}
+.goalhero.g-good .gh-bar>i{background:var(--pass)}.goalhero.g-warn .gh-bar>i{background:var(--mid)}.goalhero.g-bad .gh-bar>i{background:var(--fail)}
+.gh-bar>b{position:absolute;top:-4px;width:3px;height:22px;background:var(--ink);border-radius:2px}
+.gh-bar>b.s{background:var(--muted)}
+.gh-bar>em{position:absolute;top:-2px;width:2px;height:18px;background:var(--soft);opacity:.7}
