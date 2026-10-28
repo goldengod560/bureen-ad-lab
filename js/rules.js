@@ -23,7 +23,7 @@ export const DEFAULT_RULES = {
 // Store = the whole shop, blended. Each product has its own costs; break-even comes from one formula,
 // with the order value as the input. Shared costs (postage, packaging, fees) come from the store
 // unless the product overrides them. Testing targets live in the rules and are never called break-even.
-export const STORE_DEFAULTS = { aov: 47.54, cogsPct: null, ship: 7.6, pack: 0.6, feePct: 2.9, feeFixed: 0.3, other: 0, fixedMonthly: 84, margin: 35, bundle2: 10, bundle3: 15 }; // fixed: Shopify $39 + AOV.ai $12.79 + Trustoo $11.99 + Blockify $19.99
+export const STORE_DEFAULTS = { aov: 47.54, cogsPct: null, ship: 7.6, pack: 0.6, feePct: 2.9, feeFixed: 0.3, other: 0, fixedMonthly: 83.77, margin: 35, bundle2: 10, bundle3: 15 }; // fixed: Shopify $39 + AOV.ai $12.79 + Trustoo $11.99 + Blockify $19.99
 export const SHARED_COSTS = [
   ['ship', 'Postage per order', '$'], ['pack', 'Packaging per order', '$'], ['feePct', 'Card fee', '%'], ['feeFixed', 'Card fee per order', '$'], ['other', 'Other cost per order', '$'],
 ];

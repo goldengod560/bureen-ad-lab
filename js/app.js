@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=75';
-import * as R from './rules.js?v=75';
-import { importHistory } from './importer.js?v=75';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=75';
+import { createBackend } from './data.js?v=76';
+import * as R from './rules.js?v=76';
+import { importHistory } from './importer.js?v=76';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=76';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2049,7 +2049,7 @@ function goalPeriods(data) {
 let goalCE = null;
 // Full profit for a period. Exact profit (if you know it) wins. Shopify numbers get a full breakdown:
 // net sales + shipping charged + return fees − product cost − shipping labels − packaging − payment fees − ads − other − apps.
-// Any cost left blank is estimated (and listed as an estimate). Triple Whale entries keep the simpler method.
+// Any cost left blank is estimated (and listed as an estimate). Apps come from your monthly apps list. Triple Whale entries keep the simpler method.
 function periodProfit(x, st, ce = goalCE) {
   const fixedEst = (R.num(st.fixedMonthly) || 0) * 12 / 365 * x.days;
   if (x.exact != null) return { value: x.exact, how: 'exact', before: x.exact + (x.fixedCost ?? fixedEst), lines: null, est: [] };
@@ -2066,7 +2066,7 @@ function periodProfit(x, st, ce = goalCE) {
       ['Payment fees', pick(x.fees, sales * feePct + ord * feeFix, 'payment fees')],
       ['Ad spend', x.spend],
       ['Other costs', x.other || 0],
-      ['Apps and fixed', pick(x.fixedCost, fixedEst, 'apps and fixed')],
+      ['Apps and subscriptions', x.fixedCost ?? fixedEst], // your monthly apps list, spread over these days, unless you typed a number
     ];
     const costs = lines.reduce((t, l) => t + l[1], 0);
     const value = sales - costs;
@@ -2184,7 +2184,7 @@ function Goal(ctx) {
   const stageOk = mer != null && mer >= stage.roas[0] && spendDay >= stage.spend[0] && (margin == null || margin >= stage.margin) && msDone.every(Boolean);
   const nextStage = STAGES_GOAL[STAGES_GOAL.indexOf(stage) + 1];
   const toggleCheck = async (k) => { const next = { ...st, goalChecks: { ...checks, [k]: !checks[k] } }; await be_.saveStore(next); R.setStoreEcon(next); await reload(); };
-  const editFixed = async () => { const v = prompt('Fixed costs per month (Shopify plan + apps), in dollars:', String(fixed)); if (v == null || R.num(v) == null) return; const next = { ...st, fixedMonthly: R.num(v) }; await be_.saveStore(next); R.setStoreEcon(next); await reload(); say('Fixed costs saved'); };
+  const editFixed = () => setModal({ type: AppsForm, props: {} });
   // Check together
   const items = [];
   const gaps = cm.missing ? ranges(cm.missing) : [];
@@ -2238,8 +2238,8 @@ function Goal(ctx) {
           ${items.length > 3 && html`<button class="link small" style="align-self:flex-start" onClick=${() => setMoreChecks(!moreChecks)}>${moreChecks ? 'Show less' : `Show ${items.length - 3} more`}</button>`}` : html`<div class="status good small">Nothing needs attention right now.</div>`}
       </section>
     </div>
-    <section class="panel"><div class="row"><h2 style="margin:0">Your numbers</h2><span class="spacer"></span><button class="btn sm" onClick=${() => setModal({ type: StockForm, props: {} })}>Log a stock order</button><button class="link small" onClick=${() => setShowNums(!showNums)}>${showNums ? 'Hide' : `Show all (${periods.length})`}</button></div>
-      <div class="tiny muted">Profit = online sales (ads, organic, email) minus product, shipping, fees, ads, returns, other costs and fixed costs (${R.money0(fixed)}/month). Family pay isn't subtracted. <button class="link tiny" onClick=${editFixed}>Change fixed costs</button></div>
+    <section class="panel"><div class="row"><h2 style="margin:0">Your numbers</h2><span class="spacer"></span><button class="btn sm" onClick=${editFixed}>Apps ${R.money(fixed)}/mo</button><button class="btn sm" onClick=${() => setModal({ type: StockForm, props: {} })}>Log a stock order</button><button class="link small" onClick=${() => setShowNums(!showNums)}>${showNums ? 'Hide' : `Show all (${periods.length})`}</button></div>
+      <div class="tiny muted">Profit = online sales (ads, organic, email) minus product, shipping, fees, ads, returns, other costs and fixed costs (${R.money0(fixed)}/month). Family pay isn't subtracted. <button class="link tiny" onClick=${editFixed}>Edit apps list</button></div>
       ${showNums && (periods.length ? html`<div class="tscroll"><table class="t"><thead><tr><th>Dates</th><th>Revenue</th><th>Ad spend</th><th>Blended</th><th>Orders</th><th>Profit</th><th></th></tr></thead><tbody>
         ${periods.slice().reverse().map((x) => { const pr = periodProfit(x, st); return html`<tr><td class="mono">${R.shortDate(x.from)} to ${R.shortDate(x.to)}</td><td>${R.money0(x.rev)}<br/><span class="tiny muted">${x.revType === 'net' ? 'Shopify net' : 'Triple Whale'}</span></td><td>${R.money0(x.spend)}</td><td>${x.spend ? R.xroas(x.rev / x.spend) : '—'}</td><td>${x.orders || '—'}</td><td>${R.money0(pr.value)}<br/><span class="tiny muted">${pr.how === 'exact' ? 'exact' : pr.how === 'full' ? (x.costFinal ? 'final' : 'cost not final yet') : pr.how === 'mixed' ? 'some costs estimated' : pr.how === 'tw' ? 'Triple Whale' : 'estimate'}</span></td><td><button class="link small" onClick=${() => setModal({ type: PeriodForm, props: { id: x.id } })}>Edit</button></td></tr>`; })}</tbody></table></div>` : html`<div class="empty">No numbers yet.</div>`)}
       ${stock.length > 0 && html`<div class="tiny muted">Stock orders: ${stock.slice(0, 4).map((x) => `${R.shortDate(x.day)} ${R.money0(x.amount)}${x.note ? ' (' + x.note + ')' : ''}`).join(' · ')}</div>`}
@@ -2287,7 +2287,7 @@ function PeriodForm(ctx) {
     if (!R.num(f.rev) && R.num(f.exact) == null) { say('Add revenue (or the exact profit).'); return; }
     const opt = (k) => (f[k] === '' ? null : R.num(f[k]));
     const text = JSON.stringify({ from: f.from, rev: R.num(f.rev) || 0, revType: f.revType, spend: R.num(f.spend) || 0, orders: R.num(f.orders) || 0, profit: opt('profit'), refunds: R.num(f.refunds) || 0, other: R.num(f.other) || 0, exact: opt('exact'),
-      shipIn: opt('shipIn'), retFees: opt('retFees'), cogs: opt('cogs'), packs: opt('packs'), labels: opt('labels'), packaging: opt('packaging'), fees: opt('fees'), fixedCost: opt('fixedCost'), costFinal: !!f.costFinal });
+      shipIn: opt('shipIn'), retFees: opt('retFees'), cogs: opt('cogs'), packs: opt('packs'), labels: opt('labels'), packaging: opt('packaging'), fees: opt('fees'), fixedCost: opt('fixedCost') ?? Math.round(appsFor(days || 1) * 100) / 100, costFinal: !!f.costFinal }); // apps locked in at save, so changing the list later doesn't rewrite past months
     for (const x of inside) await be_.remove('learnings', x.id); // the new dates cover these completely
     if (ex) await be_.remove('learnings', ex.id); // re-saved as new, so it counts as the latest
     await be_.insert('learnings', { kind: 'period', day: f.to, text, source: f.revType === 'net' ? 'Shopify' : 'Triple Whale' });
@@ -2316,8 +2316,9 @@ function PeriodForm(ctx) {
         <${Field} label="Packaging"><input inputmode="decimal" value=${f.packaging} onInput=${set('packaging')} placeholder="$" /><//>
         <${Field} label="Payment fees"><input inputmode="decimal" value=${f.fees} onInput=${set('fees')} placeholder="$ Shopify Payments fees" /><//>
         <${Field} label="Ad spend (all ads)"><input inputmode="decimal" value=${f.spend} onInput=${set('spend')} placeholder=${metaSpend ? 'Meta files say $' + Math.round(metaSpend) : '$'} /><//>
-        <${Field} label="Apps and subscriptions"><input inputmode="decimal" value=${f.fixedCost} onInput=${set('fixedCost')} placeholder="$" /><//>
+        <${Field} label="Apps and subscriptions"><input inputmode="decimal" value=${f.fixedCost} onInput=${set('fixedCost')} placeholder=${`auto ${R.money(appsFor(days || 1))}`} /><//>
         <${Field} label="Other costs"><input inputmode="decimal" value=${f.other} onInput=${set('other')} placeholder="$ chargebacks, extra shipping…" /><//>
+        <div class="tiny muted full">Apps fill in by themselves: ${R.money(appsFor(days || 1))} for these ${days || 1} days, from your ${R.money(R.num(R.storeEcon().fixedMonthly) || 0)}/month apps list (Goal → Apps). Only type a number if this period was different.</div>
         <div class="fsec full">Optional</div>
         <${Field} full label="Exact profit, if you already know it (overrides everything above)"><input inputmode="decimal" value=${f.exact} onInput=${set('exact')} placeholder="$" /><//>
         ${(() => { // live profit for these dates
@@ -2342,6 +2343,29 @@ function PeriodForm(ctx) {
     </div>
     <div class="row"><button class="btn primary" onClick=${save}>Save</button><button class="btn ghost" onClick=${close}>Cancel</button><span class="spacer"></span>${ex && html`<button class="link small" style="color:var(--fail)" onClick=${del}>Delete</button>`}</div>
   <//>`;
+}
+// Monthly apps and subscriptions. Pretty stable, so you set them once and change the list when something changes.
+const APPS_DEFAULT = [['Shopify plan', 39], ['AOV.ai', 12.79], ['Trustoo', 11.99], ['Blockify', 19.99]];
+function appsList(st) { return Array.isArray(st.fixedItems) && st.fixedItems.length ? st.fixedItems : APPS_DEFAULT.map(([name, amt]) => ({ name, amt })); }
+function appsFor(days) { return (R.num(R.storeEcon().fixedMonthly) || 0) * 12 / 365 * days; }
+function AppsForm(ctx) {
+  const { close, reload, say } = ctx;
+  const st = R.storeEcon();
+  const [rows, setRows] = useState(() => appsList(st).map((r, i) => ({ k: i, name: r.name, amt: String(r.amt) })));
+  const total = rows.reduce((t, r) => t + (R.num(r.amt) || 0), 0);
+  const upd = (k, key) => (e) => setRows(rows.map((r) => (r.k === k ? { ...r, [key]: e.target.value } : r)));
+  const save = async () => {
+    const items = rows.filter((r) => r.name.trim() && R.num(r.amt)).map((r) => ({ name: r.name.trim(), amt: R.num(r.amt) }));
+    const next = { ...st, fixedItems: items, fixedMonthly: Math.round(items.reduce((t, r) => t + r.amt, 0) * 100) / 100 };
+    await be.saveStore(next); R.setStoreEcon(next); await reload(); close(); say('Apps saved');
+  };
+  return html`<${Modal} title="Apps and subscriptions" sub="Monthly. Counted in your profit automatically, spread over each day." onClose=${close}>
+    <div class="stack" style="gap:6px">
+      ${rows.map((r) => html`<div class="row" key=${r.k} style="gap:6px"><input style="flex:2" value=${r.name} onInput=${upd(r.k, 'name')} placeholder="App name" /><input style="flex:1" inputmode="decimal" value=${r.amt} onInput=${upd(r.k, 'amt')} placeholder="$/month" /><button class="link small" style="color:var(--fail)" onClick=${() => setRows(rows.filter((x) => x.k !== r.k))}>Remove</button></div>`)}
+      <div class="row"><button class="link small" onClick=${() => setRows([...rows, { k: Date.now(), name: '', amt: '' }])}>+ Add an app</button><span class="spacer"></span><b class="mono">${R.money(total)}/month</b></div>
+      <div class="tiny muted">Changes count from now on. Numbers you already saved keep the apps cost they had.</div>
+    </div>
+    <div class="row"><button class="btn primary" onClick=${save}>Save</button><button class="btn ghost" onClick=${close}>Cancel</button></div><//>`;
 }
 function StockForm(ctx) {
   const { close, reload, say } = ctx;
