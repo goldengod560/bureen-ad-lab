@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=73';
-import * as R from './rules.js?v=73';
-import { importHistory } from './importer.js?v=73';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=73';
+import { createBackend } from './data.js?v=74';
+import * as R from './rules.js?v=74';
+import { importHistory } from './importer.js?v=74';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=74';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2040,7 +2040,7 @@ function goalPeriods(data) {
     return { id: l.id, kind: l.kind, from, to, days: R.daysBetween(from, to) + 1, created: l.created_at || '',
       rev: R.num(v.rev) || 0, revType: v.revType || 'tw', spend: R.num(v.spend) || 0, orders: R.num(v.orders) || 0,
       profit: R.num(v.profit), refunds: R.num(v.refunds) || 0, other: R.num(v.other) || 0, exact: R.num(v.exact),
-      shipIn: R.num(v.shipIn), retFees: R.num(v.retFees), cogs: R.num(v.cogs), packs: R.num(v.packs), labels: R.num(v.labels), packaging: R.num(v.packaging), fees: R.num(v.fees), fixedCost: R.num(v.fixedCost) };
+      shipIn: R.num(v.shipIn), retFees: R.num(v.retFees), cogs: R.num(v.cogs), packs: R.num(v.packs), labels: R.num(v.labels), packaging: R.num(v.packaging), fees: R.num(v.fees), fixedCost: R.num(v.fixedCost), costFinal: !!v.costFinal };
   }).sort((x, y) => x.from.localeCompare(y.from));
 }
 // Profit for a period. Exact profit (if you know it) wins. Otherwise Triple Whale's net profit, else an estimate from
@@ -2163,6 +2163,8 @@ function Goal(ctx) {
   let streak = 0; for (const m of months.filter((m) => m.done).reverse()) { if (m.status === 'hit' || m.status === 'crushed') streak++; else break; }
   useEffect(() => { if (!hitNow) return; const k = `adlab-goalhit-${curYm}-${crushNow ? 'hi' : 'lo'}`; try { if (localStorage.getItem(k)) return; localStorage.setItem(k, '1'); } catch (e) {} confetti(); }, [hitNow, crushNow]);
   const lastMonth = [...months].reverse().find((m) => m.done);
+  // Product cost is only final once the month's Sada bill is in.
+  const provisional = (ym) => periods.some((x) => x.revType === 'net' && x.exact == null && !x.costFinal && x.from <= monthEnd(ym) && x.to >= ym + '-01');
   // Stage goals: last 28 days with numbers
   const s28 = sumRange(dm, R.addDays(y, -27), y);
   const mer = s28.spend ? s28.rev / s28.spend : null, spendDay = s28.days ? s28.spend / s28.days : null;
@@ -2186,6 +2188,8 @@ function Goal(ctx) {
   // Check together
   const items = [];
   const gaps = cm.missing ? ranges(cm.missing) : [];
+  const prevYm = monthKey(R.addDays(curYm + '-01', -1));
+  if (provisional(prevYm)) items.push({ tone: 'live', text: `${MON_LONG[+prevYm.slice(5) - 1]}'s profit still uses Shopify's estimated product cost. Once you've worked out the Sada bill, put it in that month's numbers and tick "final Sada bill".`, act: ['Open numbers', () => setShowNums(true)] });
   if (!periods.length) items.push({ tone: 'live', text: 'Add your numbers to start: this week, last week, a whole month or custom dates.', act: ['Add numbers', () => setModal({ type: PeriodForm, props: {} })] });
   else if (gaps.length) items.push({ tone: 'live', text: `No numbers yet for ${gaps.map(([a, b]) => (a === b ? R.shortDate(a) : `${R.shortDate(a)} to ${R.shortDate(b)}`)).join(', ')}.`, act: ['Add numbers', () => setModal({ type: PeriodForm, props: { from: gaps[0][0], to: gaps[gaps.length - 1][1] } })] });
   const w7 = sumRange(dm, R.addDays(y, -6), y), w7p = sumRange(dm, R.addDays(y, -13), R.addDays(y, -7));
@@ -2215,7 +2219,7 @@ function Goal(ctx) {
       <div class="gh-head">${heroHead}</div>
       <div class="gh-num"><b>${cm.actual == null ? '—' : R.money0(cm.actual)}</b> <span>of ${R.money0(cm.lo)} goal this month${cm.hi > cm.lo ? ` · stretch ${R.money0(cm.hi)}` : ''}</span></div>
       <div class="gh-bar"><i style=${`width:${pct}%`}></i><b title="Goal" style=${`left:${cm.lo / (cm.hi * 1.1) * 100}%`}></b><b class="s" title="Stretch" style=${`left:${cm.hi / (cm.hi * 1.1) * 100}%`}></b>${cm.actual != null && !hitNow && html`<em title="Where you should be by now" style=${`left:${Math.min(100, paceLo / (cm.hi * 1.1) * 100)}%`}></em>`}</div>
-      <div class="small muted">${cm.actual == null ? 'Add numbers for this month to see your progress.' : hitNow ? `${crushNow ? 'Past your stretch goal' : 'Goal reached'} with ${dimNow - elapsed} day${dimNow - elapsed === 1 ? '' : 's'} left.` : `By today you'd want about ${R.money0(paceLo)}. At this pace the month ends near ${R.money0(cm.proj)}.`}${cm.actual != null && cm.days < elapsed ? ` Counted ${cm.days} of ${elapsed} days so far.` : ''}${lastMonth ? ` Last month (${MON_LONG[+lastMonth.ym.slice(5) - 1]}): ${R.money0(lastMonth.actual)}${lastMonth.status === 'hit' || lastMonth.status === 'crushed' ? ', goal hit.' : '.'}` : ''}</div>
+      <div class="small muted">${cm.actual == null ? 'Add numbers for this month to see your progress.' : hitNow ? `${crushNow ? 'Past your stretch goal' : 'Goal reached'} with ${dimNow - elapsed} day${dimNow - elapsed === 1 ? '' : 's'} left.` : `By today you'd want about ${R.money0(paceLo)}. At this pace the month ends near ${R.money0(cm.proj)}.`}${cm.actual != null && cm.days < elapsed ? ` Counted ${cm.days} of ${elapsed} days so far.` : ''}${lastMonth ? ` Last month (${MON_LONG[+lastMonth.ym.slice(5) - 1]}): ${R.money0(lastMonth.actual)}${lastMonth.status === 'hit' || lastMonth.status === 'crushed' ? ', goal hit.' : '.'}` : ''}${cm.actual != null && provisional(curYm) ? ' Product cost is still an estimate until the Sada bill at month end.' : ''}</div>
     </section>
     <section class="panel"><div class="row"><h2 style="margin:0">Road to $12,000 a month</h2><span class="spacer"></span><span class="tiny muted">Sep 2027</span></div>
       <${RoadChart} months=${months} />
@@ -2237,7 +2241,7 @@ function Goal(ctx) {
     <section class="panel"><div class="row"><h2 style="margin:0">Your numbers</h2><span class="spacer"></span><button class="btn sm" onClick=${() => setModal({ type: StockForm, props: {} })}>Log a stock order</button><button class="link small" onClick=${() => setShowNums(!showNums)}>${showNums ? 'Hide' : `Show all (${periods.length})`}</button></div>
       <div class="tiny muted">Profit = online sales (ads, organic, email) minus product, shipping, fees, ads, returns, other costs and fixed costs (${R.money0(fixed)}/month). Family pay isn't subtracted. <button class="link tiny" onClick=${editFixed}>Change fixed costs</button></div>
       ${showNums && (periods.length ? html`<div class="tscroll"><table class="t"><thead><tr><th>Dates</th><th>Revenue</th><th>Ad spend</th><th>Blended</th><th>Orders</th><th>Profit</th><th></th></tr></thead><tbody>
-        ${periods.slice().reverse().map((x) => { const pr = periodProfit(x, st); return html`<tr><td class="mono">${R.shortDate(x.from)} to ${R.shortDate(x.to)}</td><td>${R.money0(x.rev)}<br/><span class="tiny muted">${x.revType === 'net' ? 'Shopify net' : 'Triple Whale'}</span></td><td>${R.money0(x.spend)}</td><td>${x.spend ? R.xroas(x.rev / x.spend) : '—'}</td><td>${x.orders || '—'}</td><td>${R.money0(pr.value)}<br/><span class="tiny muted">${pr.how === 'exact' ? 'exact' : pr.how === 'full' ? 'from your numbers' : pr.how === 'mixed' ? 'some costs estimated' : pr.how === 'tw' ? 'Triple Whale' : 'estimate'}</span></td><td><button class="link small" onClick=${() => setModal({ type: PeriodForm, props: { id: x.id } })}>Edit</button></td></tr>`; })}</tbody></table></div>` : html`<div class="empty">No numbers yet.</div>`)}
+        ${periods.slice().reverse().map((x) => { const pr = periodProfit(x, st); return html`<tr><td class="mono">${R.shortDate(x.from)} to ${R.shortDate(x.to)}</td><td>${R.money0(x.rev)}<br/><span class="tiny muted">${x.revType === 'net' ? 'Shopify net' : 'Triple Whale'}</span></td><td>${R.money0(x.spend)}</td><td>${x.spend ? R.xroas(x.rev / x.spend) : '—'}</td><td>${x.orders || '—'}</td><td>${R.money0(pr.value)}<br/><span class="tiny muted">${pr.how === 'exact' ? 'exact' : pr.how === 'full' ? (x.costFinal ? 'final' : 'cost not final yet') : pr.how === 'mixed' ? 'some costs estimated' : pr.how === 'tw' ? 'Triple Whale' : 'estimate'}</span></td><td><button class="link small" onClick=${() => setModal({ type: PeriodForm, props: { id: x.id } })}>Edit</button></td></tr>`; })}</tbody></table></div>` : html`<div class="empty">No numbers yet.</div>`)}
       ${stock.length > 0 && html`<div class="tiny muted">Stock orders: ${stock.slice(0, 4).map((x) => `${R.shortDate(x.day)} ${R.money0(x.amount)}${x.note ? ' (' + x.note + ')' : ''}`).join(' · ')}</div>`}
     </section>
     <section class="panel"><div class="row"><h2 style="margin:0">Plan and what-ifs</h2><span class="spacer"></span><button class="link small" onClick=${() => setWhatif(!whatif)}>${whatif ? 'Hide' : 'Show'}</button></div>
@@ -2270,8 +2274,8 @@ function PeriodForm(ctx) {
   const t = R.today(), y = R.addDays(t, -1), td = R.parseDay(t), mon = R.addDays(t, -((td.getDay() + 6) % 7));
   const lm = R.addDays(t.slice(0, 8) + '01', -1);
   const presets = [['thisweek', 'This week', mon <= y ? mon : R.addDays(mon, -7), y], ['lastweek', 'Last week', R.addDays(mon, -7), R.addDays(mon, -1)], ['thismonth', 'This month', t.slice(0, 8) + '01' <= y ? t.slice(0, 8) + '01' : lm.slice(0, 8) + '01', y], ['lastmonth', 'Last month', lm.slice(0, 8) + '01', lm], ['custom', 'Custom dates', null, null]];
-  const [f, setF] = useState(() => ex ? { from: ex.from, to: ex.to, rev: String(ex.rev || ''), revType: ex.revType, spend: String(ex.spend || ''), orders: ex.orders ? String(ex.orders) : '', profit: ex.profit != null ? String(ex.profit) : '', refunds: ex.refunds ? String(ex.refunds) : '', other: ex.other ? String(ex.other) : '', exact: ex.exact != null ? String(ex.exact) : '', preset: 'custom', ...Object.fromEntries(['shipIn', 'retFees', 'cogs', 'packs', 'labels', 'packaging', 'fees', 'fixedCost'].map((k) => [k, ex[k] != null ? String(ex[k]) : ''])) }
-    : { from: f0 || presets[1][2], to: t0 || presets[1][3], rev: '', revType: 'net', spend: '', orders: '', profit: '', refunds: '', other: '', exact: '', shipIn: '', retFees: '', cogs: '', packs: '', labels: '', packaging: '', fees: '', fixedCost: '', preset: f0 ? 'custom' : 'lastweek' });
+  const [f, setF] = useState(() => ex ? { from: ex.from, to: ex.to, rev: String(ex.rev || ''), revType: ex.revType, spend: String(ex.spend || ''), orders: ex.orders ? String(ex.orders) : '', profit: ex.profit != null ? String(ex.profit) : '', refunds: ex.refunds ? String(ex.refunds) : '', other: ex.other ? String(ex.other) : '', exact: ex.exact != null ? String(ex.exact) : '', preset: 'custom', costFinal: !!ex.costFinal, ...Object.fromEntries(['shipIn', 'retFees', 'cogs', 'packs', 'labels', 'packaging', 'fees', 'fixedCost'].map((k) => [k, ex[k] != null ? String(ex[k]) : ''])) }
+    : { from: f0 || presets[1][2], to: t0 || presets[1][3], rev: '', revType: 'net', spend: '', orders: '', profit: '', refunds: '', other: '', exact: '', shipIn: '', retFees: '', cogs: '', packs: '', labels: '', packaging: '', fees: '', fixedCost: '', costFinal: false, preset: f0 ? 'custom' : 'lastweek' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const pick = (k) => { const pr = presets.find((x) => x[0] === k); setF({ ...f, preset: k, ...(pr[2] ? { from: pr[2], to: pr[3] } : {}) }); };
   const days = f.from && f.to && f.to >= f.from ? R.daysBetween(f.from, f.to) + 1 : 0;
@@ -2282,7 +2286,7 @@ function PeriodForm(ctx) {
     if (!R.num(f.rev) && R.num(f.exact) == null) { say('Add revenue (or the exact profit).'); return; }
     const opt = (k) => (f[k] === '' ? null : R.num(f[k]));
     const text = JSON.stringify({ from: f.from, rev: R.num(f.rev) || 0, revType: f.revType, spend: R.num(f.spend) || 0, orders: R.num(f.orders) || 0, profit: opt('profit'), refunds: R.num(f.refunds) || 0, other: R.num(f.other) || 0, exact: opt('exact'),
-      shipIn: opt('shipIn'), retFees: opt('retFees'), cogs: opt('cogs'), packs: opt('packs'), labels: opt('labels'), packaging: opt('packaging'), fees: opt('fees'), fixedCost: opt('fixedCost') });
+      shipIn: opt('shipIn'), retFees: opt('retFees'), cogs: opt('cogs'), packs: opt('packs'), labels: opt('labels'), packaging: opt('packaging'), fees: opt('fees'), fixedCost: opt('fixedCost'), costFinal: !!f.costFinal });
     if (ex) await be_.update('learnings', ex.id, { kind: 'period', day: f.to, text }); else await be_.insert('learnings', { kind: 'period', day: f.to, text, source: f.revType === 'net' ? 'Shopify' : 'Triple Whale' });
     await reload(); close(); say('Numbers saved');
   };
@@ -2303,6 +2307,7 @@ function PeriodForm(ctx) {
         <div class="fsec full">Costs · leave any blank and the app estimates it</div>
         <${Field} label="Product cost"><input inputmode="decimal" value=${f.cogs} onInput=${set('cogs')} placeholder=${'$ or fill packs sold →'} /><//>
         <${Field} label="…or 6-packs sold"><input inputmode="decimal" value=${f.packs} onInput=${set('packs')} placeholder=${goalCE && goalCE.set ? `× $${goalCE.packCost} each` : 'packs'} /><//>
+        <label class="chk full"><input type="checkbox" checked=${f.costFinal} onChange=${(e) => setF({ ...f, costFinal: e.target.checked })} /> Product cost is the final Sada bill for these dates (leave unticked while it's still Shopify's estimate)</label>
         <${Field} label="Shipping labels"><input inputmode="decimal" value=${f.labels} onInput=${set('labels')} placeholder="$ Shipping labels report" /><//>
         <${Field} label="Packaging"><input inputmode="decimal" value=${f.packaging} onInput=${set('packaging')} placeholder="$" /><//>
         <${Field} label="Payment fees"><input inputmode="decimal" value=${f.fees} onInput=${set('fees')} placeholder="$ Shopify Payments fees" /><//>
