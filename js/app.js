@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=64';
-import * as R from './rules.js?v=64';
-import { importHistory } from './importer.js?v=64';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=64';
+import { createBackend } from './data.js?v=65';
+import * as R from './rules.js?v=65';
+import { importHistory } from './importer.js?v=65';
+import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=65';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2112,7 +2112,7 @@ function Goal(ctx) {
         <div class="small">${perDollar <= 0 ? `At ${cr.toFixed(2)}x and ${Math.round(cm * 100)}% margin every ad dollar loses money. Break-even here is ${(1 / cm).toFixed(2)}x.` : `To reach $12,000: spend about ${R.money0(needSpend)}/day at this ROAS, or reach ${needRoas.toFixed(2)}x at this spend.`}</div>
         ${(() => { // Per order: what one sale leaves after its share of the ads, at this ROAS
           const ao = aov || R.num(st.aov) || 47.54;
-          const packs = products.map((p) => ({ p, e: R.econOf(p) })).filter((x) => x.e.set).map((x) => ({ ...x, one: R.beAt(x.e, x.e.price) }));
+          const packs = products.map((p) => ({ p, e: R.econOf(p) })).filter((x) => x.e.set).map((x) => ({ ...x, one: R.beOrder(x.e, 1) }));
           const missing = products.filter((p) => !R.econOf(p).set).map((p) => p.name);
           const row = (label, price, before) => { const ad = cr > 0 ? price / cr : null, left = ad == null ? null : before - ad;
             return html`<tr><td>${label}</td><td>${R.money(price)}</td><td>${R.money(before)}</td><td>${R.money(ad)}</td><td class=${left == null ? '' : left >= 0 ? 'good' : 'bad'}><b>${left == null ? '—' : (left < 0 ? '−' : '') + R.money(Math.abs(left))}</b></td></tr>`; };
@@ -2189,7 +2189,7 @@ function Rules(ctx) {
   const { product, reload, say } = ctx;
   const [rules, setRules] = useState(() => { const r = R.rulesOf(product); const o = {}; Object.keys(r).forEach((k) => { o[k] = String(r[k]); }); o.weekendLock = !!r.weekendLock; return o; });
   const str = (v) => (v == null ? '' : String(v));
-  const [pe, setPe] = useState(() => { const e = R.econOf(product); const o = { price: str(e.price), packCost: str(e.packCost), aov: str(e.ownAov), opBE: str(e.opBEOwn) }; R.SHARED_COSTS.forEach(([k]) => { o[k] = str(e.own[k]); }); return o; });
+  const [pe, setPe] = useState(() => { const e = R.econOf(product); const o = { price: str(e.price), packCost: str(e.packCost), aov: str(e.ownAov), opBE: str(e.opBEOwn), shipCharge: e.shipCharge ? String(e.shipCharge) : '' }; R.SHARED_COSTS.forEach(([k]) => { o[k] = str(e.own[k]); }); return o; });
   const [st, setSt] = useState(() => { const s0 = R.storeEcon(); const o = {}; Object.keys(R.STORE_DEFAULTS).forEach((k) => { o[k] = str(s0[k]); }); return o; });
   const [busy, setBusy] = useState(false);
   const toNum = (o) => { const r = {}; Object.keys(o).forEach((k) => { r[k] = o[k] === '' ? null : R.num(o[k]); }); return r; };
@@ -2199,7 +2199,8 @@ function Rules(ctx) {
   const crewP = ctx.data.products.find((p) => p.kind === 'crew');
   const crewE = product.kind === 'crew' ? pv : R.econOf(crewP, storeNow);
   const sb = R.storeBE(crewE, storeNow);
-  const b1 = R.beAt(pv, pv.price), b2 = R.beAt(pv, pv.price * 2), bA = pv.ownAov ? R.beAt(pv, pv.ownAov) : null;
+  const d2 = R.num(st.bundle2) || 0, d3 = R.num(st.bundle3) || 0;
+  const b1 = R.beOrder(pv, 1), b2 = R.beOrder(pv, 2, d2), b3 = R.beOrder(pv, 3, d3), bA = pv.ownAov ? R.beAt(pv, pv.ownAov) : null;
   const setP = (k) => (e) => setPe({ ...pe, [k]: e.target.value });
   const setS = (k) => (e) => setSt({ ...st, [k]: e.target.value });
   const unit = (u) => html`<span class="tiny muted">${u}</span>`;
@@ -2212,8 +2213,8 @@ function Rules(ctx) {
     const ne = peRaw;
     const changes = Object.keys(nr).filter((k) => String(nr[k]) !== String(old[k])).map((k) => `${k}: ${old[k]} → ${nr[k]}`);
     const oe = R.econOf(product), os = R.storeEcon();
-    const ob1 = R.beAt(oe, oe.price);
-    if (String(oe.price) !== String(pv.price) || String(oe.packCost) !== String(pv.packCost) || R.SHARED_COSTS.some(([k]) => String(oe.own[k]) !== String(pv.own[k])) || String(oe.ownAov) !== String(pv.ownAov) || String(oe.opBEOwn) !== String(pv.opBEOwn))
+    const ob1 = R.beOrder(oe, 1);
+    if (String(oe.price) !== String(pv.price) || String(oe.packCost) !== String(pv.packCost) || R.SHARED_COSTS.some(([k]) => String(oe.own[k]) !== String(pv.own[k])) || String(oe.ownAov) !== String(pv.ownAov) || String(oe.opBEOwn) !== String(pv.opBEOwn) || String(oe.shipCharge) !== String(pv.shipCharge))
       changes.push(`${product.name} economics: break-even used for ads ${oe.opBE ? R.xroas(oe.opBE) : 'not set'} → ${pv.opBE ? R.xroas(pv.opBE) : 'not set'}`);
     const storeChanged = Object.keys(R.STORE_DEFAULTS).some((k) => String(os[k] ?? '') !== String(storeNow[k] ?? ''));
     if (storeChanged) changes.push(`Store economics: avg order $${storeNow.aov}, break-even ${sb.roas ? R.xroas(sb.roas) : 'not set'}${sb.estimated ? ' (est.)' : ''}`);
@@ -2233,8 +2234,9 @@ function Rules(ctx) {
         ${pv.opBE && html`<div class="tiles"><div class="tile"><div class="k">Break-even used to judge ads</div><div class="v" style="color:var(--accent2)">${R.xroas(pv.opBE)}</div><div class="s">${pv.opBEOwn ? 'Set by you' : product.kind === 'crew' ? 'Estimate: store average order with your bundle discounts' : 'Single-pack estimate until you set it'}</div></div></div>`}
         <div class="rulerow" key="e-opbe"><label for="e-opbe">Break-even ROAS used to judge ads (blank = estimate)</label><input id="e-opbe" inputmode="decimal" value=${pe.opBE} placeholder=${product.kind === 'crew' ? '2.85' : '—'} onInput=${setP('opBE')} />${unit('x')}</div>
         <div key="econ-ref" class="stack" style="gap:8px">${pv.set ? html`<div class="fsec">For reference</div><div class="tiles">
-          <div class="tile"><div class="k">Break-even · 1 pack</div><div class="v" style="color:var(--accent2)">${R.xroas(b1 && b1.roas)}</div><div class="s">${R.money(b1 && b1.cpa)} CPA at ${R.money(pv.price)}</div></div>
-          <div class="tile"><div class="k">Break-even · 2 packs</div><div class="v" style="color:var(--accent2)">${R.xroas(b2 && b2.roas)}</div><div class="s">${R.money(b2 && b2.cpa)} CPA at ${R.money(pv.price * 2)}, if sold at full price</div></div>
+          <div class="tile"><div class="k">Break-even · 1 pack</div><div class="v" style="color:var(--accent2)">${R.xroas(b1 && b1.roas)}</div><div class="s">${R.money(b1 && b1.cpa)} CPA at ${R.money(pv.price)}${pv.shipCharge ? ` + ${R.money(pv.shipCharge)} shipping paid` : ''}</div></div>
+          <div class="tile"><div class="k">Break-even · 2 packs</div><div class="v" style="color:var(--accent2)">${R.xroas(b2 && b2.roas)}</div><div class="s">${R.money(b2 && b2.cpa)} CPA at ${R.money(b2 && b2.V)} (${d2}% off)</div></div>
+          <div class="tile"><div class="k">Break-even · 3 packs</div><div class="v" style="color:var(--accent2)">${R.xroas(b3 && b3.roas)}</div><div class="s">${R.money(b3 && b3.cpa)} CPA at ${R.money(b3 && b3.V)} (${d3}% off)</div></div>
           ${bA && html`<div class="tile"><div class="k">At its avg order</div><div class="v" style="color:var(--accent2)">${R.xroas(bA.roas)}</div><div class="s">${R.money(bA.cpa)} CPA at ${R.money(pv.ownAov)} · estimate</div></div>`}
           <div class="tile"><div class="k">Testing pass line</div><div class="v">${R.xroas(R.num(rules.passARoas))}</div><div class="s">Your rule, not break-even</div></div></div>
           <p class="tiny muted" style="margin:0">Every ad is judged against the one break-even above, so the line doesn't move with each order. These two are context only.</p>
@@ -2243,10 +2245,11 @@ function Rules(ctx) {
               <tr><td>Ad cost</td>${[2.5, 3, 3.5, 4, 4.5].map((r) => html`<td>${R.money(pv.price / r)}</td>`)}</tr>
               <tr><td><b>Profit</b></td>${[2.5, 3, 3.5, 4, 4.5].map((r) => { const v = b1.contrib - pv.price / r; return html`<td class=${v >= 0 ? 'good' : 'bad'}><b>${(v < 0 ? '−' : '') + R.money(Math.abs(v))}</b></td>`; })}</tr>
             </tbody></table></div>
-            <div class="tiny muted">One ${R.money(pv.price)} pack leaves ${R.money(b1.contrib)} after product (${R.money(pv.packCost)}), shipping and packaging (${R.money((pv.ship || 0) + (pv.pack || 0))}) and card fees (${R.money(b1.fees)}). The ad cost per sale is the price ÷ ROAS.</div>`}`
+            <div class="tiny muted">One ${R.money(pv.price)} pack leaves ${R.money(b1.contrib)} after product (${R.money(pv.packCost)}), shipping and packaging (${R.money((b1.ship || 0) + (pv.pack || 0))}${pv.shipCharge ? `, after the ${R.money(pv.shipCharge)} the customer pays` : ''}) and card fees (${R.money(b1.fees)}). The ad cost per sale is the price ÷ ROAS.</div>`}`
         : html`<div class="status warn small">Costs not set. Enter the pack price and product cost to see break-even. Nothing is guessed.</div>`}</div>
         <div class="rulerow" key="e-price"><label for="e-price">Pack price</label><input id="e-price" inputmode="decimal" value=${pe.price} onInput=${setP('price')} />${unit('$')}</div>
         <div class="rulerow" key="e-cost"><label for="e-cost">Product cost per pack</label><input id="e-cost" inputmode="decimal" value=${pe.packCost} onInput=${setP('packCost')} />${unit('$')}</div>
+        <div class="rulerow" key="e-shipc"><label for="e-shipc">Shipping the customer pays on 1 pack (blank = free shipping)</label><input id="e-shipc" inputmode="decimal" value=${pe.shipCharge} placeholder="0" onInput=${setP('shipCharge')} />${unit('$')}</div>
         <div class="rulerow" key="e-aov"><label for="e-aov">This product's average order (optional)</label><input id="e-aov" inputmode="decimal" value=${pe.aov} onInput=${setP('aov')} placeholder="—" />${unit('$')}</div>
         <div class="fsec">Shared costs · blank uses the store's</div>
         ${R.SHARED_COSTS.map(([k, l, u]) => html`<div class="rulerow" key=${'e-' + k}><label for=${'e-' + k}>${l}${pe[k] === '' ? html` <span class="tiny muted">(store)</span>` : html` <button class="link tiny" onClick=${() => setPe({ ...pe, [k]: '' })}>use store</button>`}</label><input id=${'e-' + k} inputmode="decimal" value=${pe[k]} placeholder=${st[k] || '0'} onInput=${setP(k)} />${unit(u)}</div>`)}
@@ -2256,6 +2259,8 @@ function Rules(ctx) {
         <div class="tiles"><div class="tile"><div class="k">Store break-even</div><div class="v">${sb.missing ? '—' : R.xroas(sb.roas)}</div><div class="s">${sb.missing ? 'Needs average order and product cost' : R.money(sb.cpa) + ' CPA at ' + R.money(sb.V)}</div></div></div>
         ${sb.estimated && html`<div class="status warn small"><b>Estimate.</b> Uses Crew's product cost ratio (${sb.pct.toFixed(0)}% of sales) until you enter the store's own average below.</div>`}
         <div class="rulerow"><label for="s-aov">Store average order</label><input id="s-aov" inputmode="decimal" value=${st.aov} onInput=${setS('aov')} />${unit('$')}</div>
+        <div class="rulerow"><label for="s-b2">Bundle discount, 2 packs</label><input id="s-b2" inputmode="decimal" value=${st.bundle2} onInput=${setS('bundle2')} />${unit('%')}</div>
+        <div class="rulerow"><label for="s-b3">Bundle discount, 3 packs</label><input id="s-b3" inputmode="decimal" value=${st.bundle3} onInput=${setS('bundle3')} />${unit('%')}</div>
         <div class="rulerow"><label for="s-cogs">Product cost, % of sales (all products)</label><input id="s-cogs" inputmode="decimal" value=${st.cogsPct} placeholder="not known yet" onInput=${setS('cogsPct')} />${unit('%')}</div>
         ${R.SHARED_COSTS.map(([k, l, u]) => html`<div class="rulerow"><label for=${'s-' + k}>${l}</label><input id=${'s-' + k} inputmode="decimal" value=${st[k]} onInput=${setS(k)} />${unit(u)}</div>`)}
       </section>

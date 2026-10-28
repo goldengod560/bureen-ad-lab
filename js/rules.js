@@ -23,7 +23,7 @@ export const DEFAULT_RULES = {
 // Store = the whole shop, blended. Each product has its own costs; break-even comes from one formula,
 // with the order value as the input. Shared costs (postage, packaging, fees) come from the store
 // unless the product overrides them. Testing targets live in the rules and are never called break-even.
-export const STORE_DEFAULTS = { aov: 47.54, cogsPct: null, ship: 7.6, pack: 0.6, feePct: 2.9, feeFixed: 0.3, other: 0, fixedMonthly: 84, margin: 35 }; // fixed: Shopify $39 + AOV.ai $12.79 + Trustoo $11.99 + Blockify $19.99
+export const STORE_DEFAULTS = { aov: 47.54, cogsPct: null, ship: 7.6, pack: 0.6, feePct: 2.9, feeFixed: 0.3, other: 0, fixedMonthly: 84, margin: 35, bundle2: 10, bundle3: 15 }; // fixed: Shopify $39 + AOV.ai $12.79 + Trustoo $11.99 + Blockify $19.99
 export const SHARED_COSTS = [
   ['ship', 'Postage per order', '$'], ['pack', 'Packaging per order', '$'], ['feePct', 'Card fee', '%'], ['feeFixed', 'Card fee per order', '$'], ['other', 'Other cost per order', '$'],
 ];
@@ -142,14 +142,14 @@ export const rulesOf = (p) => Object.assign({}, DEFAULT_RULES, (p && p.rules) ||
 export function econOf(p, store = STORE) {
   const raw = (p && p.economics) || {};
   const e = raw.v === 2 ? raw : p && p.kind === 'crew' ? CREW_START : {};
-  const o = { price: num(e.price), packCost: num(e.packCost), ownAov: num(e.aov), own: {} };
+  const o = { price: num(e.price), packCost: num(e.packCost), ownAov: num(e.aov), own: {}, shipCharge: num(e.shipCharge) || 0 };
   for (const [k] of SHARED_COSTS) { o.own[k] = e[k] === '' || e[k] == null ? null : num(e[k]); o[k] = o.own[k] ?? num(store[k]) ?? 0; }
   o.set = o.price > 0 && o.packCost != null;
   o.aov = o.ownAov || num(store.aov) || o.price || null; // typical order, used when an order size is needed
   // One break-even ROAS per product, used to judge every ad (so it doesn't move with each order).
   // Crew: 2.85x estimate (store average order with your bundle discounts). Others: single-pack break-even until set.
   o.opBEOwn = num(e.opBE);
-  const single = o.set ? beAt(o, o.price) : null;
+  const single = o.set ? beOrder(o, 1, 0) : null;
   o.opBE = o.opBEOwn || (p && p.kind === 'crew' ? 2.85 : single && single.roas ? Math.round(single.roas * 100) / 100 : null);
   return o;
 }
@@ -157,6 +157,17 @@ export const num = (v) => { const n = parseFloat(String(v ?? '').replace(/[$,%\s
 
 // Break-even at an order worth V. Product cost scales with order value (cost per pack ÷ pack price).
 // That is exact for 1 or 2 full-price packs and an estimate for any other order size.
+// Break-even for a real order: n packs at your bundle discount. Product cost is per pack (not scaled by price),
+// postage is paid once, and on a 1-pack order the shipping the customer pays comes off your postage.
+export function beOrder(e, packs = 1, pct = 0) {
+  if (!e || !e.set) return null;
+  const V = packs * e.price * (1 - (pct || 0) / 100);
+  const cogs = packs * e.packCost;
+  const fees = V * (e.feePct || 0) / 100 + (e.feeFixed || 0);
+  const ship = packs === 1 ? Math.max(0, (e.ship || 0) - (e.shipCharge || 0)) : (e.ship || 0);
+  const contrib = V - cogs - fees - ship - (e.pack || 0) - (e.other || 0);
+  return { V, cogs, fees, ship, contrib, cpa: contrib > 0 ? contrib : null, roas: contrib > 0 ? V / contrib : null };
+}
 export function beAt(e, V) {
   V = num(V);
   if (!e || !e.set || !V) return null;
