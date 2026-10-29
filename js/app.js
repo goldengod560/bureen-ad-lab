@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=77';
-import * as R from './rules.js?v=77';
-import { importHistory } from './importer.js?v=77';
-import { readMetaFile, rowsForAd, sumRows, normName } from './metafile.js?v=77';
+import { createBackend } from './data.js?v=78';
+import * as R from './rules.js?v=78';
+import { importHistory } from './importer.js?v=78';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=78';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2111,8 +2111,9 @@ function confetti() {
   requestAnimationFrame(step);
 }
 // Month by month toward $12k: actual profit bars against each month's target range.
-function RoadChart({ months }) {
+function RoadChart({ months: plan, before = [] }) {
   const [box, W] = useWidth(); const [hi, setHi] = useState(null);
+  const months = [...before, ...plan], nb = before.length;
   const H = 190, L = 46, Rt = 8, T = 10, B = 24, n = months.length, step = (W - L - Rt) / n;
   const max = Math.max(GOAL.profit * 1.05, ...months.map((m) => m.actual || 0));
   const minV = Math.min(0, ...months.map((m) => m.actual || 0));
@@ -2123,12 +2124,13 @@ function RoadChart({ months }) {
   return html`<div class="chart" ref=${box}>
     <svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${(e) => { const r = e.currentTarget.getBoundingClientRect(); const i = Math.floor((e.clientX - r.left - L) / step); setHi(i >= 0 && i < n ? i : null); }} onPointerLeave=${() => setHi(null)} role="img" aria-label="Monthly profit toward the goal">
       ${[0, 6000, 12000].map((v) => html`<line x1=${L} x2=${W - Rt} y1=${y(v)} y2=${y(v)} class="grid" /><text x=${L - 6} y=${y(v) + 4} class="ax" text-anchor="end">${v ? '$' + v / 1000 + 'k' : '$0'}</text>`)}
-      ${months.map((m, i) => html`<rect x=${x(i) - step * 0.42} y=${y(m.hi)} width=${step * 0.84} height=${Math.max(1, y(m.lo) - y(m.hi))} rx="3" fill="var(--line2)" opacity=${m.future ? 0.35 : 0.55} />`)}
-      ${months.map((m, i) => m.actual != null && html`<rect x=${x(i) - bw / 2} y=${Math.min(y(m.actual), y(0))} width=${bw} height=${Math.max(2, Math.abs(y(0) - y(m.actual)))} rx="3" fill=${col(m)} opacity=${hi == null || hi === i ? 1 : 0.6} />`)}
-      ${months.map((m, i) => html`<text x=${x(i)} y=${H - 6} class="ax" text-anchor="middle" style=${m.current ? 'fill:var(--ink);font-weight:600' : ''}>${MON_LONG[+m.ym.slice(5) - 1].slice(0, 3)}</text>`)}
+      ${nb > 0 && html`<line x1=${L + step * nb} x2=${L + step * nb} y1=${T} y2=${H - B} stroke="var(--line2)" stroke-dasharray="3 3" /><text x=${L + step * nb + 4} y=${T + 10} class="ax">Plan starts</text>`}
+      ${months.map((m, i) => !m.pre && html`<rect x=${x(i) - step * 0.42} y=${y(m.hi)} width=${step * 0.84} height=${Math.max(1, y(m.lo) - y(m.hi))} rx="3" fill="var(--line2)" opacity=${m.future ? 0.35 : 0.55} />`)}
+      ${months.map((m, i) => m.actual != null && html`<rect x=${x(i) - bw / 2} y=${Math.min(y(m.actual), y(0))} width=${bw} height=${Math.max(2, Math.abs(y(0) - y(m.actual)))} rx="3" fill=${m.pre ? 'var(--muted)' : col(m)} opacity=${hi == null || hi === i ? 1 : 0.6} />`)}
+      ${months.map((m, i) => (step >= 26 || i % 2 === (n - 1) % 2) && html`<text x=${x(i)} y=${H - 6} class="ax" text-anchor="middle" style=${m.current ? 'fill:var(--ink);font-weight:600' : ''}>${MON_LONG[+m.ym.slice(5) - 1].slice(0, step >= 26 ? 3 : 1)}</text>`)}
     </svg>
-    ${h && html`<div class="tip" style=${`left:${Math.min(W - 90, Math.max(90, x(hi)))}px;top:8px`}><b>${MON_LONG[+h.ym.slice(5) - 1]} ${h.ym.slice(0, 4)}</b><div>Goal ${R.money0(h.lo)}–${R.money0(h.hi)}</div>${h.actual != null ? html`<div>Profit ${R.money0(h.actual)}${h.partial ? ` (${h.days} of ${h.dim} days)` : ''}</div>` : html`<div>${h.future ? 'Not started' : 'No numbers yet'}</div>`}</div>`}
-    <div class="legend"><span><i style="background:var(--line2)"></i>Goal range</span><span><i style="background:var(--pass)"></i>Hit</span><span><i style="background:var(--mid)"></i>Close</span><span><i style="background:var(--fail)"></i>Missed</span></div>
+    ${h && html`<div class="tip" style=${`left:${Math.min(W - 90, Math.max(90, x(hi)))}px;top:8px`}><b>${MON_LONG[+h.ym.slice(5) - 1]} ${h.ym.slice(0, 4)}</b><div>${h.pre ? 'Before the plan' : `Goal ${R.money0(h.lo)}–${R.money0(h.hi)}`}</div>${h.actual != null ? html`<div>Profit ${R.money0(h.actual)}${h.partial ? ` (${h.days} of ${h.dim} days)` : ''}</div>` : html`<div>${h.future ? 'Not started' : 'No numbers yet'}</div>`}</div>`}
+    <div class="legend">${nb > 0 && html`<span><i style="background:var(--muted)"></i>Before the plan</span>`}<span><i style="background:var(--line2)"></i>Goal range</span><span><i style="background:var(--pass)"></i>Hit</span><span><i style="background:var(--mid)"></i>Close</span><span><i style="background:var(--fail)"></i>Missed</span></div>
   </div>`;
 }
 function Goal(ctx) {
@@ -2156,6 +2158,13 @@ function Goal(ctx) {
     const status = judge == null ? (future ? 'future' : actual != null && actual >= g.profit[1] ? 'crushed' : actual != null && actual >= g.profit[0] ? 'hit' : 'open') : judge >= g.profit[1] ? 'crushed' : judge >= g.profit[0] ? 'hit' : judge >= g.profit[0] * 0.8 ? 'close' : 'missed';
     return { ym, lo: g.profit[0], hi: g.profit[1], actual, partial, done, proj, status, future, current: ym === curYm, days: s0 ? s0.days : 0, dim, missing: s0 ? s0.missing : [], s: s0 };
   });
+  // Months before the plan (before Oct 2026) that have numbers: shown grey on the road chart as your baseline.
+  const firstPre = periods.length && periods[0].from < '2026-10-01' ? monthKey(periods[0].from) : null;
+  const before = [];
+  if (firstPre) for (let ym = firstPre; ym < '2026-10'; ym = monthKey(R.addDays(monthEnd(ym), 1))) {
+    const s0 = sumRange(dm, ym + '-01', monthEnd(ym)), dim = R.daysBetween(ym + '-01', monthEnd(ym)) + 1;
+    before.push({ ym, pre: true, actual: s0.days ? s0.profit : null, partial: s0.days > 0 && s0.days < dim, days: s0.days, dim, lo: 0, hi: 0 });
+  }
   const cm = months.find((m) => m.current) || { lo: stage.profit[0], hi: stage.profit[1], actual: null, days: 0, dim: 30, missing: [] };
   const dimNow = cm.dim, elapsed = R.daysBetween(curYm + '-01', y) + 1;
   const paceLo = cm.lo * elapsed / dimNow;
@@ -2222,7 +2231,8 @@ function Goal(ctx) {
       <div class="small muted">${cm.actual == null ? 'Add numbers for this month to see your progress.' : hitNow ? `${crushNow ? 'Past your stretch goal' : 'Goal reached'} with ${dimNow - elapsed} day${dimNow - elapsed === 1 ? '' : 's'} left.` : `By today you'd want about ${R.money0(paceLo)}. At this pace the month ends near ${R.money0(cm.proj)}.`}${cm.actual != null && cm.days < elapsed ? ` Counted ${cm.days} of ${elapsed} days so far.` : ''}${lastMonth ? ` Last month (${MON_LONG[+lastMonth.ym.slice(5) - 1]}): ${R.money0(lastMonth.actual)}${lastMonth.status === 'hit' || lastMonth.status === 'crushed' ? ', goal hit.' : '.'}` : ''}${cm.actual != null && provisional(curYm) ? ' Product cost is still an estimate until the Sada bill at month end.' : ''}</div>
     </section>
     <section class="panel"><div class="row"><h2 style="margin:0">Road to $12,000 a month</h2><span class="spacer"></span><span class="tiny muted">Sep 2027</span></div>
-      <${RoadChart} months=${months} />
+      <${RoadChart} months=${months} before=${before} />
+      ${!before.length && html`<div class="tiny muted">Want your months before October as a baseline? <button class="link tiny" onClick=${() => setModal({ type: PastMonthsForm, props: {} })}>Add past months</button></div>`}
       <div class="stages">${STAGES_GOAL.map((g) => html`<div class=${g === stage ? 'on' : ''}><b>${g.name}</b>${g.months}<br/>${R.money0(g.profit[0])}–${R.money0(g.profit[1])}/mo</div>`)}</div>
     </section>
     <div class="grid2">
@@ -2238,7 +2248,7 @@ function Goal(ctx) {
           ${items.length > 3 && html`<button class="link small" style="align-self:flex-start" onClick=${() => setMoreChecks(!moreChecks)}>${moreChecks ? 'Show less' : `Show ${items.length - 3} more`}</button>`}` : html`<div class="status good small">Nothing needs attention right now.</div>`}
       </section>
     </div>
-    <section class="panel"><div class="row"><h2 style="margin:0">Your numbers</h2><span class="spacer"></span><button class="btn sm" onClick=${editFixed}>Apps ${R.money(fixed)}/mo</button><button class="btn sm" onClick=${() => setModal({ type: StockForm, props: {} })}>Log a stock order</button><button class="link small" onClick=${() => setShowNums(!showNums)}>${showNums ? 'Hide' : `Show all (${periods.length})`}</button></div>
+    <section class="panel"><div class="row"><h2 style="margin:0">Your numbers</h2><span class="spacer"></span><button class="btn sm" onClick=${() => setModal({ type: PastMonthsForm, props: {} })}>Past months</button><button class="btn sm" onClick=${editFixed}>Apps ${R.money(fixed)}/mo</button><button class="btn sm" onClick=${() => setModal({ type: StockForm, props: {} })}>Log a stock order</button><button class="link small" onClick=${() => setShowNums(!showNums)}>${showNums ? 'Hide' : `Show all (${periods.length})`}</button></div>
       <div class="tiny muted">Profit = online sales (ads, organic, email) minus product, shipping, fees, ads, returns, other costs and fixed costs (${R.money0(fixed)}/month). Family pay isn't subtracted. <button class="link tiny" onClick=${editFixed}>Edit apps list</button></div>
       ${showNums && (periods.length ? html`<div class="tscroll"><table class="t"><thead><tr><th>Dates</th><th>Revenue</th><th>Ad spend</th><th>Blended</th><th>Orders</th><th>Profit</th><th></th></tr></thead><tbody>
         ${periods.slice().reverse().map((x) => { const pr = periodProfit(x, st); return html`<tr><td class="mono">${R.shortDate(x.from)} to ${R.shortDate(x.to)}</td><td>${R.money0(x.rev)}<br/><span class="tiny muted">${x.revType === 'net' ? 'Shopify net' : 'Triple Whale'}</span></td><td>${R.money0(x.spend)}</td><td>${x.spend ? R.xroas(x.rev / x.spend) : '—'}</td><td>${x.orders || '—'}</td><td>${R.money0(pr.value)}<br/><span class="tiny muted">${pr.how === 'exact' ? 'exact' : pr.how === 'full' ? (x.costFinal ? 'final' : 'cost not final yet') : pr.how === 'mixed' ? 'some costs estimated' : pr.how === 'tw' ? 'Triple Whale' : 'estimate'}</span></td><td><button class="link small" onClick=${() => setModal({ type: PeriodForm, props: { id: x.id } })}>Edit</button></td></tr>`; })}</tbody></table></div>` : html`<div class="empty">No numbers yet.</div>`)}
@@ -2343,6 +2353,78 @@ function PeriodForm(ctx) {
     </div>
     <div class="row"><button class="btn primary" onClick=${save}>Save</button><button class="btn ghost" onClick=${close}>Cancel</button><span class="spacer"></span>${ex && html`<button class="link small" style="color:var(--fail)" onClick=${del}>Delete</button>`}</div>
   <//>`;
+}
+// Past months in one go: one row per month, 4 numbers each (or read from a Shopify report). Costs are estimated.
+function shopifyMonths(rows) {
+  const hi = rows.findIndex((r) => r.some((c) => /net sales/i.test(String(c))));
+  if (hi < 0) return null;
+  const head = rows[hi].map((c) => String(c).trim().toLowerCase());
+  const col = (re) => head.findIndex((h) => re.test(h));
+  const cD = col(/^(month|day|date|week|order date|month of)/), cN = col(/^net sales/), cS = col(/^shipping( charges)?$/), cO = col(/^orders$/);
+  if (cD < 0 || cN < 0) return null;
+  const num = (v) => { if (typeof v === 'number') return v; const s = String(v).replace(/[$,\s]/g, ''); const neg = /^\(.*\)$/.test(s); const n = parseFloat(s.replace(/[()]/g, '')); return isNaN(n) ? 0 : neg ? -n : n; };
+  const ymOf = (v) => {
+    if (v instanceof Date) return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}`;
+    const s = String(v).trim(); let m = s.match(/^(\d{4})-(\d{1,2})/); if (m) return `${m[1]}-${m[2].padStart(2, '0')}`;
+    m = s.match(/^(\d{1,2})\/\d{1,2}\/(\d{4})/); if (m) return `${m[2]}-${m[1].padStart(2, '0')}`;
+    m = s.match(/([A-Za-z]{3})[a-z]*\.?\s+(?:\d{1,2},?\s+)?(\d{4})/); if (m) { const i = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].indexOf(m[1].toLowerCase()); if (i >= 0) return `${m[2]}-${String(i + 1).padStart(2, '0')}`; }
+    return null;
+  };
+  const out = {};
+  for (const r of rows.slice(hi + 1)) { const ym = ymOf(r[cD]); if (!ym) continue; const o = out[ym] || (out[ym] = { rev: 0, shipIn: 0, orders: 0 }); o.rev += num(r[cN]); if (cS >= 0) o.shipIn += num(r[cS]); if (cO >= 0) o.orders += num(r[cO]); }
+  return out;
+}
+function PastMonthsForm(ctx) {
+  const { data, close, reload, say } = ctx;
+  goalCE = R.econOf(data.products.find((p) => p.kind === 'crew') || data.products[0]);
+  const periods = goalPeriods(data);
+  const metaFirst = (data.meta_days || []).reduce((a, r) => (r.day < a ? r.day : a), '9999');
+  const start0 = periods.length && periods[0].from < '2026-10-01' ? periods[0].from.slice(0, 7) : metaFirst < '2026-10' ? metaFirst.slice(0, 7) : '2026-01';
+  const [first, setFirst] = useState(start0);
+  const yms = []; for (let ym = first; ym <= '2026-09'; ym = monthKey(R.addDays(monthEnd(ym), 1))) yms.push(ym);
+  const metaMonth = (ym) => sumRows((data.meta_days || []).filter((r) => r.day >= ym + '-01' && r.day <= monthEnd(ym))).spend;
+  const exFor = (ym) => periods.find((x) => x.from === ym + '-01' && x.to === monthEnd(ym));
+  const [rows, setRows] = useState(() => { const o = {}; for (let ym = '2025-01'; ym <= '2026-09'; ym = monthKey(R.addDays(monthEnd(ym), 1))) { const e = exFor(ym), ms = metaMonth(ym); o[ym] = { rev: e ? String(e.rev) : '', shipIn: e && e.shipIn != null ? String(e.shipIn) : '', orders: e && e.orders ? String(e.orders) : '', spend: e ? String(e.spend) : ms ? String(Math.round(ms * 100) / 100) : '' }; } return o; });
+  const [busy, setBusy] = useState(false);
+  const set = (ym, k) => (e) => setRows({ ...rows, [ym]: { ...rows[ym], [k]: e.target.value } });
+  const upload = async (e) => {
+    const file = e.target.files[0]; e.target.value = ''; if (!file) return;
+    try {
+      const got = shopifyMonths(await readTable(file));
+      if (!got || !Object.keys(got).length) { say("Couldn't find months and Net sales in that file."); return; }
+      const next = { ...rows }; let n = 0;
+      for (const [ym, v] of Object.entries(got)) { if (!next[ym]) continue; next[ym] = { ...next[ym], rev: String(Math.round(v.rev * 100) / 100), shipIn: v.shipIn ? String(Math.round(v.shipIn * 100) / 100) : next[ym].shipIn, orders: v.orders ? String(v.orders) : next[ym].orders }; n++; }
+      const firstGot = Object.keys(got).filter((k) => next[k]).sort()[0]; if (firstGot && firstGot < first) setFirst(firstGot);
+      setRows(next); say(`Filled ${n} month${n === 1 ? '' : 's'} from the report`);
+    } catch (err) { say(err.message || 'Could not read that file.'); }
+  };
+  const save = async () => {
+    const todo = yms.filter((ym) => R.num(rows[ym].rev));
+    if (!todo.length) { say('Add net sales for at least one month.'); return; }
+    setBusy(true);
+    try {
+      for (const ym of todo) {
+        const r = rows[ym], from = ym + '-01', to = monthEnd(ym), days = R.daysBetween(from, to) + 1, opt = (k) => (r[k] === '' ? null : R.num(r[k]));
+        for (const x of periods.filter((x) => x.from >= from && x.to <= to)) await be_.remove('learnings', x.id);
+        const text = JSON.stringify({ from, rev: R.num(r.rev) || 0, revType: 'net', spend: R.num(r.spend) || 0, orders: R.num(r.orders) || 0, other: 0, exact: null, shipIn: opt('shipIn'), fixedCost: Math.round(appsFor(days) * 100) / 100, costFinal: true, past: true });
+        await be_.insert('learnings', { kind: 'period', day: to, text, source: 'Shopify' });
+      }
+      await reload(); close(); say(`Saved ${todo.length} month${todo.length === 1 ? '' : 's'}`);
+    } finally { setBusy(false); }
+  };
+  const starts = []; for (let ym = '2025-01'; ym <= '2026-09'; ym = monthKey(R.addDays(monthEnd(ym), 1))) starts.push(ym);
+  const mname = (ym) => `${MON_LONG[+ym.slice(5) - 1].slice(0, 3)} ${ym.slice(0, 4)}`;
+  return html`<${Modal} title="Past months" sub="Your months before the plan, as a baseline. Shown grey on the road chart." onClose=${close}>
+    <div class="stack" style="gap:8px">
+      <div class="status live small"><b>Fastest way:</b> Shopify → Analytics → Reports → <b>Sales over time</b> (or Finance summary). Set the dates from your first month to Sep 30, group by <b>Month</b>, Export, then upload it here. Ad spend fills in from your Meta files where they reach back.</div>
+      <div class="row" style="gap:8px;flex-wrap:wrap"><label class="btn sm">Upload Shopify report<input type="file" accept=".csv,.xlsx,.xls" style="display:none" onChange=${upload} /></label>
+        <span class="spacer"></span><span class="tiny muted">Start from</span><select value=${first} onChange=${(e) => setFirst(e.target.value)}>${starts.map((ym) => html`<option value=${ym}>${mname(ym)}</option>`)}</select></div>
+      <div class="tscroll"><table class="t"><thead><tr><th>Month</th><th>Net sales</th><th>Shipping charges</th><th>Orders</th><th>Ad spend</th></tr></thead><tbody>
+        ${yms.map((ym) => html`<tr key=${ym}><td class="mono">${mname(ym)}</td>${['rev', 'shipIn', 'orders', 'spend'].map((k) => html`<td><input class="inp" style="width:100%;min-width:80px" inputmode="decimal" value=${rows[ym][k]} onInput=${set(ym, k)} placeholder=${k === 'orders' ? '#' : '$'} /></td>`)}</tr>`)}
+      </tbody></table></div>
+      <div class="tiny muted">Product cost, labels, packaging and fees are estimated from orders (product cost from Shopify's cost ratio). Good enough for a baseline. Months left without net sales are skipped. Saving a month replaces what you already had for it.</div>
+    </div>
+    <div class="row"><button class="btn primary" disabled=${busy} onClick=${save}>${busy ? 'Saving…' : 'Save months'}</button><button class="btn ghost" onClick=${close}>Cancel</button></div><//>`;
 }
 // Monthly apps and subscriptions. Pretty stable, so you set them once and change the list when something changes.
 const APPS_DEFAULT = [['Shopify plan', 39], ['AOV.ai', 12.79], ['Trustoo', 11.99], ['Blockify', 19.99]];
