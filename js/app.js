@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=82';
-import * as R from './rules.js?v=82';
-import { importHistory } from './importer.js?v=82';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=82';
+import { createBackend } from './data.js?v=83';
+import * as R from './rules.js?v=83';
+import { importHistory } from './importer.js?v=83';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=83';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2127,10 +2127,12 @@ function RoadChart({ months: plan, before = [] }) {
       ${nb > 0 && html`<line x1=${L + step * nb} x2=${L + step * nb} y1=${T} y2=${H - B} stroke="var(--line2)" stroke-dasharray="3 3" /><text x=${L + step * nb + 4} y=${T + 10} class="ax">Plan starts</text>`}
       ${months.map((m, i) => !m.pre && html`<rect x=${x(i) - step * 0.42} y=${y(m.hi)} width=${step * 0.84} height=${Math.max(1, y(m.lo) - y(m.hi))} rx="3" fill="var(--line2)" opacity=${m.future ? 0.35 : 0.55} />`)}
       ${months.map((m, i) => m.actual != null && html`<rect x=${x(i) - bw / 2} y=${Math.min(y(m.actual), y(0))} width=${bw} height=${Math.max(2, Math.abs(y(0) - y(m.actual)))} rx="3" fill=${m.pre ? 'var(--muted)' : col(m)} opacity=${hi == null || hi === i ? 1 : 0.6} />`)}
-      ${months.map((m, i) => (step >= 26 || i % 2 === (n - 1) % 2) && html`<text x=${x(i)} y=${H - 6} class="ax" text-anchor="middle" style=${m.current ? 'fill:var(--ink);font-weight:600' : ''}>${m.block ? m.label : MON_LONG[+m.ym.slice(5) - 1].slice(0, step >= 26 ? 3 : 1)}${m.actual != null && m.est && m.est.length ? '*' : ''}</text>`)}
+      ${months.map((m, i) => (step >= 26 || i % 2 === (n - 1) % 2) && html`<text x=${x(i)} y=${H - 6} class="ax" text-anchor="middle" style=${m.current ? 'fill:var(--ink);font-weight:600' : ''}>${m.block ? m.label : MON_LONG[+m.ym.slice(5) - 1].slice(0, step >= 26 ? 3 : 1)}</text>`)}
     </svg>
-    ${h && html`<div class="tip" style=${`left:${Math.min(W - 160, Math.max(160, x(hi)))}px;top:8px;max-width:300px`}><b>${h.block ? h.title : `${MON_LONG[+h.ym.slice(5) - 1]} ${h.ym.slice(0, 4)}`}</b><div>${h.pre ? 'Before the plan' : `Goal ${R.money0(h.lo)}–${R.money0(h.hi)}`}</div>${h.block ? html`<div>Profit ${R.money0(h.total)} total, about ${R.money0(h.actual)} a month</div>` : h.actual != null ? html`<div>Profit ${R.money0(h.actual)}${h.partial ? ` (${h.days} of ${h.dim} days)` : ''}</div>` : html`<div>${h.future ? 'Not started' : 'No numbers yet'}</div>`}${h.actual != null && h.est && h.est.length ? html`<div class="tiny" style="color:var(--mid)">* Estimated: ${h.est.join(', ')}</div>` : ''}</div>`}
-    <div class="legend">${nb > 0 && html`<span><i style="background:var(--muted)"></i>Before the plan</span>`}<span><i style="background:var(--line2)"></i>Goal range</span><span><i style="background:var(--pass)"></i>Hit</span><span><i style="background:var(--mid)"></i>Close</span><span><i style="background:var(--fail)"></i>Missed</span>${months.some((m) => m.actual != null && m.est && m.est.length) && html`<span>* = some costs estimated (hover to see which)</span>`}</div>
+    ${h && html`<div class="tip" style=${`left:${Math.min(W - 160, Math.max(160, x(hi)))}px;top:8px;max-width:300px`}><b>${h.block ? h.title : `${MON_LONG[+h.ym.slice(5) - 1]} ${h.ym.slice(0, 4)}`}</b><div>${h.pre ? 'Before the plan' : `Goal ${R.money0(h.lo)}–${R.money0(h.hi)}`}</div>${h.block ? html`<div>Profit ${R.money0(h.total)} total, about ${R.money0(h.actual)} a month</div>` : h.actual != null ? html`<div>Profit ${R.money0(h.actual)}${h.partial ? ` (${h.days} of ${h.dim} days)` : ''}</div>` : html`<div>${h.future ? 'Not started' : 'No numbers yet'}</div>`}${h.actual != null && h.est && h.est.length ? html`<div class="tiny muted">Estimated: ${h.est.join(', ')}</div>` : ''}</div>`}
+    <div class="legend">${nb > 0 && html`<span><i style="background:var(--muted)"></i>Before the plan</span>`}<span><i style="background:var(--line2)"></i>Goal range</span><span><i style="background:var(--pass)"></i>Hit</span><span><i style="background:var(--mid)"></i>Close</span><span><i style="background:var(--fail)"></i>Missed</span></div>
+    ${(() => { const e = months.filter((m) => m.actual != null && m.est && m.est.length); if (!e.length) return null; const allPre = e.every((m) => m.pre);
+      return html`<div class="tiny muted">${allPre ? 'Months before the plan are estimated profit' : 'Some months are estimated profit'}: not every cost was entered. Hover a bar to see which.</div>`; })()}
   </div>`;
 }
 function Goal(ctx) {
