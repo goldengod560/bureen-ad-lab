@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=79';
-import * as R from './rules.js?v=79';
-import { importHistory } from './importer.js?v=79';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=79';
+import { createBackend } from './data.js?v=81';
+import * as R from './rules.js?v=81';
+import { importHistory } from './importer.js?v=81';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=81';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2361,6 +2361,7 @@ function shopifyMonths(rows) {
   const head = rows[hi].map((c) => String(c).trim().toLowerCase());
   const col = (re) => head.findIndex((h) => re.test(h));
   const cD = col(/^(month|day|date|week|order date|month of)/), cN = col(/^net sales/), cS = col(/^shipping( charges)?$/), cO = col(/^orders$/);
+  const cR = col(/^return fees/), cC = col(/^(cost of goods sold|cost of goods|product cost|cost)$/), cL = col(/shipping labels?/), cF = col(/(payment|transaction|processing) fees/);
   if (cD < 0 || cN < 0) return null;
   const num = (v) => { if (typeof v === 'number') return v; const s = String(v).replace(/[$,\s]/g, ''); const neg = /^\(.*\)$/.test(s); const n = parseFloat(s.replace(/[()]/g, '')); return isNaN(n) ? 0 : neg ? -n : n; };
   const ymOf = (v) => {
@@ -2371,9 +2372,11 @@ function shopifyMonths(rows) {
     return null;
   };
   const out = {};
-  for (const r of rows.slice(hi + 1)) { const ym = ymOf(r[cD]); if (!ym) continue; const o = out[ym] || (out[ym] = { rev: 0, shipIn: 0, orders: 0 }); o.rev += num(r[cN]); if (cS >= 0) o.shipIn += num(r[cS]); if (cO >= 0) o.orders += num(r[cO]); }
+  for (const r of rows.slice(hi + 1)) { const ym = ymOf(r[cD]); if (!ym) continue; const o = out[ym] || (out[ym] = { rev: 0, shipIn: 0, orders: 0 }); o.rev += num(r[cN]); if (cS >= 0) o.shipIn += num(r[cS]); if (cO >= 0) o.orders += num(r[cO]);
+    for (const [c, k] of [[cR, 'retFees'], [cC, 'cogs'], [cL, 'labels'], [cF, 'fees']]) if (c >= 0) o[k] = (o[k] || 0) + Math.abs(num(r[c])); }
   return out;
 }
+const COST_KEYS = [['cogs', 'Product cost'], ['labels', 'Shipping labels'], ['fees', 'Payment fees']];
 function PastMonthsForm(ctx) {
   const { data, close, reload, say } = ctx;
   goalCE = R.econOf(data.products.find((p) => p.kind === 'crew') || data.products[0]);
@@ -2384,8 +2387,9 @@ function PastMonthsForm(ctx) {
   const yms = []; for (let ym = first; ym <= '2026-09'; ym = monthKey(R.addDays(monthEnd(ym), 1))) yms.push(ym);
   const metaMonth = (ym) => sumRows((data.meta_days || []).filter((r) => r.day >= ym + '-01' && r.day <= monthEnd(ym))).spend;
   const exFor = (ym) => periods.find((x) => x.from === ym + '-01' && x.to === monthEnd(ym));
-  const [rows, setRows] = useState(() => { const o = {}; for (let ym = '2025-01'; ym <= '2026-09'; ym = monthKey(R.addDays(monthEnd(ym), 1))) { const e = exFor(ym), ms = metaMonth(ym); o[ym] = { rev: e ? String(e.rev) : '', shipIn: e && e.shipIn != null ? String(e.shipIn) : '', orders: e && e.orders ? String(e.orders) : '', spend: e ? String(e.spend) : ms ? String(Math.round(ms * 100) / 100) : '' }; } return o; });
+  const [rows, setRows] = useState(() => { const o = {}; for (let ym = '2025-01'; ym <= '2026-09'; ym = monthKey(R.addDays(monthEnd(ym), 1))) { const e = exFor(ym), ms = metaMonth(ym); o[ym] = { rev: e ? String(e.rev) : '', shipIn: e && e.shipIn != null ? String(e.shipIn) : '', orders: e && e.orders ? String(e.orders) : '', spend: e ? String(e.spend) : ms ? String(Math.round(ms * 100) / 100) : '', ...Object.fromEntries([...COST_KEYS, ['retFees']].map(([k]) => [k, e && e[k] != null ? String(e[k]) : ''])) }; } return o; });
   const [busy, setBusy] = useState(false);
+  const [costs, setCosts] = useState(true);
   const set = (ym, k) => (e) => setRows({ ...rows, [ym]: { ...rows[ym], [k]: e.target.value } });
   const upload = async (e) => {
     const file = e.target.files[0]; e.target.value = ''; if (!file) return;
@@ -2393,14 +2397,15 @@ function PastMonthsForm(ctx) {
       const got = shopifyMonths(await readTable(file));
       if (!got || !Object.keys(got).length) { say("Couldn't find months and Net sales in that file."); return; }
       const next = { ...rows }; let n = 0;
-      for (const [ym, v] of Object.entries(got)) { if (!next[ym]) continue; next[ym] = { ...next[ym], rev: String(Math.round(v.rev * 100) / 100), shipIn: v.shipIn ? String(Math.round(v.shipIn * 100) / 100) : next[ym].shipIn, orders: v.orders ? String(v.orders) : next[ym].orders }; n++; }
+      for (const [ym, v] of Object.entries(got)) { if (!next[ym]) continue; next[ym] = { ...next[ym], rev: String(Math.round(v.rev * 100) / 100), shipIn: v.shipIn ? String(Math.round(v.shipIn * 100) / 100) : next[ym].shipIn, orders: v.orders ? String(v.orders) : next[ym].orders,
+        ...Object.fromEntries([...COST_KEYS, ['retFees']].filter(([k]) => v[k]).map(([k]) => [k, String(Math.round(v[k] * 100) / 100)])) }; n++; }
       const firstGot = Object.keys(got).filter((k) => next[k]).sort()[0]; if (firstGot && firstGot < first) setFirst(firstGot);
       setRows(next); say(`Filled ${n} month${n === 1 ? '' : 's'} from the report`);
     } catch (err) { say(err.message || 'Could not read that file.'); }
   };
   const save = async () => {
     // Months you already entered stay as they are (with all their detail) unless you changed a number here.
-    const changed = (ym) => { const e = exFor(ym); if (!e) return true; const r = rows[ym]; return R.num(r.rev) !== e.rev || (R.num(r.spend) || 0) !== e.spend || (R.num(r.orders) || 0) !== e.orders || (r.shipIn === '' ? null : R.num(r.shipIn)) !== e.shipIn; };
+    const changed = (ym) => { const e = exFor(ym); if (!e) return true; const r = rows[ym]; return R.num(r.rev) !== e.rev || (R.num(r.spend) || 0) !== e.spend || (R.num(r.orders) || 0) !== e.orders || ['shipIn', 'retFees', ...COST_KEYS.map(([k]) => k)].some((k) => (r[k] === '' ? null : R.num(r[k])) !== e[k]); };
     const todo = yms.filter((ym) => R.num(rows[ym].rev) && changed(ym));
     if (!todo.length) { say(yms.some((ym) => exFor(ym)) ? 'Nothing new to save.' : 'Add net sales for at least one month.'); return; }
     setBusy(true);
@@ -2408,7 +2413,7 @@ function PastMonthsForm(ctx) {
       for (const ym of todo) {
         const r = rows[ym], from = ym + '-01', to = monthEnd(ym), days = R.daysBetween(from, to) + 1, opt = (k) => (r[k] === '' ? null : R.num(r[k]));
         for (const x of periods.filter((x) => x.from >= from && x.to <= to)) await be_.remove('learnings', x.id);
-        const text = JSON.stringify({ from, rev: R.num(r.rev) || 0, revType: 'net', spend: R.num(r.spend) || 0, orders: R.num(r.orders) || 0, other: 0, exact: null, shipIn: opt('shipIn'), fixedCost: Math.round(appsFor(days) * 100) / 100, costFinal: true, past: true });
+        const text = JSON.stringify({ from, rev: R.num(r.rev) || 0, revType: 'net', spend: R.num(r.spend) || 0, orders: R.num(r.orders) || 0, other: 0, exact: null, shipIn: opt('shipIn'), retFees: opt('retFees'), cogs: opt('cogs'), labels: opt('labels'), fees: opt('fees'), fixedCost: Math.round(appsFor(days) * 100) / 100, costFinal: true, past: true });
         await be_.insert('learnings', { kind: 'period', day: to, text, source: 'Shopify' });
       }
       await reload(); close(); say(`Saved ${todo.length} month${todo.length === 1 ? '' : 's'}`);
@@ -2416,15 +2421,16 @@ function PastMonthsForm(ctx) {
   };
   const starts = []; for (let ym = '2025-01'; ym <= '2026-09'; ym = monthKey(R.addDays(monthEnd(ym), 1))) starts.push(ym);
   const mname = (ym) => `${MON_LONG[+ym.slice(5) - 1].slice(0, 3)} ${ym.slice(0, 4)}`;
-  return html`<${Modal} title="Past months" sub="Your months before the plan, as a baseline. Shown grey on the road chart." onClose=${close}>
+  return html`<${Modal} wide title="Past months" sub="Your months before the plan, as a baseline. Shown grey on the road chart." onClose=${close}>
     <div class="stack" style="gap:8px">
-      <div class="status live small"><b>Fastest way:</b> Shopify → Analytics → Reports → <b>Sales over time</b> (or Finance summary). Set the dates from your first month to Sep 30, group by <b>Month</b>, Export, then upload it here. Ad spend fills in from your Meta files where they reach back.</div>
+      <div class="status live small"><b>Fastest way:</b> Shopify → Analytics → Reports → <b>Sales over time</b> (or Finance summary). Set the dates from your first month to Sep 30, group by <b>Month</b>, Export, then upload it here. Ad spend fills in from your Meta files where they reach back.<br/><b>Costs:</b> Finance summary by month has Return fees (money customers paid you) and, if your products have costs set, Cost of goods sold. Shipping labels: Settings → Billing → Bills (labels per month). Payment fees: Finance → Payouts.</div>
       <div class="row" style="gap:8px;flex-wrap:wrap"><label class="btn sm">Upload Shopify report<input type="file" accept=".csv,.xlsx,.xls" style="display:none" onChange=${upload} /></label>
         <span class="spacer"></span><span class="tiny muted">Start from</span><select value=${first} onChange=${(e) => setFirst(e.target.value)}>${starts.map((ym) => html`<option value=${ym}>${mname(ym)}</option>`)}</select></div>
-      <div class="tscroll"><table class="t"><thead><tr><th>Month</th><th>Net sales</th><th>Shipping charges</th><th>Orders</th><th>Ad spend</th></tr></thead><tbody>
-        ${yms.map((ym) => html`<tr key=${ym}><td class="mono">${mname(ym)}${exFor(ym) && html`<div class="tiny muted">saved</div>`}</td>${['rev', 'shipIn', 'orders', 'spend'].map((k) => html`<td><input class="inp" style="width:100%;min-width:80px" inputmode="decimal" value=${rows[ym][k]} onInput=${set(ym, k)} placeholder=${k === 'orders' ? '#' : '$'} /></td>`)}</tr>`)}
+      <div class="tscroll"><table class="t"><thead><tr><th>Month</th><th>Net sales</th><th>Shipping charges</th><th>Return fees</th><th>Orders</th><th>Ad spend</th>${costs && COST_KEYS.map(([, l]) => html`<th>${l}</th>`)}</tr></thead><tbody>
+        ${yms.map((ym) => html`<tr key=${ym}><td class="mono">${mname(ym)}${exFor(ym) && html`<div class="tiny muted">saved</div>`}</td>${['rev', 'shipIn', 'retFees', 'orders', 'spend', ...(costs ? COST_KEYS.map(([k]) => k) : [])].map((k) => html`<td><input class="inp" style="width:100%;min-width:74px" inputmode="decimal" value=${rows[ym][k]} onInput=${set(ym, k)} placeholder=${k === 'orders' ? '#' : COST_KEYS.some(([c]) => c === k) ? 'est.' : '$'} /></td>`)}</tr>`)}
       </tbody></table></div>
-      <div class="tiny muted">Product cost, labels, packaging and fees are estimated from orders (product cost from Shopify's cost ratio). Good enough for a baseline. Months left without net sales are skipped. Months marked saved keep their full detail unless you change a number here.</div>
+      <div class="row tiny" style="gap:8px"><label class="chk" style="margin:0"><input type="checkbox" checked=${costs} onChange=${(e) => setCosts(e.target.checked)} /> Show cost columns</label></div>
+      <div class="tiny muted">Cost columns are optional: any left blank (est.) is estimated. Product cost and shipping labels move profit the most, so fill those if you can. Payment fees (2.9% + 30¢) and packaging ($ per order from Rules) estimate closely. Months left without net sales are skipped. Months marked saved keep their full detail unless you change a number here.</div>
     </div>
     <div class="row"><button class="btn primary" disabled=${busy} onClick=${save}>${busy ? 'Saving…' : 'Save months'}</button><button class="btn ghost" onClick=${close}>Cancel</button></div><//>`;
 }
