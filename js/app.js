@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=81';
-import * as R from './rules.js?v=81';
-import { importHistory } from './importer.js?v=81';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=81';
+import { createBackend } from './data.js?v=82';
+import * as R from './rules.js?v=82';
+import { importHistory } from './importer.js?v=82';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=82';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2080,14 +2080,14 @@ function periodProfit(x, st, ce = goalCE) {
 function dayMap(periods, st) {
   const m = new Map();
   for (const x of periods) {
-    const pr = periodProfit(x, st), per = { profit: pr.value / x.days, before: pr.before / x.days, rev: x.rev / x.days, spend: x.spend / x.days, orders: x.orders / x.days, how: pr.how, len: x.days, created: x.created };
+    const pr = periodProfit(x, st), per = { profit: pr.value / x.days, before: pr.before / x.days, rev: x.rev / x.days, spend: x.spend / x.days, orders: x.orders / x.days, how: pr.how, est: pr.how === 'est' && !pr.est.length ? ['profit (from your margin)'] : pr.est, len: x.days, created: x.created };
     for (let k = 0; k < x.days; k++) { const d = R.addDays(x.from, k), cur = m.get(d); if (!cur || per.created >= cur.created) m.set(d, per); }
   }
   return m;
 }
 function sumRange(m, a, b) {
-  const o = { profit: 0, before: 0, rev: 0, spend: 0, orders: 0, days: 0, measured: 0, missing: [] };
-  for (let d = a; d <= b; d = R.addDays(d, 1)) { const v = m.get(d); if (!v) { o.missing.push(d); continue; } o.profit += v.profit; o.before += v.before; o.rev += v.rev; o.spend += v.spend; o.orders += v.orders; o.days++; if (v.how !== 'est') o.measured++; }
+  const o = { profit: 0, before: 0, rev: 0, spend: 0, orders: 0, days: 0, measured: 0, missing: [], est: new Set() };
+  for (let d = a; d <= b; d = R.addDays(d, 1)) { const v = m.get(d); if (!v) { o.missing.push(d); continue; } o.profit += v.profit; o.before += v.before; o.rev += v.rev; o.spend += v.spend; o.orders += v.orders; o.days++; for (const e of v.est || []) o.est.add(e); if (v.how !== 'est') o.measured++; }
   return o;
 }
 const monthKey = (d) => d.slice(0, 7);
@@ -2127,10 +2127,10 @@ function RoadChart({ months: plan, before = [] }) {
       ${nb > 0 && html`<line x1=${L + step * nb} x2=${L + step * nb} y1=${T} y2=${H - B} stroke="var(--line2)" stroke-dasharray="3 3" /><text x=${L + step * nb + 4} y=${T + 10} class="ax">Plan starts</text>`}
       ${months.map((m, i) => !m.pre && html`<rect x=${x(i) - step * 0.42} y=${y(m.hi)} width=${step * 0.84} height=${Math.max(1, y(m.lo) - y(m.hi))} rx="3" fill="var(--line2)" opacity=${m.future ? 0.35 : 0.55} />`)}
       ${months.map((m, i) => m.actual != null && html`<rect x=${x(i) - bw / 2} y=${Math.min(y(m.actual), y(0))} width=${bw} height=${Math.max(2, Math.abs(y(0) - y(m.actual)))} rx="3" fill=${m.pre ? 'var(--muted)' : col(m)} opacity=${hi == null || hi === i ? 1 : 0.6} />`)}
-      ${months.map((m, i) => (step >= 26 || i % 2 === (n - 1) % 2) && html`<text x=${x(i)} y=${H - 6} class="ax" text-anchor="middle" style=${m.current ? 'fill:var(--ink);font-weight:600' : ''}>${MON_LONG[+m.ym.slice(5) - 1].slice(0, step >= 26 ? 3 : 1)}</text>`)}
+      ${months.map((m, i) => (step >= 26 || i % 2 === (n - 1) % 2) && html`<text x=${x(i)} y=${H - 6} class="ax" text-anchor="middle" style=${m.current ? 'fill:var(--ink);font-weight:600' : ''}>${m.block ? m.label : MON_LONG[+m.ym.slice(5) - 1].slice(0, step >= 26 ? 3 : 1)}${m.actual != null && m.est && m.est.length ? '*' : ''}</text>`)}
     </svg>
-    ${h && html`<div class="tip" style=${`left:${Math.min(W - 90, Math.max(90, x(hi)))}px;top:8px`}><b>${MON_LONG[+h.ym.slice(5) - 1]} ${h.ym.slice(0, 4)}</b><div>${h.pre ? 'Before the plan' : `Goal ${R.money0(h.lo)}–${R.money0(h.hi)}`}</div>${h.actual != null ? html`<div>Profit ${R.money0(h.actual)}${h.partial ? ` (${h.days} of ${h.dim} days)` : ''}</div>` : html`<div>${h.future ? 'Not started' : 'No numbers yet'}</div>`}</div>`}
-    <div class="legend">${nb > 0 && html`<span><i style="background:var(--muted)"></i>Before the plan</span>`}<span><i style="background:var(--line2)"></i>Goal range</span><span><i style="background:var(--pass)"></i>Hit</span><span><i style="background:var(--mid)"></i>Close</span><span><i style="background:var(--fail)"></i>Missed</span></div>
+    ${h && html`<div class="tip" style=${`left:${Math.min(W - 160, Math.max(160, x(hi)))}px;top:8px;max-width:300px`}><b>${h.block ? h.title : `${MON_LONG[+h.ym.slice(5) - 1]} ${h.ym.slice(0, 4)}`}</b><div>${h.pre ? 'Before the plan' : `Goal ${R.money0(h.lo)}–${R.money0(h.hi)}`}</div>${h.block ? html`<div>Profit ${R.money0(h.total)} total, about ${R.money0(h.actual)} a month</div>` : h.actual != null ? html`<div>Profit ${R.money0(h.actual)}${h.partial ? ` (${h.days} of ${h.dim} days)` : ''}</div>` : html`<div>${h.future ? 'Not started' : 'No numbers yet'}</div>`}${h.actual != null && h.est && h.est.length ? html`<div class="tiny" style="color:var(--mid)">* Estimated: ${h.est.join(', ')}</div>` : ''}</div>`}
+    <div class="legend">${nb > 0 && html`<span><i style="background:var(--muted)"></i>Before the plan</span>`}<span><i style="background:var(--line2)"></i>Goal range</span><span><i style="background:var(--pass)"></i>Hit</span><span><i style="background:var(--mid)"></i>Close</span><span><i style="background:var(--fail)"></i>Missed</span>${months.some((m) => m.actual != null && m.est && m.est.length) && html`<span>* = some costs estimated (hover to see which)</span>`}</div>
   </div>`;
 }
 function Goal(ctx) {
@@ -2156,15 +2156,20 @@ function Goal(ctx) {
     const judge = done ? actual : null;
     // Finished months are judged; the current month shows green as soon as it reaches its goal.
     const status = judge == null ? (future ? 'future' : actual != null && actual >= g.profit[1] ? 'crushed' : actual != null && actual >= g.profit[0] ? 'hit' : 'open') : judge >= g.profit[1] ? 'crushed' : judge >= g.profit[0] ? 'hit' : judge >= g.profit[0] * 0.8 ? 'close' : 'missed';
-    return { ym, lo: g.profit[0], hi: g.profit[1], actual, partial, done, proj, status, future, current: ym === curYm, days: s0 ? s0.days : 0, dim, missing: s0 ? s0.missing : [], s: s0 };
+    return { ym, lo: g.profit[0], hi: g.profit[1], actual, partial, done, proj, status, future, current: ym === curYm, days: s0 ? s0.days : 0, dim, missing: s0 ? s0.missing : [], s: s0, est: s0 ? [...s0.est] : [] };
   });
   // Months before the plan (before Oct 2026) that have numbers: shown grey on the road chart as your baseline.
-  const firstPre = periods.length && periods[0].from < '2026-10-01' ? monthKey(periods[0].from) : null;
-  const before = [];
+  // A long entry (like all of 2025 in one) shows as one bar: its average month, with the total in the tooltip.
+  const prePer = periods.filter((x) => x.from < '2026-10-01'), longPre = prePer.filter((x) => x.days > 62), shortPre = prePer.filter((x) => x.days <= 62);
+  const before = longPre.map((x) => { const pr = periodProfit(x, st), mo = x.days / 30.44, y1 = x.from.slice(0, 4), y2 = x.to.slice(0, 4);
+    return { pre: true, block: true, label: y1 === y2 ? y1 : `${y1.slice(2)}–${y2.slice(2)}`, title: `${MON_LONG[+x.from.slice(5, 7) - 1].slice(0, 3)} ${y1} to ${MON_LONG[+x.to.slice(5, 7) - 1].slice(0, 3)} ${y2}`, actual: pr.value / mo, total: pr.value, est: pr.how === 'est' && !pr.est.length ? ['profit (from your margin)'] : pr.est, lo: 0, hi: 0 }; });
+  const firstPre = shortPre.length ? monthKey(shortPre[0].from) : null;
   if (firstPre) for (let ym = firstPre; ym < '2026-10'; ym = monthKey(R.addDays(monthEnd(ym), 1))) {
     const s0 = sumRange(dm, ym + '-01', monthEnd(ym)), dim = R.daysBetween(ym + '-01', monthEnd(ym)) + 1;
-    before.push({ ym, pre: true, actual: s0.days ? s0.profit : null, partial: s0.days > 0 && s0.days < dim, days: s0.days, dim, lo: 0, hi: 0 });
+    before.push({ ym, pre: true, actual: s0.days ? s0.profit : null, partial: s0.days > 0 && s0.days < dim, days: s0.days, dim, lo: 0, hi: 0, est: [...s0.est] });
   }
+  const [showPast, setShowPast] = useState(() => { try { return localStorage.getItem('adlab-showpast') === '1'; } catch (e) { return false; } });
+  const togglePast = () => { const v = !showPast; setShowPast(v); try { localStorage.setItem('adlab-showpast', v ? '1' : '0'); } catch (e) {} };
   const cm = months.find((m) => m.current) || { lo: stage.profit[0], hi: stage.profit[1], actual: null, days: 0, dim: 30, missing: [] };
   const dimNow = cm.dim, elapsed = R.daysBetween(curYm + '-01', y) + 1;
   const paceLo = cm.lo * elapsed / dimNow;
@@ -2230,8 +2235,8 @@ function Goal(ctx) {
       <div class="gh-bar"><i style=${`width:${pct}%`}></i><b title="Goal" style=${`left:${cm.lo / (cm.hi * 1.1) * 100}%`}></b><b class="s" title="Stretch" style=${`left:${cm.hi / (cm.hi * 1.1) * 100}%`}></b>${cm.actual != null && !hitNow && html`<em title="Where you should be by now" style=${`left:${Math.min(100, paceLo / (cm.hi * 1.1) * 100)}%`}></em>`}</div>
       <div class="small muted">${cm.actual == null ? 'Add numbers for this month to see your progress.' : hitNow ? `${crushNow ? 'Past your stretch goal' : 'Goal reached'} with ${dimNow - elapsed} day${dimNow - elapsed === 1 ? '' : 's'} left.` : `By today you'd want about ${R.money0(paceLo)}. At this pace the month ends near ${R.money0(cm.proj)}.`}${cm.actual != null && cm.days < elapsed ? ` Counted ${cm.days} of ${elapsed} days so far.` : ''}${lastMonth ? ` Last month (${MON_LONG[+lastMonth.ym.slice(5) - 1]}): ${R.money0(lastMonth.actual)}${lastMonth.status === 'hit' || lastMonth.status === 'crushed' ? ', goal hit.' : '.'}` : ''}${cm.actual != null && provisional(curYm) ? ' Product cost is still an estimate until the Sada bill at month end.' : ''}</div>
     </section>
-    <section class="panel"><div class="row"><h2 style="margin:0">Road to $12,000 a month</h2><span class="spacer"></span><span class="tiny muted">Sep 2027</span></div>
-      <${RoadChart} months=${months} before=${before} />
+    <section class="panel"><div class="row"><h2 style="margin:0">Road to $12,000 a month</h2><span class="spacer"></span>${before.length > 0 && html`<button class="link small" onClick=${togglePast}>${showPast ? 'Hide before the plan' : 'Show before the plan'}</button>`}<span class="tiny muted">Oct 2026 to Sep 2027</span></div>
+      <${RoadChart} months=${months} before=${showPast ? before : []} />
       ${!before.length && html`<div class="tiny muted">Want your months before October as a baseline? <button class="link tiny" onClick=${() => setModal({ type: PastMonthsForm, props: {} })}>Add past months</button></div>`}
       <div class="stages">${STAGES_GOAL.map((g) => html`<div class=${g === stage ? 'on' : ''}><b>${g.name}</b>${g.months}<br/>${R.money0(g.profit[0])}–${R.money0(g.profit[1])}/mo</div>`)}</div>
     </section>
