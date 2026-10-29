@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=84';
-import * as R from './rules.js?v=84';
-import { importHistory } from './importer.js?v=84';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=84';
+import { createBackend } from './data.js?v=85';
+import * as R from './rules.js?v=85';
+import { importHistory } from './importer.js?v=85';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=85';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2114,6 +2114,7 @@ function confetti() {
 function RoadChart({ months: plan, before = [] }) {
   const [box, W] = useWidth(); const [hi, setHi] = useState(null);
   const months = [...before, ...plan], nb = before.length;
+  const [note, setNote] = useState(false);
   const H = 190, L = 46, Rt = 8, T = 10, B = 24, n = months.length, step = (W - L - Rt) / n;
   const max = Math.max(GOAL.profit * 1.05, ...months.map((m) => m.actual || 0));
   const minV = Math.min(0, ...months.map((m) => m.actual || 0));
@@ -2131,7 +2132,7 @@ function RoadChart({ months: plan, before = [] }) {
     </svg>
     ${h && html`<div class="tip" style=${`left:${Math.min(W - 160, Math.max(160, x(hi)))}px;top:8px;max-width:300px`}><b>${h.block ? h.title : `${MON_LONG[+h.ym.slice(5) - 1]} ${h.ym.slice(0, 4)}`}</b><div>${h.pre ? 'Before the plan' : `Goal ${R.money0(h.lo)}–${R.money0(h.hi)}`}</div>${h.block ? html`<div>Profit ${R.money0(h.total)} total, about ${R.money0(h.actual)} a month</div>` : h.actual != null ? html`<div>Profit ${R.money0(h.actual)}${h.partial ? ` (${h.days} of ${h.dim} days)` : ''}</div>` : html`<div>${h.future ? 'Not started' : 'No numbers yet'}</div>`}${h.actual != null && h.est && h.est.length ? html`<div class="tiny muted">Estimated: ${h.est.join(', ')}</div>` : ''}</div>`}
     <div class="legend">${nb > 0 && html`<span><i style="background:var(--muted)"></i>Before the plan</span>`}<span><i style="background:var(--line2)"></i>Goal range</span><span><i style="background:var(--pass)"></i>Hit</span><span><i style="background:var(--mid)"></i>Close</span><span><i style="background:var(--fail)"></i>Missed</span></div>
-    <div class="tiny" style="color:var(--dim);font-size:10.5px">For tracking only, not accounting or taxes. Online-sales profit with some costs estimated; many business costs (gas, travel, one-off expenses) aren't included.</div>
+    <div class="tiny" style="color:var(--dim);font-size:10.5px;cursor:pointer" title="Online-sales profit with some costs estimated. Many business costs (gas, travel, one-off expenses) aren't included." onClick=${() => setNote(!note)}>Estimates, not for taxes ${note ? '· Online-sales profit with some costs estimated. Many business costs (gas, travel, one-offs) aren\'t included.' : 'ⓘ'}</div>
   </div>`;
 }
 function Goal(ctx) {
