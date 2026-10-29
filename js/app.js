@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=78';
-import * as R from './rules.js?v=78';
-import { importHistory } from './importer.js?v=78';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=78';
+import { createBackend } from './data.js?v=79';
+import * as R from './rules.js?v=79';
+import { importHistory } from './importer.js?v=79';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=79';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2399,8 +2399,10 @@ function PastMonthsForm(ctx) {
     } catch (err) { say(err.message || 'Could not read that file.'); }
   };
   const save = async () => {
-    const todo = yms.filter((ym) => R.num(rows[ym].rev));
-    if (!todo.length) { say('Add net sales for at least one month.'); return; }
+    // Months you already entered stay as they are (with all their detail) unless you changed a number here.
+    const changed = (ym) => { const e = exFor(ym); if (!e) return true; const r = rows[ym]; return R.num(r.rev) !== e.rev || (R.num(r.spend) || 0) !== e.spend || (R.num(r.orders) || 0) !== e.orders || (r.shipIn === '' ? null : R.num(r.shipIn)) !== e.shipIn; };
+    const todo = yms.filter((ym) => R.num(rows[ym].rev) && changed(ym));
+    if (!todo.length) { say(yms.some((ym) => exFor(ym)) ? 'Nothing new to save.' : 'Add net sales for at least one month.'); return; }
     setBusy(true);
     try {
       for (const ym of todo) {
@@ -2420,9 +2422,9 @@ function PastMonthsForm(ctx) {
       <div class="row" style="gap:8px;flex-wrap:wrap"><label class="btn sm">Upload Shopify report<input type="file" accept=".csv,.xlsx,.xls" style="display:none" onChange=${upload} /></label>
         <span class="spacer"></span><span class="tiny muted">Start from</span><select value=${first} onChange=${(e) => setFirst(e.target.value)}>${starts.map((ym) => html`<option value=${ym}>${mname(ym)}</option>`)}</select></div>
       <div class="tscroll"><table class="t"><thead><tr><th>Month</th><th>Net sales</th><th>Shipping charges</th><th>Orders</th><th>Ad spend</th></tr></thead><tbody>
-        ${yms.map((ym) => html`<tr key=${ym}><td class="mono">${mname(ym)}</td>${['rev', 'shipIn', 'orders', 'spend'].map((k) => html`<td><input class="inp" style="width:100%;min-width:80px" inputmode="decimal" value=${rows[ym][k]} onInput=${set(ym, k)} placeholder=${k === 'orders' ? '#' : '$'} /></td>`)}</tr>`)}
+        ${yms.map((ym) => html`<tr key=${ym}><td class="mono">${mname(ym)}${exFor(ym) && html`<div class="tiny muted">saved</div>`}</td>${['rev', 'shipIn', 'orders', 'spend'].map((k) => html`<td><input class="inp" style="width:100%;min-width:80px" inputmode="decimal" value=${rows[ym][k]} onInput=${set(ym, k)} placeholder=${k === 'orders' ? '#' : '$'} /></td>`)}</tr>`)}
       </tbody></table></div>
-      <div class="tiny muted">Product cost, labels, packaging and fees are estimated from orders (product cost from Shopify's cost ratio). Good enough for a baseline. Months left without net sales are skipped. Saving a month replaces what you already had for it.</div>
+      <div class="tiny muted">Product cost, labels, packaging and fees are estimated from orders (product cost from Shopify's cost ratio). Good enough for a baseline. Months left without net sales are skipped. Months marked saved keep their full detail unless you change a number here.</div>
     </div>
     <div class="row"><button class="btn primary" disabled=${busy} onClick=${save}>${busy ? 'Saving…' : 'Save months'}</button><button class="btn ghost" onClick=${close}>Cancel</button></div><//>`;
 }
