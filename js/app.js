@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=97';
-import * as R from './rules.js?v=97';
-import { importHistory } from './importer.js?v=97';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=97';
+import { createBackend } from './data.js?v=98';
+import * as R from './rules.js?v=98';
+import { importHistory } from './importer.js?v=98';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=98';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1727,6 +1727,7 @@ function TrendPanel({ ad, data, product }) {
         <text x=${L} y=${T1 - 1} class="ax">7-day ROAS</text>
         ${[0, rMax / 1.15].map((t) => html`<line x1=${L} x2=${W - Rt} y1=${yR(t)} y2=${yR(t)} class="grid" /><text x=${L - 6} y=${yR(t) + 4} class="ax" text-anchor="end">${t.toFixed(1)}x</text>`)}
         ${be && be.roas && html`<line x1=${L} x2=${W - Rt} y1=${yR(be.roas)} y2=${yR(be.roas)} class="ref" /><text x=${W - Rt} y=${yR(be.roas) - 4} class="ax" text-anchor="end">break-even ${R.xroas(be.roas)}</text>`}
+        ${days.map((v, i) => v.spend > 0 && (v.purchases > 0 ? html`<circle cx=${x(i)} cy=${yR(Math.min(v.roas, rMax))} r="2.5" fill="#3D8BFF" opacity="0.4" />` : html`<circle cx=${x(i)} cy=${yR(0)} r="3" fill="none" stroke="var(--fail)" stroke-width="1.5" />`))}
         ${segs.map((sg) => sg.length === 1 ? html`<circle cx=${sg[0].split(',')[0]} cy=${sg[0].split(',')[1]} r="2.5" fill="#3D8BFF" />` : html`<polyline points=${sg.join(' ')} fill="none" stroke="#3D8BFF" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />`)}
         <text x=${L} y=${top2 - 5} class="ax">Spend each day</text>
         <line x1=${L} x2=${W - Rt} y1=${top2 + H2} y2=${top2 + H2} class="grid" />
@@ -1740,7 +1741,7 @@ function TrendPanel({ ad, data, product }) {
         ${h.spend > 0 && html`<div>${h.purchases} buy${h.purchases === 1 ? '' : 's'} · that day ${R.xroas(h.roas)}</div>`}
         ${h.roll != null && html`<div><i style="background:#3D8BFF"></i>7-day ROAS (${R.shortDate(R.addDays(h.d, -6))} to ${R.shortDate(h.d)}): ${R.xroas(h.roll)}</div>`}${marks[hi].length ? html`<div style="color:var(--mid)">${marks[hi].join(' · ')}</div>` : ''}</div>`}
     </div>
-    <div class="tiny muted">Top: 7-day ROAS (smooths out Meta's random days). Bottom: spend each day. Gaps: not running. Tap a day for numbers.${marks.some((m) => m.length) ? ' Shaded: holidays, sales or changes you logged.' : ''}</div>
+    <div class="tiny muted">Line: 7-day ROAS (so one bad day doesn't swing it). Dots: each day's own ROAS; <span style="color:var(--fail)">red ring</span> = no sales that day. Bars: spend each day. Tap a day for numbers.${marks.some((m) => m.length) ? ' Shaded: holidays, sales or changes you logged.' : ''}</div>
     <button class="link small" style="align-self:flex-start" onClick=${() => setTable(!table)}>${table ? 'Hide days' : 'Show each day'}</button>
     ${table && html`<div class="tscroll"><table class="t"><thead><tr><th>Day</th><th>Spend</th><th>Buys</th><th>Value</th><th>ROAS</th><th>7-day ROAS</th></tr></thead><tbody>
       ${days.slice().reverse().map((v) => html`<tr><td>${longDate(v.d, showYear)}</td><td>${v.spend > 0 ? R.money(v.spend) : '—'}</td><td>${v.spend > 0 ? v.purchases : '—'}</td><td>${v.spend > 0 ? R.money(v.revenue) : '—'}</td><td>${v.spend > 0 ? R.xroas(v.roas) : '—'}</td><td>${v.roll != null ? R.xroas(v.roll) : '—'}</td></tr>`)}
