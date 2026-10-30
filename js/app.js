@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=87';
-import * as R from './rules.js?v=87';
-import { importHistory } from './importer.js?v=87';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=87';
+import { createBackend } from './data.js?v=88';
+import * as R from './rules.js?v=88';
+import { importHistory } from './importer.js?v=88';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=88';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2261,6 +2261,7 @@ function Goal(ctx) {
         ${periods.slice().reverse().map((x) => { const pr = periodProfit(x, st); return html`<tr><td class="mono">${R.shortDate(x.from)} to ${R.shortDate(x.to)}</td><td>${R.money0(x.rev)}<br/><span class="tiny muted">${x.revType === 'net' ? 'Shopify net' : 'Triple Whale'}</span></td><td>${R.money0(x.spend)}</td><td>${x.spend ? R.xroas(x.rev / x.spend) : '—'}</td><td>${x.orders || '—'}</td><td>${R.money0(pr.value)}<br/><span class="tiny muted">${pr.how === 'exact' ? 'exact' : pr.how === 'full' ? (x.costFinal ? 'final' : 'cost not final yet') : pr.how === 'mixed' ? 'some costs estimated' : pr.how === 'tw' ? 'Triple Whale' : 'estimate'}</span></td><td><button class="link small" onClick=${() => setModal({ type: PeriodForm, props: { id: x.id } })}>Edit</button></td></tr>`; })}</tbody></table></div>` : html`<div class="empty">No numbers yet.</div>`)}
       ${stock.length > 0 && html`<div class="tiny muted">Stock orders: ${stock.slice(0, 4).map((x) => `${R.shortDate(x.day)} ${R.money0(x.amount)}${x.note ? ' (' + x.note + ')' : ''}`).join(' · ')}</div>`}
     </section>
+    <${CostTrend} periods=${periods} reload=${reload} say=${say} />
     <section class="panel"><div class="row"><h2 style="margin:0">Plan and what-ifs</h2><span class="spacer"></span><button class="link small" onClick=${() => setWhatif(!whatif)}>${whatif ? 'Hide' : 'Show'}</button></div>
       ${!whatif ? html`<div class="small muted">Calculator, profit per pack and what moves the needle.</div>` : html`<div class="grid2">
         <div class="stack">
@@ -2284,6 +2285,40 @@ function Goal(ctx) {
     </section>`;
 }
 // Add numbers for any dates: this week, last week, a month or custom.
+// Your real cost per order, entry by entry, from the numbers you typed (never from estimates).
+// Each row is compared with the one before it; Rules gets a one-tap update when the recent average drifts.
+function CostTrend({ periods, reload, say }) {
+  const st = R.storeEcon();
+  const [open, setOpen] = useState(() => { try { return localStorage.getItem('adlab-costs') !== '0'; } catch (e) { return true; } });
+  const flip = () => { setOpen(!open); try { localStorage.setItem('adlab-costs', open ? '0' : '1'); } catch (e) {} };
+  const rows = periods.filter((x) => x.revType === 'net' && x.orders > 0 && x.exact == null && (x.labels != null || x.packaging != null || x.fees != null || x.cogs != null)).map((x) => {
+    const sales = x.rev + (x.shipIn || 0) + (x.retFees || 0);
+    const label = x.from.slice(8) === '01' && x.to === monthEnd(monthKey(x.from)) ? `${MON_LONG[+x.from.slice(5, 7) - 1].slice(0, 3)} ${x.from.slice(0, 4)}` : `${R.shortDate(x.from)} to ${R.shortDate(x.to)}`;
+    return { x, label, orders: x.orders, ship: x.labels != null ? x.labels / x.orders : null, pack: x.packaging != null ? x.packaging / x.orders : null,
+      fee: x.fees != null && sales ? (x.fees - x.orders * (R.num(st.feeFixed) || 0.3)) / sales * 100 : null, cogs: x.cogs != null && x.rev ? x.cogs / x.rev * 100 : null, costFinal: x.costFinal };
+  });
+  if (!rows.length) return null;
+  // Weighted average over the last 3 entries that have each cost.
+  const avg = (k) => { const r = rows.filter((z) => z[k] != null).slice(-3); if (!r.length) return null; const w = r.reduce((t, z) => t + z.orders, 0); return { v: r.reduce((t, z) => t + z[k] * z.orders, 0) / w, n: r.length }; };
+  const cmp = (now, prev, k) => { if (now == null || prev == null) return ''; const d = (now - prev) / (Math.abs(prev) || 1); if (Math.abs(d) < 0.03) return html` <span class="tiny muted">≈ same</span>`; return html` <span class=${'tiny ' + (d < 0 ? 'good' : 'bad')}>${d < 0 ? '↓ cheaper' : '↑ pricier'}</span>`; };
+  const last = (k, i) => { for (let j = i - 1; j >= 0; j--) if (rows[j][k] != null) return rows[j][k]; return null; };
+  const sug = [];
+  const a = avg('ship'), b = avg('pack'), f = avg('fee');
+  if (a && Math.abs(a.v - (R.num(st.ship) || 7.6)) / (R.num(st.ship) || 7.6) > 0.03) sug.push({ k: 'ship', v: Math.round(a.v * 100) / 100, text: `Shipping labels averaged ${R.money(a.v)} per order (${a.n === 1 ? 'last entry' : `last ${a.n} entries`}). Rules says ${R.money(R.num(st.ship) || 7.6)}.` });
+  if (b && Math.abs(b.v - (R.num(st.pack) || 0.6)) / (R.num(st.pack) || 0.6) > 0.1) sug.push({ k: 'pack', v: Math.round(b.v * 100) / 100, text: `Packaging averaged ${R.money(b.v)} per order. Rules says ${R.money(R.num(st.pack) || 0.6)}.` });
+  if (f && f.v > 0 && Math.abs(f.v - (R.num(st.feePct) || 2.9)) > 0.15) sug.push({ k: 'feePct', v: Math.round(f.v * 100) / 100, text: `Payment fees came to ${f.v.toFixed(2)}% + 30¢. Rules says ${(R.num(st.feePct) || 2.9).toFixed(2)}%.` });
+  const apply = async (x) => { const next = { ...st, [x.k]: x.v }; await be.saveStore(next); R.setStoreEcon(next); await reload(); say('Rules updated'); };
+  const cell = (r, i, k, fmt) => html`<td class="mono">${r[k] == null ? html`<span class="muted">—</span>` : fmt(r[k])}${cmp(r[k], last(k, i), k)}</td>`;
+  return html`<section class="panel"><div class="row"><h2 style="margin:0">Costs per order</h2><span class="spacer"></span><button class="link small" onClick=${flip}>${open ? 'Hide' : 'Show'}</button></div>
+    ${!open ? html`<div class="small muted">Your real shipping, packaging, fees and product cost per order, month by month.</div>` : html`
+      ${sug.map((x) => html`<div class="status live small row" style="gap:8px;flex-wrap:wrap"><span class="grow">${x.text}</span><button class="btn sm" onClick=${() => apply(x)}>Update Rules to ${x.k === 'feePct' ? x.v + '%' : R.money(x.v)}</button></div>`)}
+      <div class="tscroll"><table class="t"><thead><tr><th>Dates</th><th>Orders</th><th>Shipping / order</th><th>Packaging / order</th><th>Fees</th><th>Product cost</th></tr></thead><tbody>
+        ${rows.slice().reverse().map((r) => { const i = rows.indexOf(r); return html`<tr><td class="mono">${r.label}</td><td>${r.orders}</td>${cell(r, i, 'ship', R.money)}${cell(r, i, 'pack', R.money)}${cell(r, i, 'fee', (v) => v.toFixed(2) + '%')}${cell(r, i, 'cogs', (v) => html`${v.toFixed(0)}% of sales${r.costFinal ? '' : html` <span class="tiny muted">est.</span>`}`)}</tr>`; })}
+        <tr><td class="muted">Rules use</td><td></td><td class="mono muted">${R.money(R.num(st.ship) || 7.6)}</td><td class="mono muted">${R.money(R.num(st.pack) || 0.6)}</td><td class="mono muted">${(R.num(st.feePct) || 2.9).toFixed(2)}%</td><td class="muted tiny">per product in Rules</td></tr>
+      </tbody></table></div>
+      <div class="tiny muted">Only numbers you typed in count here, never estimates. ↓ cheaper / ↑ pricier is against the entry before. Fees are shown as the % part after 30¢ per order.</div>`}
+  </section>`;
+}
 function PeriodForm(ctx) {
   const { data, id, from: f0, to: t0, close, reload, say } = ctx;
   goalCE = R.econOf(data.products.find((p) => p.kind === 'crew') || data.products[0]);
