@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=85';
-import * as R from './rules.js?v=85';
-import { importHistory } from './importer.js?v=85';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=85';
+import { createBackend } from './data.js?v=86';
+import * as R from './rules.js?v=86';
+import { importHistory } from './importer.js?v=86';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=86';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1749,7 +1749,7 @@ function VerdictPanel({ ad, data, product }) {
 
 // Main plan: one card on the Board that reads Main as a whole and lists what to do, in order.
 // Suggestions only. Nothing changes in Meta or in the app until you act.
-const BF_DAY = '2026-11-27';
+const BF_DAY = '2026-11-25'; // Black Friday sale runs Nov 25 to the morning of Dec 1
 function mainPlan(data, product) {
   const w = healthWindow(data); if (!w) return null;
   const econ = R.econOf(product), be = econ.opBE, rules = R.rulesOf(product);
@@ -2216,7 +2216,7 @@ function Goal(ctx) {
   if (recentStock) items.push({ tone: 'live', text: `You paid ${R.money0(recentStock.amount)} for stock on ${R.shortDate(recentStock.day)}. Cash is tighter this month even if profit looks fine.` });
   if (mp && mp.budget.tone !== 'good') items.push({ tone: mp.budget.tone, text: `Main: ${mp.head}`, act: ['Open Board', () => { setPid(crew.id); setView('board'); }] });
   if (crew) { const benchN = data.ads.filter((a) => a.product_id === crew.id && a.stage === 'bench').length; if (benchN < 2) items.push({ tone: 'warn', text: benchN ? `Only ${benchN} tested backup on the Crew Bench. Keep testing.` : 'No tested backups on the Crew Bench. Keep testing.' }); }
-  const bfLeft = R.daysBetween(t, BF_DAY); if (bfLeft >= 0 && bfLeft <= 45) items.push({ tone: 'live', text: `Black Friday in ${bfLeft} days. Launch your last test batch by ${R.shortDate(R.addDays(BF_DAY, -16))}.` });
+  const bfLeft = R.daysBetween(t, BF_DAY); if (bfLeft >= 0 && bfLeft <= 45) items.push({ tone: 'live', text: `Black Friday sale starts in ${bfLeft} days (Nov 25 to Dec 1). Launch your last test batch by ${R.shortDate(R.addDays(BF_DAY, -16))}.` });
   // What-ifs
   const calcBase = { spend: spendDay ? String(Math.round(spendDay)) : '100', roas: mer ? mer.toFixed(2) : '3.0', margin: String(margin ? Math.round(margin) : (R.num(st.margin) || 35)) };
   const [calcEdit, setCalc] = useState(null); const calc = calcEdit || calcBase;
