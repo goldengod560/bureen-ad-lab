@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=95';
-import * as R from './rules.js?v=95';
-import { importHistory } from './importer.js?v=95';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=95';
+import { createBackend } from './data.js?v=97';
+import * as R from './rules.js?v=97';
+import { importHistory } from './importer.js?v=97';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=97';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -952,7 +952,7 @@ const GUESSES = [['pass', 'Pass'], ['mid', 'Mid'], ['fail', 'Fail']];
 const actualOf = (r) => (r === 'pass' || r === 'strong_pass' ? 'pass' : r === 'mid' ? 'mid' : r === 'fail' ? 'fail' : null);
 const guessCounts = (t) => { const c = t.conditions || {}; return c.guess && (!c.guessDay || !t.start_date || c.guessDay <= R.addDays(t.start_date, 1)); };
 function GuessPicker({ value, onPick }) {
-  return html`<div class="seg" role="group" aria-label="Your guess">${GUESSES.map(([k, l]) => html`<button type="button" class=${value === k ? 'on' : ''} onClick=${() => onPick(value === k ? '' : k)}>${l}</button>`)}</div>`;
+  return html`<div class="seg sm" role="group" aria-label="Your guess">${GUESSES.map(([k, l]) => html`<button type="button" class=${value === k ? 'on' : ''} onClick=${() => onPick(value === k ? '' : k)}>${l}</button>`)}</div>`;
 }
 function Scoreboard({ data }) {
   const done = data.tests.filter((t) => t.stage === 1 && t.status !== 'active' && guessCounts(t) && actualOf(t.result) && !isDupTest(t));
@@ -985,7 +985,7 @@ function TestPanel({ data, test, rules, econ, setModal, reload, say }) {
     <div class="row"><h2>${test.stage === 2 ? 'Stage 2 · Main' : 'Stage 1 test'}</h2><span class="spacer"></span>
       <span class="muted small">${test.start_date ? 'Day 1: ' + test.start_date : ''}${(test.conditions || {}).spendFrom ? ' (live from ' + test.conditions.spendFrom + ')' : ''}${test.budget ? ' · $' + test.budget + '/day' : ''}</span>
       <button class="link small" onClick=${() => setModal({ type: EditTestForm, props: { testId: test.id, adId: test.ad_id } })}>Edit</button></div>
-    ${test.stage === 1 && test.status === 'active' && html`<div class="row small" style="gap:8px;flex-wrap:wrap"><span class="muted">Your guess:</span><${GuessPicker} value=${c.guess || ''} onPick=${async (g) => { const n = { ...c, guess: g || undefined, guessDay: g ? R.today() : undefined }; await be.update('tests', test.id, { conditions: n }); await reload(); }} />${c.guess && !guessCounts(test) ? html`<span class="tiny muted">Made after day 2, so it won't count on the scoreboard.</span>` : !c.guess ? html`<span class="tiny muted">Guess by day 2 for it to count.</span>` : ''}</div>`}
+    ${test.stage === 1 && test.status === 'active' && html`<div class="row small" style="gap:8px;flex-wrap:wrap"><span class="muted">Your guess:</span><${GuessPicker} value=${c.guess || ''} onPick=${async (g) => { const n = { ...c, guess: g || undefined, guessDay: g ? R.today() : undefined }; await be.update('tests', test.id, { conditions: n }); await reload(); }} />${c.guess && !guessCounts(test) ? html`<span class="tiny muted">Made after day 2, so it won't count on the scoreboard.</span>` : !c.guess ? html`<span class="tiny muted">${R.testDay(test) > 2 ? "Past day 2, so a guess now won't count." : 'Guess by day 2 for it to count.'}</span>` : ''}</div>`}
     ${test.stage === 1 && test.status !== 'active' && c.guess && actualOf(test.result) && html`<div class="small">${c.guess === actualOf(test.result) ? html`<span class="good">✓</span>` : html`<span class="bad">✗</span>`} You guessed ${c.guess}; it was ${actualOf(test.result)}.</div>`}
     ${test.status === 'active' && test.stage === 1 && html`<div class=${'status ' + (st.final || st.onTrack ? 'good' : st.early ? 'bad' : st.behind || st.kept ? 'warn' : 'live')}>${st.text}
       ${st.early && html`<div class="row" style="margin-top:8px"><button class="btn sm" onClick=${async () => { await be.update('tests', test.id, { conditions: { ...(test.conditions || {}), keepRunning: R.today() } }); await be.insert('decisions', { product_id: test.product_id, ad_id: test.ad_id, test_id: test.id, kind: 'keep', day: R.today(), choice: 'Kept running after Pause? alert', reason: '' }); await reload(); say('Keeping it running'); }}>Keep running</button><button class="btn sm ghost" style="color:var(--fail)" onClick=${() => setModal({ type: StopForm, props: { testId: test.id } })}>Stop early</button></div>`}
@@ -1554,7 +1554,7 @@ function Angles(ctx) {
   const TITLE = { angle: 'Angles', concept: 'Concepts', hook: 'Hooks', offer: 'Offers' };
   const EXPLAIN = { angle: 'Angle = the message ($6 per shirt, lifestyle, pack value).', concept: 'Concept = the creative itself (same footage or shot, different text).', hook: 'Hook = the words people see first. Read from the ad name, or set it on the ad. Ranked by ROAS (ads with $50+ spend first).', offer: 'Offer = the deal in the ad. Set it on the ad (Edit → More details). Ranked by ROAS.' };
   const head = html`<div class="row" style="flex-wrap:wrap"><h1 style="font-size:30px">${TITLE[by]} · ${product.name}</h1><span class="spacer"></span>
-    <div class="seg" role="group" aria-label="Group by">${['angle', 'concept', 'hook', 'offer'].map((k) => html`<button class=${by === k ? 'on' : ''} onClick=${() => { setBy(k); setSel(null); }}>By ${k}</button>`)}</div></div>
+    <div class="seg wide" role="group" aria-label="Group by">${['angle', 'concept', 'hook', 'offer'].map((k) => html`<button class=${by === k ? 'on' : ''} onClick=${() => { setBy(k); setSel(null); }}>By ${k}</button>`)}</div></div>
     <div class="row small muted" style="margin-top:-6px"><span>${EXPLAIN[by]}</span><span class="spacer"></span>
       <label class="chk" style="margin:0"><input type="checkbox" checked=${era1} onChange=${(e) => setEra1(e.target.checked)} /> Count Era 1 in totals</label></div>`;
   const cur = sel && rows.find((r) => r.k === sel);
@@ -1740,7 +1740,7 @@ function TrendPanel({ ad, data, product }) {
         ${h.spend > 0 && html`<div>${h.purchases} buy${h.purchases === 1 ? '' : 's'} · that day ${R.xroas(h.roas)}</div>`}
         ${h.roll != null && html`<div><i style="background:#3D8BFF"></i>7-day ROAS (${R.shortDate(R.addDays(h.d, -6))} to ${R.shortDate(h.d)}): ${R.xroas(h.roll)}</div>`}${marks[hi].length ? html`<div style="color:var(--mid)">${marks[hi].join(' · ')}</div>` : ''}</div>`}
     </div>
-    <div class="tiny muted">Top: ROAS over the 7 days ending on that day, which smooths out Meta's random good and bad days. Gaps are days the ad didn't run. Bottom: what the ad spent each day. Hover or tap a day for the exact numbers. Today's partial day isn't shown.${marks.some((m) => m.length) ? ' Shaded days: holidays, sales or changes you logged.' : ''}</div>
+    <div class="tiny muted">Top: 7-day ROAS (smooths out Meta's random days). Bottom: spend each day. Gaps: not running. Tap a day for numbers.${marks.some((m) => m.length) ? ' Shaded: holidays, sales or changes you logged.' : ''}</div>
     <button class="link small" style="align-self:flex-start" onClick=${() => setTable(!table)}>${table ? 'Hide days' : 'Show each day'}</button>
     ${table && html`<div class="tscroll"><table class="t"><thead><tr><th>Day</th><th>Spend</th><th>Buys</th><th>Value</th><th>ROAS</th><th>7-day ROAS</th></tr></thead><tbody>
       ${days.slice().reverse().map((v) => html`<tr><td>${longDate(v.d, showYear)}</td><td>${v.spend > 0 ? R.money(v.spend) : '—'}</td><td>${v.spend > 0 ? v.purchases : '—'}</td><td>${v.spend > 0 ? R.money(v.revenue) : '—'}</td><td>${v.spend > 0 ? R.xroas(v.roas) : '—'}</td><td>${v.roll != null ? R.xroas(v.roll) : '—'}</td></tr>`)}
@@ -1968,7 +1968,7 @@ function MainPlan({ data, product, setModal, reload, say }) {
     <div class="mp-tiles">
       <div class="mp-tile"><small>Main · last 7 days</small><b class=${p.nowB === 'above' ? 'good' : p.nowB === 'below' ? 'bad' : ''}>${R.xroas(p.cur.roas)}</b><span>${R.shortDate(p.w.a)} to ${R.shortDate(p.w.end)} · break-even ${R.xroas(p.be)}</span>
         <span>${p.thisWk && p.thisWk.spend ? html`This week so far <b class=${p.thisB === 'below' ? 'bad' : p.thisB ? 'good' : ''}>${R.xroas(p.thisWk.roas)}</b> · ` : ''}Last week (Mon–Sun) ${R.xroas(p.lastWk.roas)}${p.lastWk.to > p.w.end ? ` (files through ${R.shortDate(p.w.end)})` : ''}</span></div>
-      <div class="mp-tile"><small>Main ads</small>${p.ads.length ? p.ads.map((x) => html`<button class="link mp-ad" onClick=${() => open(x.ad)}><i class=${'dot ' + (x.band === 'above' ? 'good' : x.band === 'below' ? 'bad' : 'warn')}></i>${displayName(x.ad).replace(/^(IMG|VID|Image|Video)\s*[|–-]\s*/i, '').slice(0, 26)} <b>${R.xroas(x.roas)}</b>${(() => { const f = fatigueForecast(x.ad, data, product); return f && (f.state === 'soon' || f.state === 'fading') ? html` <span class="tiny" style=${'color:var(--' + (f.state === 'soon' ? 'fail' : 'mid') + ')'}>~${f.lo}–${f.hi}d left</span>` : ''; })()}</button>`) : html`<span>No spend this week</span>`}${p.market && html`<span>All fell together → likely Meta</span>`}</div>
+      <div class="mp-tile"><small>Main ads</small>${p.ads.length ? p.ads.map((x) => html`<button class="link mp-ad" onClick=${() => open(x.ad)}><i class=${'dot ' + (x.band === 'above' ? 'good' : x.band === 'below' ? 'bad' : 'warn')}></i>${displayName(x.ad).replace(/^(IMG|VID|Image|Video)\s*[|–-]\s*/i, '').slice(0, 26)} <b>${R.xroas(x.roas)}</b></button>${(() => { const f = fatigueForecast(x.ad, data, product); return f && (f.state === 'soon' || f.state === 'fading') ? html`<span class="tiny" style=${'margin:-2px 0 2px 14px;white-space:normal;color:var(--' + (f.state === 'soon' ? 'fail' : 'mid') + ')'}>~${f.lo}–${f.hi} good days left</span>` : ''; })()}`) : html`<span>No spend this week</span>`}${p.market && html`<span>All fell together → likely Meta</span>`}</div>
       <div class="mp-tile"><small>Backup ready</small>${p.best ? html`<button class="link mp-ad" onClick=${() => open(p.best.a)}>${displayName(p.best.a).replace(/^(IMG|VID|Image|Video)\s*[|–-]\s*/i, '').replace(/\s*\|\s*\d{1,2}-\d{1,2}$/, '').slice(0, 26)} <b>${R.xroas(p.best.r && p.best.r.full.roas)}</b></button><span>${p.swapNow ? 'Swap it in now' : 'Swap only if next week is also bad'}</span>` : html`<b class="bad">None</b><span>Bench is empty</span>`}</div>
       <div class="mp-tile"><small>Testing</small><b>${p.used}/${p.slots}</b><span>${p.free ? `${p.free} free · Up Next ${p.next}${p.free > p.next ? ` · make ${p.free - p.next}` : ''}` : `in use${p.usedBy.length ? ': ' + p.usedBy.join(', ') : ''}`}${p.daysLeft >= 0 ? ` · Black Friday batch by ${R.shortDate(p.lastLaunch)}` : ''}</span></div>
     </div>
@@ -2062,7 +2062,7 @@ function ShopSync({ data, reload, say }) {
 // Line chart: one money axis, hover crosshair + tooltip.
 function LineChart({ labels, series, fmt, refLine, height = 190, cap, marks }) {
   const [hi, setHi] = useState(null);
-  const W = 720, H = height, L = 48, Rt = 10, T = 12, B = 24;
+  const [box, W] = useWidth(); const H = height, L = 48, Rt = 10, T = 12, B = 24;
   const vals = series.flatMap((s) => s.values.filter((v) => v != null));
   if (refLine) vals.push(refLine.value);
   // cap: an upper limit for the scale, so one freak day doesn't squash everything. Points above it sit on the top edge.
@@ -2070,10 +2070,10 @@ function LineChart({ labels, series, fmt, refLine, height = 190, cap, marks }) {
   const x = (i) => L + (labels.length <= 1 ? 0 : i * (W - L - Rt) / (labels.length - 1));
   const y = (v) => T + (H - T - B) * (1 - Math.min(v, max) / max);
   const ticks = [0, 0.5, 1].map((f) => max / 1.1 * f);
-  const step = Math.max(1, Math.ceil(labels.length / 7));
-  const move = (e) => { const r = e.currentTarget.getBoundingClientRect(); const px = (e.clientX - r.left) / r.width * W; const i = Math.round((px - L) / ((W - L - Rt) / Math.max(1, labels.length - 1))); setHi(Math.max(0, Math.min(labels.length - 1, i))); };
-  return html`<div class="chart">
-    <svg viewBox=${`0 0 ${W} ${H}`} preserveAspectRatio="none" onMouseMove=${move} onMouseLeave=${() => setHi(null)} role="img">
+  const step = Math.max(1, Math.ceil(labels.length / Math.max(3, Math.floor((W - L) / 64))));
+  const move = (e) => { const r = e.currentTarget.getBoundingClientRect(); const px = (e.clientX - r.left); const i = Math.round((px - L) / ((W - L - Rt) / Math.max(1, labels.length - 1))); setHi(Math.max(0, Math.min(labels.length - 1, i))); };
+  return html`<div class="chart" ref=${box}>
+    <svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${move} onPointerDown=${move} onPointerLeave=${() => setHi(null)} role="img">
       ${marks && marks.map((m, i) => m.length > 0 && html`<rect x=${x(i) - (W - L - Rt) / Math.max(1, labels.length - 1) / 2} y=${T} width=${(W - L - Rt) / Math.max(1, labels.length - 1)} height=${H - T - B} fill="var(--mid)" opacity="0.10" />`)}
       ${ticks.map((t) => html`<line x1=${L} x2=${W - Rt} y1=${y(t)} y2=${y(t)} class="grid" /><text x=${L - 6} y=${y(t) + 4} class="ax" text-anchor="end">${fmt(t, true)}</text>`)}
       ${labels.map((l, i) => i % step === 0 && html`<text x=${x(i)} y=${H - 6} class="ax" text-anchor="middle">${R.shortDate(l)}</text>`)}
@@ -2103,7 +2103,7 @@ function periodTotals(data, start, end, econ) {
   const st = R.storeEcon(), sb = R.storeBE(econ);
   const perOrder = (R.num(st.ship) || 0) + (R.num(st.pack) || 0) + (R.num(st.feeFixed) || 0) + (R.num(st.other) || 0);
   const profit = shop.length && !sb.missing ? revenue * (1 - sb.pct / 100 - (R.num(st.feePct) || 0) / 100) - orders * perOrder - m.spend : null;
-  return { revenue, orders, units, spend: m.spend, metaRev: m.revenue, metaBuys: m.purchases, mer: m.spend ? revenue / m.spend : null, roas: m.roas,
+  return { revenue, orders, units, spend: m.spend, metaRev: m.revenue, metaBuys: m.purchases, mer: m.spend && shop.length ? revenue / m.spend : null, roas: m.roas,
     aov: orders ? revenue / orders : null, cpa: orders && m.spend ? m.spend / orders : null, profit, hasShop: shop.length > 0, hasMeta: meta.length > 0 };
 }
 function Delta({ now, prev, good = 'up' }) {
@@ -2413,7 +2413,7 @@ function Goal(ctx) {
       </section>
     </div>
     <section class="panel"><div class="row"><h2 style="margin:0">Your numbers</h2><span class="spacer"></span><button class="btn sm" onClick=${() => setModal({ type: PastMonthsForm, props: {} })}>Past months</button><button class="btn sm" onClick=${editFixed}>Apps ${R.money(fixed)}/mo</button><button class="btn sm" onClick=${() => setModal({ type: StockForm, props: {} })}>Log a stock order</button><button class="link small" onClick=${() => setShowNums(!showNums)}>${showNums ? 'Hide' : `Show all (${periods.length})`}</button></div>
-      <div class="tiny muted">Profit = online sales (ads, organic, email) minus product, shipping, fees, ads, returns, other costs and fixed costs (${R.money0(fixed)}/month). Family pay isn't subtracted. <button class="link tiny" onClick=${editFixed}>Edit apps list</button></div>
+      <div class="tiny muted">Profit = online sales minus product, shipping, fees, ads, other costs and apps. Family pay isn't subtracted.</div>
       ${showNums && (periods.length ? html`<div class="tscroll"><table class="t"><thead><tr><th>Dates</th><th>Revenue</th><th>Ad spend</th><th>Blended</th><th>Orders</th><th>Profit</th><th></th></tr></thead><tbody>
         ${periods.slice().reverse().map((x) => { const pr = periodProfit(x, st); return html`<tr><td class="mono">${R.shortDate(x.from)} to ${R.shortDate(x.to)}</td><td>${R.money0(x.rev)}<br/><span class="tiny muted">${x.revType === 'net' ? 'Shopify net' : 'Triple Whale'}</span></td><td>${R.money0(x.spend)}</td><td>${x.spend ? R.xroas(x.rev / x.spend) : '—'}</td><td>${x.orders || '—'}</td><td>${R.money0(pr.value)}<br/><span class="tiny muted">${pr.how === 'exact' ? 'exact' : pr.how === 'full' ? (x.costFinal ? 'final' : 'cost not final yet') : pr.how === 'mixed' ? 'some costs estimated' : pr.how === 'tw' ? 'Triple Whale' : 'estimate'}</span></td><td><button class="link small" onClick=${() => setModal({ type: PeriodForm, props: { id: x.id } })}>Edit</button></td></tr>`; })}</tbody></table></div>` : html`<div class="empty">No numbers yet.</div>`)}
       ${stock.length > 0 && html`<div class="tiny muted">Stock orders: ${stock.slice(0, 4).map((x) => `${R.shortDate(x.day)} ${R.money0(x.amount)}${x.note ? ' (' + x.note + ')' : ''}`).join(' · ')}</div>`}
@@ -2529,7 +2529,7 @@ function CostTrend({ periods, reload, say }) {
         ${rows.slice().reverse().map((r) => { const i = rows.indexOf(r); return html`<tr><td class="mono">${r.label}</td><td>${r.orders}</td>${cell(r, i, 'ship', R.money)}${cell(r, i, 'pack', R.money)}${cell(r, i, 'fee', (v) => v.toFixed(2) + '%')}${cell(r, i, 'cogs', (v) => html`${v.toFixed(0)}% of sales${r.costFinal ? '' : html` <span class="tiny muted">est.</span>`}`)}</tr>`; })}
         <tr><td class="muted">Rules use</td><td></td><td class="mono muted">${R.money(R.num(st.ship) || 7.6)}</td><td class="mono muted">${R.money(R.num(st.pack) || 0.6)}</td><td class="mono muted">${(R.num(st.feePct) || 2.9).toFixed(2)}%</td><td class="muted tiny">per product in Rules</td></tr>
       </tbody></table></div>
-      <div class="tiny muted">Only numbers you typed in count here, never estimates. ↓ cheaper / ↑ pricier is against the entry before. Fees are shown as the % part after 30¢ per order.</div>`}
+      <div class="tiny muted">Only numbers you typed count. ↓ / ↑ compares with the entry before. Fees: the % part after 30¢ an order.</div>`}
   </section>`;
 }
 function PeriodForm(ctx) {
@@ -2678,14 +2678,14 @@ function PastMonthsForm(ctx) {
   const mname = (ym) => `${MON_LONG[+ym.slice(5) - 1].slice(0, 3)} ${ym.slice(0, 4)}`;
   return html`<${Modal} wide title="Past months" sub="Your months before the plan, as a baseline. Shown grey on the road chart." onClose=${close}>
     <div class="stack" style="gap:8px">
-      <div class="status live small"><b>Fastest way:</b> Shopify → Analytics → Reports → <b>Sales over time</b> (or Finance summary). Set the dates from your first month to Sep 30, group by <b>Month</b>, Export, then upload it here. Ad spend fills in from your Meta files where they reach back.<br/><b>Costs:</b> Finance summary by month has Return fees (money customers paid you) and, if your products have costs set, Cost of goods sold. Shipping labels: Settings → Billing → Bills (labels per month). Payment fees: Finance → Payouts.</div>
+      <div class="status live small"><b>Fastest:</b> Shopify → Analytics → Reports → <b>Finance summary</b>, your first month to Sep 30, grouped by <b>Month</b>. Export and upload it here. Ad spend fills in from your Meta files.<br/><b>Labels:</b> Settings → Billing → Bills. <b>Payment fees:</b> Finance → Payouts (or leave blank).</div>
       <div class="row" style="gap:8px;flex-wrap:wrap"><label class="btn sm">Upload Shopify report<input type="file" accept=".csv,.xlsx,.xls" style="display:none" onChange=${upload} /></label>
         <span class="spacer"></span><span class="tiny muted">Start from</span><select value=${first} onChange=${(e) => setFirst(e.target.value)}>${starts.map((ym) => html`<option value=${ym}>${mname(ym)}</option>`)}</select></div>
       <div class="tscroll"><table class="t"><thead><tr><th>Month</th><th>Net sales</th><th>Shipping charges</th><th>Return fees</th><th>Orders</th><th>Ad spend</th>${costs && COST_KEYS.map(([, l]) => html`<th>${l}</th>`)}</tr></thead><tbody>
         ${yms.map((ym) => html`<tr key=${ym}><td class="mono">${mname(ym)}${exFor(ym) && html`<div class="tiny muted">saved</div>`}</td>${['rev', 'shipIn', 'retFees', 'orders', 'spend', ...(costs ? COST_KEYS.map(([k]) => k) : [])].map((k) => html`<td><input class="inp" style="width:100%;min-width:74px" inputmode="decimal" value=${rows[ym][k]} onInput=${set(ym, k)} placeholder=${k === 'orders' ? '#' : COST_KEYS.some(([c]) => c === k) ? 'est.' : '$'} /></td>`)}</tr>`)}
       </tbody></table></div>
       <div class="row tiny" style="gap:8px"><label class="chk" style="margin:0"><input type="checkbox" checked=${costs} onChange=${(e) => setCosts(e.target.checked)} /> Show cost columns</label></div>
-      <div class="tiny muted">Cost columns are optional: any left blank (est.) is estimated. Product cost and shipping labels move profit the most, so fill those if you can. Payment fees (2.9% + 30¢) and packaging ($ per order from Rules) estimate closely. Months left without net sales are skipped. Months marked saved keep their full detail unless you change a number here.</div>
+      <div class="tiny muted">Blank costs are estimated. Product cost and shipping labels matter most. Months without net sales are skipped; months marked saved keep their detail unless you change a number.</div>
     </div>
     <div class="row"><button class="btn primary" disabled=${busy} onClick=${save}>${busy ? 'Saving…' : 'Save months'}</button><button class="btn ghost" onClick=${close}>Cancel</button></div><//>`;
 }
@@ -2831,7 +2831,7 @@ function Learn(ctx) {
   const items = [
     ...data.learnings.filter((l) => !['week', 'stock', 'period'].includes(l.kind) && (!l.product_id || l.product_id === product.id)).map((l) => ({ day: l.day, tag: l.kind === 'rule_change' ? 'Rule change' : l.kind === 'hypothesis' ? 'Hypothesis' : 'Learning', tone: l.kind === 'rule_change' ? 'mid' : l.kind === 'hypothesis' ? 'muted' : 'pass', text: l.text, src: l.source, id: l.id, t: 'learnings' })),
     ...data.events.filter((e) => !e.product_id || e.product_id === product.id).map((e) => ({ day: e.day, tag: 'Change', tone: 'ins', text: `${e.kind}${e.note ? ': ' + e.note : ''}`, id: e.id, t: 'events' })),
-    ...data.decisions.filter((d) => d.product_id === product.id).map((d) => { const ad = data.ads.find((a) => a.id === d.ad_id); return { day: d.day, tag: 'Decision', tone: 'live', text: `${d.choice}${ad ? ' · ' + ad.base_name : ''}${d.reason ? ' · ' + d.reason : ''}` }; }),
+    ...data.decisions.filter((d) => d.product_id === product.id).map((d) => { const ad = data.ads.find((a) => a.id === d.ad_id); return { day: d.day || String(d.created_at || '').slice(0, 10), tag: 'Decision', tone: 'live', text: `${d.choice}${ad ? ' · ' + ad.base_name : ''}${d.reason ? ' · ' + d.reason : ''}` }; }),
   ].sort((a, b) => String(b.day).localeCompare(String(a.day)));
   const addL = async () => { if (!text.trim()) return; await be.insert('learnings', { product_id: product.id, kind, text: text.trim() }); setText(''); await reload(); say('Saved'); };
   const addE = async () => { await be.insert('events', { product_id: ev.all ? null : product.id, day: ev.day, kind: ev.kind, note: ev.note }); setEv({ ...ev, note: '' }); await reload(); say('Change logged'); };
