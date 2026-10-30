@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=99';
-import * as R from './rules.js?v=99';
-import { importHistory } from './importer.js?v=99';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=99';
+import { createBackend } from './data.js?v=100';
+import * as R from './rules.js?v=100';
+import { importHistory } from './importer.js?v=100';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=100';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1700,7 +1700,7 @@ function TrendPanel({ ad, data, product }) {
   const n = R.daysBetween(first, last) + 1; if (n < 3) return null;
   const days = Array.from({ length: n }, (_, i) => { const d = R.addDays(first, i), t = byDay.get(d) || { spend: 0, revenue: 0, purchases: 0 };
     let sp = 0, rv = 0; for (let k = 0; k < 7; k++) { const u = byDay.get(R.addDays(d, -k)); if (u) { sp += u.spend; rv += u.revenue; } }
-    return { d, ...t, roas: t.spend > 0 ? t.revenue / t.spend : null, roll: t.spend > 0 && sp > 0 ? rv / sp : null }; }); // no 7-day value on days it didn't run
+    return { d, ...t, roas: t.spend > 0 ? t.revenue / t.spend : null, roll: t.spend > 0 && sp > 0 ? rv / sp : null, rSp: sp, rRv: rv }; }); // no 7-day value on days it didn't run
   const econ = R.econOf(product), all = sumRows(rows);
   const be = econ.opBE ? { roas: econ.opBE } : null;
   const showYear = first.slice(0, 4) !== R.today().slice(0, 4) || last.slice(0, 4) !== first.slice(0, 4);
@@ -1746,7 +1746,7 @@ function TrendPanel({ ad, data, product }) {
       ${h && html`<div class="tip" style=${`left:${Math.min(W - 90, Math.max(90, x(hi)))}px;top:${T1 + 8}px`}><b>${longDate(h.d, showYear)}</b>
         <div>Spent ${h.spend > 0 ? R.money(h.spend) : '$0 (not running)'}</div>
         ${h.spend > 0 && html`<div>${h.purchases} buy${h.purchases === 1 ? '' : 's'} · that day ${R.xroas(h.roas)}</div>`}
-        ${h.roll != null && html`<div><i style="background:#3D8BFF"></i>7-day ROAS (${R.shortDate(R.addDays(h.d, -6))} to ${R.shortDate(h.d)}): ${R.xroas(h.roll)}</div>`}${marks[hi].length ? html`<div style="color:var(--mid)">${marks[hi].join(' · ')}</div>` : ''}</div>`}
+        ${h.roll != null && html`<div><i style="background:#3D8BFF"></i>7-day ROAS (${R.shortDate(R.addDays(h.d, -6))} to ${R.shortDate(h.d)}): ${R.xroas(h.roll)}</div>${mode !== 'day' ? html`<div class="tiny muted">${R.money0(h.rRv)} in sales ÷ ${R.money0(h.rSp)} spent over those 7 days</div>` : ''}`}${marks[hi].length ? html`<div style="color:var(--mid)">${marks[hi].join(' · ')}</div>` : ''}</div>`}
     </div>
     <div class="tiny muted">${mode === 'day' ? html`Each bar is one day: <span style="color:var(--pass)">green</span> above break-even, <span style="color:var(--fail)">red</span> below, a thin red line = no sales. Below: what it spent.` : html`Each point is the last 7 days added up, so one bad day doesn't swing it. Use it to see the trend.`} Tap a day for numbers.${marks.some((m) => m.length) ? ' Shaded: holidays, sales or changes you logged.' : ''}</div>
     <button class="link small" style="align-self:flex-start" onClick=${() => setTable(!table)}>${table ? 'Hide days' : 'Show each day'}</button>
