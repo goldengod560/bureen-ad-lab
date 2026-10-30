@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=107';
-import * as R from './rules.js?v=107';
-import { importHistory } from './importer.js?v=107';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=107';
+import { createBackend } from './data.js?v=108';
+import * as R from './rules.js?v=108';
+import { importHistory } from './importer.js?v=108';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=108';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2374,7 +2374,7 @@ function RoadChart({ months: plan, before = [] }) {
       ${nb > 0 && html`<line x1=${L + step * nb} x2=${L + step * nb} y1=${T} y2=${H - B} stroke="var(--line2)" stroke-dasharray="3 3" /><text x=${L + step * nb + 4} y=${T + 10} class="ax">Plan starts</text>`}
       ${months.map((m, i) => !m.pre && html`<rect x=${x(i) - step * 0.42} y=${y(m.hi)} width=${step * 0.84} height=${Math.max(1, y(m.lo) - y(m.hi))} rx="3" fill="var(--line2)" opacity=${m.future ? 0.35 : 0.55} />`)}
       ${months.map((m, i) => m.actual != null && html`<rect x=${x(i) - bw / 2} y=${Math.min(y(m.actual), y(0))} width=${bw} height=${Math.max(2, Math.abs(y(0) - y(m.actual)))} rx="3" fill=${m.pre ? 'var(--muted)' : col(m)} opacity=${hi == null || hi === i ? 1 : 0.6} />`)}
-      ${months.map((m, i) => (m.pre ? !m.block && !m.partial : m.done) && m.actual != null && html`<text x=${x(i)} y=${Math.min(y(m.actual), m.pre ? y(m.actual) : y(m.hi)) - 5} text-anchor="middle" style=${'font:700 12px var(--body);fill:var(--' + gradeTone(monthGrade(m.actual, m.pre ? STAGES_GOAL[0].profit[0] : m.lo, m.pre ? STAGES_GOAL[0].profit[1] : m.hi)) + ')'}>${monthGrade(m.actual, m.pre ? STAGES_GOAL[0].profit[0] : m.lo, m.pre ? STAGES_GOAL[0].profit[1] : m.hi)}</text>`)}
+      ${months.map((m, i) => !m.pre && m.done && m.actual != null && html`<text x=${x(i)} y=${Math.min(y(m.actual), m.pre ? y(m.actual) : y(m.hi)) - 5} text-anchor="middle" style=${'font:700 12px var(--body);fill:var(--' + gradeTone(monthGrade(m.actual, m.pre ? STAGES_GOAL[0].profit[0] : m.lo, m.pre ? STAGES_GOAL[0].profit[1] : m.hi)) + ')'}>${monthGrade(m.actual, m.pre ? STAGES_GOAL[0].profit[0] : m.lo, m.pre ? STAGES_GOAL[0].profit[1] : m.hi)}</text>`)}
       ${months.map((m, i) => (step >= 26 || i % 2 === (n - 1) % 2) && html`<text x=${x(i)} y=${H - 6} class="ax" text-anchor="middle" style=${m.current ? 'fill:var(--ink);font-weight:600' : ''}>${m.block ? m.label : MON_LONG[+m.ym.slice(5) - 1].slice(0, step >= 26 ? 3 : 1)}</text>`)}
     </svg>
     ${h && html`<div class="tip" style=${`left:${Math.min(W - 160, Math.max(160, x(hi)))}px;top:8px;max-width:300px`}><b>${h.block ? h.title : `${MON_LONG[+h.ym.slice(5) - 1]} ${h.ym.slice(0, 4)}`}</b><div>${h.pre ? 'Before the plan' : `Goal ${R.money0(h.lo)}–${R.money0(h.hi)}`}${!h.pre && h.done && h.actual != null ? ` · Grade ${monthGrade(h.actual, h.lo, h.hi)}` : h.pre && !h.block && !h.partial && h.actual != null ? ` · Grade ${monthGrade(h.actual, STAGES_GOAL[0].profit[0], STAGES_GOAL[0].profit[1])} vs Rebuild goal` : ''}</div>${h.block ? html`<div>Profit ${R.money0(h.total)} total, about ${R.money0(h.actual)} a month</div>` : h.actual != null ? html`<div>Profit ${R.money0(h.actual)}${h.partial ? ` (${h.days} of ${h.dim} days)` : ''}</div>` : html`<div>${h.future ? 'Not started' : 'No numbers yet'}</div>`}${h.actual != null && h.est && h.est.length ? html`<div class="tiny muted">Estimated: ${h.est.join(', ')}</div>` : ''}</div>`}
