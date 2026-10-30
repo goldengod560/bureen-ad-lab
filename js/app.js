@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=98';
-import * as R from './rules.js?v=98';
-import { importHistory } from './importer.js?v=98';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=98';
+import { createBackend } from './data.js?v=99';
+import * as R from './rules.js?v=99';
+import { importHistory } from './importer.js?v=99';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=99';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1688,6 +1688,8 @@ function calendarOf(data) { return [...SALE_CAL, ...(data.events || []).filter((
 const marksOn = (cal, d) => cal.filter((c) => d >= c.from && d <= c.to).map((c) => c.name);
 function TrendPanel({ ad, data, product }) {
   const [hi, setHi] = useState(null); const [table, setTable] = useState(false);
+  const [mode, setMode0] = useState(() => { try { return localStorage.getItem('adlab-trend') || 'day'; } catch (e) { return 'day'; } });
+  const setMode = (m) => { setMode0(m); try { localStorage.setItem('adlab-trend', m); } catch (e) {} };
   const [box, W] = useWidth();
   const rows = rowsForAd(ad, data.meta_days || []);
   const byDay = new Map(); rows.forEach((r) => { const t = byDay.get(r.day) || { spend: 0, revenue: 0, purchases: 0 }; t.spend += +r.spend || 0; t.revenue += +r.revenue || 0; t.purchases += +r.purchases || 0; byDay.set(r.day, t); });
@@ -1705,7 +1707,10 @@ function TrendPanel({ ad, data, product }) {
   // geometry (real pixels, so text never stretches)
   const L = 44, Rt = 8, T1 = 10, H1 = 120, G = 18, H2 = 64, B = 22, H = T1 + H1 + G + H2 + B;
   const step = (W - L - Rt) / n, x = (i) => L + step * (i + 0.5);
-  const rMax = Math.max(1, ...days.map((v) => v.roll || 0), be && be.roas ? be.roas : 0) * 1.15;
+  const beR = be && be.roas ? be.roas : 0;
+  const rMax = mode === 'day'
+    ? Math.max(1, Math.min(Math.max(...days.map((v) => v.roas || 0)), beR ? beR * 2.5 : 8), beR) * 1.15 // one huge day can't squash the rest
+    : Math.max(1, ...days.map((v) => v.roll || 0), beR) * 1.15;
   const yR = (v) => T1 + H1 * (1 - Math.min(v, rMax) / rMax);
   const sMax = Math.max(1, ...days.map((v) => v.spend)) * 1.1;
   const top2 = T1 + H1 + G, yS = (v) => top2 + H2 * (1 - v / sMax);
@@ -1719,29 +1724,31 @@ function TrendPanel({ ad, data, product }) {
   const h = hi != null ? days[hi] : null;
   const range = `${longDate(first, showYear)} to ${longDate(last, showYear)}`;
   const cal = calendarOf(data), marks = days.map((v) => marksOn(cal, v.d));
-  return html`<div class="panel"><h2>Day by day</h2>
+  return html`<div class="panel"><div class="row"><h2 style="margin:0">Day by day</h2><span class="spacer"></span><div class="seg sm" role="group" aria-label="View" style="grid-template-columns:repeat(2,auto)"><button class=${mode === 'day' ? 'on' : ''} onClick=${() => setMode('day')}>Each day</button><button class=${mode === 'week' ? 'on' : ''} onClick=${() => setMode('week')}>7-day trend</button></div></div>
     <div class="tiny muted">${range}${showYear ? ' · this ad hasn\'t run recently' : ''}</div>
     <div class="chart" ref=${box}>
       <svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${pick} onPointerDown=${pick} onPointerLeave=${() => setHi(null)} role="img" aria-label="7-day ROAS and daily spend">
         ${marks.map((m, i) => m.length > 0 && html`<rect x=${x(i) - step / 2} y=${T1} width=${step} height=${top2 + H2 - T1} fill="var(--mid)" opacity="0.10"><title>${m.join(', ')}</title></rect>`)}
-        <text x=${L} y=${T1 - 1} class="ax">7-day ROAS</text>
+        <text x=${L} y=${T1 - 1} class="ax">${mode === 'day' ? 'ROAS each day' : '7-day average ROAS'}</text>
         ${[0, rMax / 1.15].map((t) => html`<line x1=${L} x2=${W - Rt} y1=${yR(t)} y2=${yR(t)} class="grid" /><text x=${L - 6} y=${yR(t) + 4} class="ax" text-anchor="end">${t.toFixed(1)}x</text>`)}
         ${be && be.roas && html`<line x1=${L} x2=${W - Rt} y1=${yR(be.roas)} y2=${yR(be.roas)} class="ref" /><text x=${W - Rt} y=${yR(be.roas) - 4} class="ax" text-anchor="end">break-even ${R.xroas(be.roas)}</text>`}
-        ${days.map((v, i) => v.spend > 0 && (v.purchases > 0 ? html`<circle cx=${x(i)} cy=${yR(Math.min(v.roas, rMax))} r="2.5" fill="#3D8BFF" opacity="0.4" />` : html`<circle cx=${x(i)} cy=${yR(0)} r="3" fill="none" stroke="var(--fail)" stroke-width="1.5" />`))}
-        ${segs.map((sg) => sg.length === 1 ? html`<circle cx=${sg[0].split(',')[0]} cy=${sg[0].split(',')[1]} r="2.5" fill="#3D8BFF" />` : html`<polyline points=${sg.join(' ')} fill="none" stroke="#3D8BFF" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />`)}
+        ${mode === 'day' ? days.map((v, i) => v.spend > 0 && (v.purchases > 0
+          ? html`<rect x=${x(i) - bw / 2} y=${yR(Math.min(v.roas, rMax))} width=${bw} height=${Math.max(2, yR(0) - yR(Math.min(v.roas, rMax)))} rx="2" fill=${beR && v.roas < beR ? 'var(--fail)' : 'var(--pass)'} opacity=${hi == null || hi === i ? 0.9 : 0.5} />`
+          : html`<rect x=${x(i) - bw / 2} y=${yR(0) - 3} width=${bw} height="3" rx="1" fill="var(--fail)" />`))
+          : segs.map((sg) => sg.length === 1 ? html`<circle cx=${sg[0].split(',')[0]} cy=${sg[0].split(',')[1]} r="2.5" fill="#3D8BFF" />` : html`<polyline points=${sg.join(' ')} fill="none" stroke="#3D8BFF" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />`)}
         <text x=${L} y=${top2 - 5} class="ax">Spend each day</text>
         <line x1=${L} x2=${W - Rt} y1=${top2 + H2} y2=${top2 + H2} class="grid" />
         <text x=${L - 6} y=${top2 + 8} class="ax" text-anchor="end">${R.money0(sMax / 1.1)}</text>
         ${days.map((v, i) => v.spend > 0 && html`<rect x=${x(i) - bw / 2} y=${yS(v.spend)} width=${bw} height=${Math.max(1, top2 + H2 - yS(v.spend))} rx="2" fill="#C2669E" opacity=${hi == null || hi === i ? 1 : 0.55} />`)}
         ${days.map((v, i) => i % lblEvery === 0 && html`<text x=${x(i)} y=${H - 6} class="ax" text-anchor="middle">${R.shortDate(v.d)}</text>`)}
-        ${hi != null && html`<line x1=${x(hi)} x2=${x(hi)} y1=${T1} y2=${top2 + H2} class="cross" />${h.roll != null && html`<circle cx=${x(hi)} cy=${yR(h.roll)} r="4" fill="#3D8BFF" stroke="var(--panel)" stroke-width="2" />`}`}
+        ${hi != null && html`<line x1=${x(hi)} x2=${x(hi)} y1=${T1} y2=${top2 + H2} class="cross" />${mode !== 'day' && h.roll != null && html`<circle cx=${x(hi)} cy=${yR(h.roll)} r="4" fill="#3D8BFF" stroke="var(--panel)" stroke-width="2" />`}`}
       </svg>
       ${h && html`<div class="tip" style=${`left:${Math.min(W - 90, Math.max(90, x(hi)))}px;top:${T1 + 8}px`}><b>${longDate(h.d, showYear)}</b>
         <div>Spent ${h.spend > 0 ? R.money(h.spend) : '$0 (not running)'}</div>
         ${h.spend > 0 && html`<div>${h.purchases} buy${h.purchases === 1 ? '' : 's'} · that day ${R.xroas(h.roas)}</div>`}
         ${h.roll != null && html`<div><i style="background:#3D8BFF"></i>7-day ROAS (${R.shortDate(R.addDays(h.d, -6))} to ${R.shortDate(h.d)}): ${R.xroas(h.roll)}</div>`}${marks[hi].length ? html`<div style="color:var(--mid)">${marks[hi].join(' · ')}</div>` : ''}</div>`}
     </div>
-    <div class="tiny muted">Line: 7-day ROAS (so one bad day doesn't swing it). Dots: each day's own ROAS; <span style="color:var(--fail)">red ring</span> = no sales that day. Bars: spend each day. Tap a day for numbers.${marks.some((m) => m.length) ? ' Shaded: holidays, sales or changes you logged.' : ''}</div>
+    <div class="tiny muted">${mode === 'day' ? html`Each bar is one day: <span style="color:var(--pass)">green</span> above break-even, <span style="color:var(--fail)">red</span> below, a thin red line = no sales. Below: what it spent.` : html`Each point is the last 7 days added up, so one bad day doesn't swing it. Use it to see the trend.`} Tap a day for numbers.${marks.some((m) => m.length) ? ' Shaded: holidays, sales or changes you logged.' : ''}</div>
     <button class="link small" style="align-self:flex-start" onClick=${() => setTable(!table)}>${table ? 'Hide days' : 'Show each day'}</button>
     ${table && html`<div class="tscroll"><table class="t"><thead><tr><th>Day</th><th>Spend</th><th>Buys</th><th>Value</th><th>ROAS</th><th>7-day ROAS</th></tr></thead><tbody>
       ${days.slice().reverse().map((v) => html`<tr><td>${longDate(v.d, showYear)}</td><td>${v.spend > 0 ? R.money(v.spend) : '—'}</td><td>${v.spend > 0 ? v.purchases : '—'}</td><td>${v.spend > 0 ? R.money(v.revenue) : '—'}</td><td>${v.spend > 0 ? R.xroas(v.roas) : '—'}</td><td>${v.roll != null ? R.xroas(v.roll) : '—'}</td></tr>`)}
