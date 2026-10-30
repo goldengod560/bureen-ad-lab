@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=93';
-import * as R from './rules.js?v=93';
-import { importHistory } from './importer.js?v=93';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=93';
+import { createBackend } from './data.js?v=94';
+import * as R from './rules.js?v=94';
+import { importHistory } from './importer.js?v=94';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=94';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -946,6 +946,33 @@ function ProfitLine({ econ, m, product }) {
     <span class="tiny">It's at ${R.xroas(m.roas)} vs your ${product ? product.name + ' ' : ''}break-even of ${R.xroas(v.be.roas)} (estimate). Orders average ${R.money(v.V)}, so break-even CPA is about ${R.money(v.be.cpa)}; it's at ${R.money(m.cpa)}.</span></div>`;
 }
 
+// Prediction scoreboard: your pass/mid/fail guess before the numbers come in, scored against the 7-day result.
+// A guess only counts if it was made by day 2, before the results could sway it.
+const GUESSES = [['pass', 'Pass'], ['mid', 'Mid'], ['fail', 'Fail']];
+const actualOf = (r) => (r === 'pass' || r === 'strong_pass' ? 'pass' : r === 'mid' ? 'mid' : r === 'fail' ? 'fail' : null);
+const guessCounts = (t) => { const c = t.conditions || {}; return c.guess && (!c.guessDay || !t.start_date || c.guessDay <= R.addDays(t.start_date, 1)); };
+function GuessPicker({ value, onPick }) {
+  return html`<div class="seg" role="group" aria-label="Your guess">${GUESSES.map(([k, l]) => html`<button type="button" class=${value === k ? 'on' : ''} onClick=${() => onPick(value === k ? '' : k)}>${l}</button>`)}</div>`;
+}
+function Scoreboard({ data }) {
+  const done = data.tests.filter((t) => t.stage === 1 && t.status !== 'active' && guessCounts(t) && actualOf(t.result) && !isDupTest(t));
+  const open = data.tests.filter((t) => t.stage === 1 && t.status === 'active' && (t.conditions || {}).guess).length;
+  if (!done.length) return html`<section class="panel"><h2>Prediction scoreboard</h2><div class="small muted">When you launch a test, guess Pass, Mid or Fail. Once results are in, this shows how often your gut is right and which ads fool you.${open ? ` ${open} guess${open === 1 ? '' : 'es'} waiting on results.` : ''}</div></section>`;
+  const right = done.filter((t) => t.conditions.guess === actualOf(t.result));
+  const by = GUESSES.map(([k, l]) => { const g = done.filter((t) => t.conditions.guess === k); return { k, l, n: g.length, ok: g.filter((t) => actualOf(t.result) === k).length }; }).filter((x) => x.n);
+  const wrongBy = {}; for (const t of done.filter((t) => t.conditions.guess !== actualOf(t.result))) { const ad = data.ads.find((a) => a.id === t.ad_id); const k = (ad && ad.angle) || 'No angle'; wrongBy[k] = (wrongBy[k] || 0) + 1; }
+  const fool = Object.entries(wrongBy).sort((a, b) => b[1] - a[1])[0];
+  const recent = done.slice().sort((a, b) => String(b.start_date).localeCompare(String(a.start_date))).slice(0, 6);
+  return html`<section class="panel"><h2>Prediction scoreboard</h2>
+    <div class="mp-tiles">
+      <div class="mp-tile"><small>Your gut</small><b class=${right.length / done.length >= 0.5 ? 'good' : ''}>${Math.round(right.length / done.length * 100)}%</b><span>${right.length} of ${done.length} right${open ? ` · ${open} waiting` : ''}</span><span>Guessing at random gets about 33%.</span></div>
+      ${by.map((x) => html`<div class="mp-tile"><small>When you said ${x.l}</small><b>${x.ok} of ${x.n}</b><span>were ${x.l}</span></div>`)}
+      ${fool && fool[1] >= 2 && html`<div class="mp-tile"><small>Fools you most</small><b style="font-size:16px">${fool[0]}</b><span>${fool[1]} wrong guesses</span></div>`}
+    </div>
+    <div class="list">${recent.map((t) => { const ad = data.ads.find((a) => a.id === t.ad_id), ok = t.conditions.guess === actualOf(t.result); return html`<div class="li small"><span class=${ok ? 'good' : 'bad'}>${ok ? '✓' : '✗'}</span><span class="grow">${ad ? displayName(ad) : 'Ad'}</span><span class="muted">guessed ${t.conditions.guess}, was ${actualOf(t.result)}</span></div>`; })}</div>
+    <div class="tiny muted">Only guesses made by day 2 count. Insufficient and not-fair results are left out.</div>
+  </section>`;
+}
 function TestPanel({ data, test, rules, econ, setModal, reload, say }) {
   const cps = data.checkpoints.filter((c) => c.test_id === test.id).sort((a, b) => a.day - b.day);
   const ad = data.ads.find((a) => a.id === test.ad_id);
@@ -958,6 +985,8 @@ function TestPanel({ data, test, rules, econ, setModal, reload, say }) {
     <div class="row"><h2>${test.stage === 2 ? 'Stage 2 · Main' : 'Stage 1 test'}</h2><span class="spacer"></span>
       <span class="muted small">${test.start_date ? 'Day 1: ' + test.start_date : ''}${(test.conditions || {}).spendFrom ? ' (live from ' + test.conditions.spendFrom + ')' : ''}${test.budget ? ' · $' + test.budget + '/day' : ''}</span>
       <button class="link small" onClick=${() => setModal({ type: EditTestForm, props: { testId: test.id, adId: test.ad_id } })}>Edit</button></div>
+    ${test.stage === 1 && test.status === 'active' && html`<div class="row small" style="gap:8px;flex-wrap:wrap"><span class="muted">Your guess:</span><${GuessPicker} value=${c.guess || ''} onPick=${async (g) => { const n = { ...c, guess: g || undefined, guessDay: g ? R.today() : undefined }; await be.update('tests', test.id, { conditions: n }); await reload(); }} />${c.guess && !guessCounts(test) ? html`<span class="tiny muted">Made after day 2, so it won't count on the scoreboard.</span>` : !c.guess ? html`<span class="tiny muted">Guess by day 2 for it to count.</span>` : ''}</div>`}
+    ${test.stage === 1 && test.status !== 'active' && c.guess && actualOf(test.result) && html`<div class="small">${c.guess === actualOf(test.result) ? html`<span class="good">✓</span>` : html`<span class="bad">✗</span>`} You guessed ${c.guess}; it was ${actualOf(test.result)}.</div>`}
     ${test.status === 'active' && test.stage === 1 && html`<div class=${'status ' + (st.final || st.onTrack ? 'good' : st.early ? 'bad' : st.behind || st.kept ? 'warn' : 'live')}>${st.text}
       ${st.early && html`<div class="row" style="margin-top:8px"><button class="btn sm" onClick=${async () => { await be.update('tests', test.id, { conditions: { ...(test.conditions || {}), keepRunning: R.today() } }); await be.insert('decisions', { product_id: test.product_id, ad_id: test.ad_id, test_id: test.id, kind: 'keep', day: R.today(), choice: 'Kept running after Pause? alert', reason: '' }); await reload(); say('Keeping it running'); }}>Keep running</button><button class="btn sm ghost" style="color:var(--fail)" onClick=${() => setModal({ type: StopForm, props: { testId: test.id } })}>Stop early</button></div>`}
       ${st.kept && html`<button class="link small" style="display:block;margin-top:6px" onClick=${async () => { const c = { ...(test.conditions || {}) }; delete c.keepRunning; await be.update('tests', test.id, { conditions: c }); await reload(); say('Alert back on'); }}>Undo: show the Pause? alert again</button>`}</div>`}
@@ -1072,7 +1101,7 @@ function LaunchForm(ctx) {
   const rules = R.rulesOf(product);
   const live = data.tests.filter((t) => t.status === 'active' && t.stage === 1);
   const spendLive = live.reduce((s, t) => s + (+t.budget || 0), 0);
-  const [f, setF] = useState({ date: R.today(), partial: false, budget: rules.stage1Budget, days: rules.plannedDays, method: R.TEST_METHODS[0], landingPage: 'Current page (Mar 2026+)', enhancements: false, shopAds: false });
+  const [f, setF] = useState({ date: R.today(), partial: false, budget: rules.stage1Budget, days: rules.plannedDays, method: R.TEST_METHODS[0], landingPage: 'Current page (Mar 2026+)', enhancements: false, shopAds: false, guess: '' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
   const warns = [];
   if (live.length >= rules.slots) warns.push(`${live.length} Stage 1 tests are already live (your limit is ${rules.slots}).`);
@@ -1087,7 +1116,7 @@ function LaunchForm(ctx) {
     if (saving) return; setSaving(true);
     // One live test per ad: a new launch replaces any open one (also stops double-clicks making two).
     for (const t of data.tests.filter((x) => x.ad_id === ad.id && x.stage === 1 && x.status === 'active')) await be.update('tests', t.id, { status: 'stopped', result_reason: 'Replaced by a new launch.' });
-    await be.insert('tests', { ad_id: ad.id, product_id: ad.product_id, stage: 1, start_date: f.date, planned_days: +f.days || rules.plannedDays, budget: +f.budget || null, status: 'active', conditions: { method: f.method, landingPage: f.landingPage, enhancements: f.enhancements, shopAds: f.shopAds, productMismatch: !!f.mismatch, ...(f.partial ? { spendFrom } : {}) } });
+    await be.insert('tests', { ad_id: ad.id, product_id: ad.product_id, stage: 1, start_date: f.date, planned_days: +f.days || rules.plannedDays, budget: +f.budget || null, status: 'active', conditions: { method: f.method, landingPage: f.landingPage, enhancements: f.enhancements, shopAds: f.shopAds, productMismatch: !!f.mismatch, ...(f.partial ? { spendFrom } : {}), ...(f.guess ? { guess: f.guess, guessDay: R.today() } : {}) } });
     await be.update('ads', ad.id, { stage: 'testing', launched_on: spendFrom, setup_era: R.eraOf(spendFrom), tags: { ...(ad.tags || {}), ready: false } });
     await be.insert('decisions', { product_id: ad.product_id, ad_id: ad.id, kind: 'launch', choice: `Launched at $${f.budget}/day`, day: spendFrom });
     await reload(); close(); say(dayNow > 1 ? `Test tracked. Today is day ${Math.min(dayNow, +f.days || rules.plannedDays)}.` : 'Test started. Name now shows the launch date.');
@@ -1106,6 +1135,7 @@ function LaunchForm(ctx) {
       <label class="chk full"><input type="checkbox" checked=${f.enhancements} onChange=${set('enhancements')} /> Advantage+ creative enhancements on</label>
       <label class="chk full"><input type="checkbox" checked=${f.shopAds} onChange=${set('shopAds')} /> Shop ads on</label>
       <label class="chk full"><input type="checkbox" checked=${f.mismatch} onChange=${set('mismatch')} /> The ad shows a different product than the page it links to</label>
+      <div class="full row small" style="gap:8px;flex-wrap:wrap"><span>Your guess (optional):</span><${GuessPicker} value=${f.guess} onPick=${(g) => setF({ ...f, guess: g })} /><span class="tiny muted">Scored on the Learnings page.</span></div>
     </div>
     <div class="row"><button class="btn primary" disabled=${saving} onClick=${go}>Start test</button><button class="btn ghost" onClick=${close}>Cancel</button></div>
   <//>`;
@@ -2790,6 +2820,7 @@ function Learn(ctx) {
   const addE = async () => { await be.insert('events', { product_id: ev.all ? null : product.id, day: ev.day, kind: ev.kind, note: ev.note }); setEv({ ...ev, note: '' }); await reload(); say('Change logged'); };
   return html`
     <h1 style="font-size:30px">Learnings · ${product.name}</h1>
+    <${Scoreboard} data=${data} />
     <div class="grid2">
       <section class="panel"><h2>Add a learning</h2><div class="form">
         <${Field} full label="One statement you can test"><textarea value=${text} onInput=${(e) => setText(e.target.value)} placeholder="Person wearing it in the first frame beat packaging-first"></textarea><//>
