@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=86';
-import * as R from './rules.js?v=86';
-import { importHistory } from './importer.js?v=86';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=86';
+import { createBackend } from './data.js?v=87';
+import * as R from './rules.js?v=87';
+import { importHistory } from './importer.js?v=87';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=87';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1792,7 +1792,7 @@ function mainPlan(data, product) {
   if (weak) steps.push({ tone: 'warn', ad: weak.ad, text: `${displayName(weak.ad)} is the weakest in Main (${R.xroas(weak.roas)} on ${R.money0(weak.spend)}).${market ? ' The others dropped too, so this is likely the market; keep an eye on it rather than act.' : ''}` });
   if (best) steps.push({ tone: 'live', ad: best.a, text: swapNow ? `Swap in ${displayName(best.a)} (full run ${R.xroas(best.r && best.r.full.roas)}). Main has been losing money two weeks, so restarting Meta's learning is worth it.` : `${displayName(best.a)} is ready on the Bench (full run ${R.xroas(best.r && best.r.full.roas)}). Swap it in only if Main stays under break-even next week, since adding an ad restarts Meta's learning.` });
   steps.push({ tone: free ? 'warn' : 'good', text: free ? `${free} of ${slots} test slots free; Up Next has ${next} ${product.name} ad${next === 1 ? '' : 's'}.${free > next ? ` Make ${free - next} more.` : ''}` : `All ${slots} test slots in use${usedBy.length ? ` (${usedBy.join(', ')})` : ''}.` });
-  if (daysLeft >= 0) steps.push({ tone: 'live', text: `Black Friday: launch your last test batch by ${R.shortDate(lastLaunch)} (${daysLeft} days left) so winners are tested in time.` });
+  if (daysLeft >= 0) steps.push({ tone: 'live', text: `Black Friday: last regular test batch by ${R.shortDate(lastLaunch)} (${daysLeft} days left), so new winners are proven before the sale. Sale ads themselves go live Nov 25.` });
   if (new Date().getDay() === 5) steps.push({ tone: 'live', text: `It's Friday: if Main is weak, lowering it ~30% before the weekend lock limits weekend overspending.` });
   const d7 = `the last 7 days (${R.shortDate(w.a)} to ${R.shortDate(w.end)})`;
   const better = thisB && thisB !== 'below' && nowB === 'below';
@@ -2216,7 +2216,7 @@ function Goal(ctx) {
   if (recentStock) items.push({ tone: 'live', text: `You paid ${R.money0(recentStock.amount)} for stock on ${R.shortDate(recentStock.day)}. Cash is tighter this month even if profit looks fine.` });
   if (mp && mp.budget.tone !== 'good') items.push({ tone: mp.budget.tone, text: `Main: ${mp.head}`, act: ['Open Board', () => { setPid(crew.id); setView('board'); }] });
   if (crew) { const benchN = data.ads.filter((a) => a.product_id === crew.id && a.stage === 'bench').length; if (benchN < 2) items.push({ tone: 'warn', text: benchN ? `Only ${benchN} tested backup on the Crew Bench. Keep testing.` : 'No tested backups on the Crew Bench. Keep testing.' }); }
-  const bfLeft = R.daysBetween(t, BF_DAY); if (bfLeft >= 0 && bfLeft <= 45) items.push({ tone: 'live', text: `Black Friday sale starts in ${bfLeft} days (Nov 25 to Dec 1). Launch your last test batch by ${R.shortDate(R.addDays(BF_DAY, -16))}.` });
+  const bfLeft = R.daysBetween(t, BF_DAY); if (bfLeft >= 0 && bfLeft <= 45) items.push({ tone: 'live', text: `Black Friday sale starts in ${bfLeft} days (Nov 25 to Dec 1). Last regular test batch by ${R.shortDate(R.addDays(BF_DAY, -16))}; sale ads go live on the 25th.` });
   // What-ifs
   const calcBase = { spend: spendDay ? String(Math.round(spendDay)) : '100', roas: mer ? mer.toFixed(2) : '3.0', margin: String(margin ? Math.round(margin) : (R.num(st.margin) || 35)) };
   const [calcEdit, setCalc] = useState(null); const calc = calcEdit || calcBase;
