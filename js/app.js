@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=101';
-import * as R from './rules.js?v=101';
-import { importHistory } from './importer.js?v=101';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=101';
+import { createBackend } from './data.js?v=103';
+import * as R from './rules.js?v=103';
+import { importHistory } from './importer.js?v=103';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=103';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1688,70 +1688,100 @@ function calendarOf(data) { return [...SALE_CAL, ...(data.events || []).filter((
 const marksOn = (cal, d) => cal.filter((c) => d >= c.from && d <= c.to).map((c) => c.name);
 function TrendPanel({ ad, data, product }) {
   const [hi, setHi] = useState(null); const [table, setTable] = useState(false);
-  const mode = 'day'; // one simple view: each day's own ROAS
+  const [tab, setTab0] = useState(() => { try { return localStorage.getItem('adlab-trend2') || 'weeks'; } catch (e) { return 'weeks'; } });
+  const setTab = (k) => { setTab0(k); setHi(null); try { localStorage.setItem('adlab-trend2', k); } catch (e) {} };
   const [box, W] = useWidth();
   const rows = rowsForAd(ad, data.meta_days || []);
   const byDay = new Map(); rows.forEach((r) => { const t = byDay.get(r.day) || { spend: 0, revenue: 0, purchases: 0 }; t.spend += +r.spend || 0; t.revenue += +r.revenue || 0; t.purchases += +r.purchases || 0; byDay.set(r.day, t); });
   const spent = [...byDay.keys()].filter((d) => byDay.get(d).spend > 0).sort();
   if (spent.length < 3) return null;
-  const y1 = R.addDays(R.today(), -1), last = spent[spent.length - 1] < y1 ? spent[spent.length - 1] : y1;
-  const first = spent[0] > R.addDays(last, -44) ? spent[0] : R.addDays(last, -44);
-  const n = R.daysBetween(first, last) + 1; if (n < 3) return null;
-  const days = Array.from({ length: n }, (_, i) => { const d = R.addDays(first, i), t = byDay.get(d) || { spend: 0, revenue: 0, purchases: 0 };
-    let sp = 0, rv = 0; for (let k = 0; k < 7; k++) { const u = byDay.get(R.addDays(d, -k)); if (u) { sp += u.spend; rv += u.revenue; } }
-    return { d, ...t, roas: t.spend > 0 ? t.revenue / t.spend : null, roll: t.spend > 0 && sp > 0 ? rv / sp : null, rSp: sp, rRv: rv }; }); // no 7-day value on days it didn't run
-  const econ = R.econOf(product), all = sumRows(rows);
-  const be = econ.opBE ? { roas: econ.opBE } : null;
-  const showYear = first.slice(0, 4) !== R.today().slice(0, 4) || last.slice(0, 4) !== first.slice(0, 4);
-  // geometry (real pixels, so text never stretches)
-  const L = 44, Rt = 8, T1 = 10, H1 = 120, G = 18, H2 = 64, B = 22, H = T1 + H1 + G + H2 + B;
-  const step = (W - L - Rt) / n, x = (i) => L + step * (i + 0.5);
-  const beR = be && be.roas ? be.roas : 0;
-  const rMax = mode === 'day'
-    ? Math.max(1, Math.min(Math.max(...days.map((v) => v.roas || 0)), beR ? beR * 2.5 : 8), beR) * 1.15 // one huge day can't squash the rest
-    : Math.max(1, ...days.map((v) => v.roll || 0), beR) * 1.15;
-  const yR = (v) => T1 + H1 * (1 - Math.min(v, rMax) / rMax);
-  const sMax = Math.max(1, ...days.map((v) => v.spend)) * 1.1;
-  const top2 = T1 + H1 + G, yS = (v) => top2 + H2 * (1 - v / sMax);
-  const bw = Math.max(2, Math.min(14, step * 0.6));
-  // The line breaks on days the ad didn't run, so it never looks like it was running.
-  const segs = []; let cur = [];
-  days.forEach((v, i) => { if (v.roll == null) { if (cur.length) segs.push(cur); cur = []; } else cur.push(`${x(i)},${yR(v.roll)}`); });
-  if (cur.length) segs.push(cur);
+  const y1 = R.addDays(R.today(), -1), last = spent[spent.length - 1] < y1 ? spent[spent.length - 1] : y1, first = spent[0];
+  if (R.daysBetween(first, last) < 2) return null;
+  const econ = R.econOf(product), be = econ.opBE || null;
+  const showYear = first.slice(0, 4) !== R.today().slice(0, 4);
+  const dayOf = (d) => byDay.get(d) || { spend: 0, revenue: 0, purchases: 0 };
+  const tone = (roas) => (be && roas < be ? 'var(--fail)' : 'var(--pass)');
+  // profit after ads, estimated: sales turned into profit at your break-even (flat at break-even, up above it, down below)
+  const profitOf = (t) => (be ? t.revenue / be : t.revenue * 0.35) - t.spend;
+  // ----- the three views -----
+  let items = [], kind = 'bars';
+  if (tab === 'days') {
+    const from = R.daysBetween(first, last) > 29 ? R.addDays(last, -29) : first;
+    for (let d = from; d <= last; d = R.addDays(d, 1)) { const t = dayOf(d); items.push({ key: d, label: R.shortDate(d), title: longDate(d, showYear), ...t, roas: t.spend > 0 ? t.revenue / t.spend : null }); }
+  } else if (tab === 'weeks') {
+    const mon = (d) => R.addDays(d, -((R.parseDay(d).getDay() + 6) % 7));
+    for (let w = mon(first); w <= last; w = R.addDays(w, 7)) {
+      const end = R.addDays(w, 6), stop = end < last ? end : last; const t = { spend: 0, revenue: 0, purchases: 0 };
+      for (let d = w; d <= stop; d = R.addDays(d, 1)) { const u = dayOf(d); t.spend += u.spend; t.revenue += u.revenue; t.purchases += u.purchases; }
+      const partial = end > last;
+      items.push({ key: w, label: R.shortDate(w) + (end > last ? ' so far' : ''), title: `Week of ${longDate(w, showYear)}${partial ? ` (so far, to ${R.shortDate(last)})` : ''}`, partial, ...t, roas: t.spend > 0 ? t.revenue / t.spend : null });
+    }
+  } else {
+    kind = 'line'; let cum = 0;
+    for (let d = first; d <= last; d = R.addDays(d, 1)) { const t = dayOf(d); cum += profitOf(t); items.push({ key: d, label: R.shortDate(d), title: longDate(d, showYear), ...t, roas: t.spend > 0 ? t.revenue / t.spend : null, cum }); }
+  }
+  const n = items.length;
+  // sale calendar: holidays, your sales and logged changes
+  const cal = calendarOf(data);
+  items.forEach((v) => { const days = tab === 'weeks' ? Array.from({ length: 7 }, (_, k) => R.addDays(v.key, k)) : [v.key]; v.marks = [...new Set(days.flatMap((d) => marksOn(cal, d)))]; });
+  // ----- all-time summary -----
+  const life = sumRows(rows), lifeProfit = profitOf(life);
+  const weeksAll = (() => { const mon = (d) => R.addDays(d, -((R.parseDay(d).getDay() + 6) % 7)); const out = []; for (let w = mon(first); w <= last; w = R.addDays(w, 7)) { const t = { spend: 0, revenue: 0 }; for (let k = 0; k < 7; k++) { const d = R.addDays(w, k); if (d > last) break; const u = dayOf(d); t.spend += u.spend; t.revenue += u.revenue; } if (t.spend >= 20) out.push({ w, roas: t.revenue / t.spend }); } return out; })();
+  const bestW = weeksAll.slice().sort((a, b) => b.roas - a.roas)[0], worstW = weeksAll.slice().sort((a, b) => a.roas - b.roas)[0];
+  const trend = (() => { if (tab !== 'all' || n < 7) return null; const k = Math.min(14, n - 1); const d14 = items[n - 1].cum - items[n - 1 - k].cum; let s14 = 0; for (let i = n - k; i < n; i++) s14 += items[i].spend; if (s14 < 20) return { label: 'Not running lately', tone: 'muted' }; const r = d14 / s14; return r >= 0.1 ? { label: 'Rising', tone: 'pass' } : r >= -0.05 ? { label: 'Steady', tone: 'live' } : r >= -0.2 ? { label: 'Slipping', tone: 'mid' } : { label: 'Falling', tone: 'fail' }; })();
+  // ----- geometry (real pixels) -----
+  const L = 44, Rt = 8, T1 = 10, H1 = kind === 'line' ? 170 : 120, G = 18, H2 = kind === 'line' ? 0 : 64, B = 22, H = T1 + H1 + (H2 ? G + H2 : 0) + B;
+  const step = (W - L - Rt) / n, x = (i) => L + step * (i + 0.5), bw = Math.max(2, Math.min(kind === 'bars' && tab === 'weeks' ? 34 : 14, step * 0.6));
+  let yV, ticks, top2 = T1 + H1 + G, yS = null, sMax = 0;
+  if (kind === 'bars') {
+    const rMax = Math.max(1, Math.min(Math.max(...items.map((v) => v.roas || 0)), be ? be * 2.5 : 8), be || 0) * 1.15;
+    yV = (v) => T1 + H1 * (1 - Math.min(v, rMax) / rMax); ticks = [[0, '0.0x'], [rMax / 1.15, (rMax / 1.15).toFixed(1) + 'x']];
+    sMax = Math.max(1, ...items.map((v) => v.spend)) * 1.1; yS = (v) => top2 + H2 * (1 - v / sMax);
+  } else {
+    const lo = Math.min(0, ...items.map((v) => v.cum)), hiV = Math.max(0, ...items.map((v) => v.cum)), pad = Math.max(10, (hiV - lo) * 0.12);
+    const a = lo - (lo < 0 ? pad : 0), b2 = hiV + pad; yV = (v) => T1 + H1 * (1 - (v - a) / (b2 - a)); ticks = [[0, '$0'], ...(hiV > 0 ? [[hiV, R.money0(hiV)]] : []), ...(lo < 0 ? [[lo, '−' + R.money0(-lo)]] : [])];
+  }
   const lblEvery = Math.max(1, Math.ceil(n / Math.max(3, Math.floor((W - L) / 64))));
   const pick = (e) => { const r = e.currentTarget.getBoundingClientRect(); const i = Math.floor((e.clientX - r.left - L) / step); setHi(i >= 0 && i < n ? i : null); };
-  const h = hi != null ? days[hi] : null;
-  const range = `${longDate(first, showYear)} to ${longDate(last, showYear)}`;
-  const cal = calendarOf(data), marks = days.map((v) => marksOn(cal, v.d));
-  return html`<div class="panel"><h2>Day by day</h2>
-    <div class="tiny muted">${range}${showYear ? ' · this ad hasn\'t run recently' : ''}</div>
+  const h = hi != null ? items[hi] : null;
+  // ----- info line (above the chart, never on top of it) -----
+  const info = h ? html`<b>${h.title}</b> · ${h.spend > 0 ? html`${R.money(h.spend)} spent · ${h.purchases} buy${h.purchases === 1 ? '' : 's'} · <b style=${'color:' + tone(h.roas || 0)}>${R.xroas(h.roas)}</b>` : '$0 spent (not running)'}${kind === 'line' ? html` · made so far <b>${(h.cum < 0 ? '−' : '') + R.money0(Math.abs(h.cum))}</b>` : ''}${h.marks.length ? html` · <span style="color:var(--mid)">${h.marks.join(', ')}</span>` : ''}`
+    : tab === 'all' ? html`Lifetime ${R.xroas(life.roas)} on ${R.money0(life.spend)} · ${life.purchases} buys${be ? ` · break-even ${R.xroas(be)}` : ''}`
+    : tab === 'weeks' ? html`One bar per week (Mon–Sun). Green above break-even${be ? ` (${R.xroas(be)})` : ''}, red below.`
+    : html`One bar per day, last ${n} days. Green above break-even, red below, thin red line = no sales.`;
+  const ln = kind === 'line' ? items.map((v, i) => `${x(i)},${yV(v.cum)}`).join(' ') : '';
+  return html`<div class="panel">
+    <div class="row" style="gap:8px;flex-wrap:wrap"><h2 style="margin:0">Performance</h2><span class="spacer"></span>
+      <div class="seg sm" role="group" aria-label="View">${[['days', 'Days'], ['weeks', 'Weeks'], ['all', 'All time']].map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => setTab(k)}>${l}</button>`)}</div></div>
+    ${tab === 'all' && html`<div class="row" style="gap:10px;align-items:baseline;flex-wrap:wrap"><span style="font-size:22px;font-weight:700" class=${lifeProfit >= 0 ? 'good' : 'bad'}>${lifeProfit >= 0 ? 'Made' : 'Lost'} about ${R.money0(Math.abs(lifeProfit))}</span><span class="small muted">so far, after ads (est.)</span>${trend && html`<span class=${'chip t-' + trend.tone}>${trend.label}</span>`}</div>`}
+    <div class="small" style="min-height:20px">${info}</div>
     <div class="chart" ref=${box}>
-      <svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${pick} onPointerDown=${pick} onPointerLeave=${() => setHi(null)} role="img" aria-label="ROAS and spend each day">
-        ${marks.map((m, i) => m.length > 0 && html`<rect x=${x(i) - step / 2} y=${T1} width=${step} height=${top2 + H2 - T1} fill="var(--mid)" opacity="0.10"><title>${m.join(', ')}</title></rect>`)}
-        <text x=${L} y=${T1 - 1} class="ax">${mode === 'day' ? 'ROAS each day' : '7-day average ROAS'}</text>
-        ${[0, rMax / 1.15].map((t) => html`<line x1=${L} x2=${W - Rt} y1=${yR(t)} y2=${yR(t)} class="grid" /><text x=${L - 6} y=${yR(t) + 4} class="ax" text-anchor="end">${t.toFixed(1)}x</text>`)}
-        ${be && be.roas && html`<line x1=${L} x2=${W - Rt} y1=${yR(be.roas)} y2=${yR(be.roas)} class="ref" /><text x=${W - Rt} y=${yR(be.roas) - 4} class="ax" text-anchor="end">break-even ${R.xroas(be.roas)}</text>`}
-        ${mode === 'day' ? days.map((v, i) => v.spend > 0 && (v.purchases > 0
-          ? html`<rect x=${x(i) - bw / 2} y=${yR(Math.min(v.roas, rMax))} width=${bw} height=${Math.max(2, yR(0) - yR(Math.min(v.roas, rMax)))} rx="2" fill=${beR && v.roas < beR ? 'var(--fail)' : 'var(--pass)'} opacity=${hi == null || hi === i ? 0.9 : 0.5} />`
-          : html`<rect x=${x(i) - bw / 2} y=${yR(0) - 3} width=${bw} height="3" rx="1" fill="var(--fail)" />`))
-          : segs.map((sg) => sg.length === 1 ? html`<circle cx=${sg[0].split(',')[0]} cy=${sg[0].split(',')[1]} r="2.5" fill="#3D8BFF" />` : html`<polyline points=${sg.join(' ')} fill="none" stroke="#3D8BFF" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />`)}
-        <text x=${L} y=${top2 - 5} class="ax">Spend each day</text>
-        <line x1=${L} x2=${W - Rt} y1=${top2 + H2} y2=${top2 + H2} class="grid" />
-        <text x=${L - 6} y=${top2 + 8} class="ax" text-anchor="end">${R.money0(sMax / 1.1)}</text>
-        ${days.map((v, i) => v.spend > 0 && html`<rect x=${x(i) - bw / 2} y=${yS(v.spend)} width=${bw} height=${Math.max(1, top2 + H2 - yS(v.spend))} rx="2" fill="#C2669E" opacity=${hi == null || hi === i ? 1 : 0.55} />`)}
-        ${days.map((v, i) => i % lblEvery === 0 && html`<text x=${x(i)} y=${H - 6} class="ax" text-anchor="middle">${R.shortDate(v.d)}</text>`)}
-        ${hi != null && html`<line x1=${x(hi)} x2=${x(hi)} y1=${T1} y2=${top2 + H2} class="cross" />${mode !== 'day' && h.roll != null && html`<circle cx=${x(hi)} cy=${yR(h.roll)} r="4" fill="#3D8BFF" stroke="var(--panel)" stroke-width="2" />`}`}
+      <svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${pick} onPointerDown=${pick} onPointerLeave=${() => setHi(null)} role="img" aria-label=${tab === 'all' ? 'Profit so far' : 'ROAS and spend'}>
+        ${items.map((v, i) => v.marks.length > 0 && html`<rect x=${x(i) - step / 2} y=${T1} width=${step} height=${H - B - T1} fill="var(--mid)" opacity=${tab === 'weeks' ? 0.05 : 0.10} />`)}
+        ${ticks.map(([v, t]) => html`<line x1=${L} x2=${W - Rt} y1=${yV(v)} y2=${yV(v)} class=${v === 0 && kind === 'line' ? 'ref' : 'grid'} /><text x=${L - 6} y=${yV(v) + 4} class="ax" text-anchor="end">${t}</text>`)}
+        ${kind === 'bars' && be && html`<line x1=${L} x2=${W - Rt} y1=${yV(be)} y2=${yV(be)} class="ref" /><text x=${W - Rt} y=${yV(be) - 4} class="ax" text-anchor="end">break-even ${R.xroas(be)}</text>`}
+        ${kind === 'bars' && html`<text x=${L} y=${T1 - 1} class="ax">ROAS</text>`}
+        ${kind === 'bars' && items.map((v, i) => v.spend > 0 && (v.purchases > 0
+          ? html`<rect x=${x(i) - bw / 2} y=${yV(v.roas)} width=${bw} height=${Math.max(2, yV(0) - yV(v.roas))} rx="2" fill=${tone(v.roas)} opacity=${(hi == null || hi === i ? 0.9 : 0.45) * (v.partial ? 0.6 : 1)} />`
+          : html`<rect x=${x(i) - bw / 2} y=${yV(0) - 3} width=${bw} height="3" rx="1" fill="var(--fail)" />`))}
+        ${kind === 'bars' && html`<text x=${L} y=${top2 - 5} class="ax">Spend</text><line x1=${L} x2=${W - Rt} y1=${top2 + H2} y2=${top2 + H2} class="grid" /><text x=${L - 6} y=${top2 + 8} class="ax" text-anchor="end">${R.money0(sMax / 1.1)}</text>
+          ${items.map((v, i) => v.spend > 0 && html`<rect x=${x(i) - bw / 2} y=${yS(v.spend)} width=${bw} height=${Math.max(1, top2 + H2 - yS(v.spend))} rx="2" fill="#C2669E" opacity=${hi == null || hi === i ? 1 : 0.5} />`)}`}
+        ${kind === 'line' && html`<polyline points=${ln} fill="none" stroke="#3D8BFF" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" />${hi != null && html`<circle cx=${x(hi)} cy=${yV(h.cum)} r="4" fill="#3D8BFF" stroke="var(--panel)" stroke-width="2" />`}`}
+        ${items.map((v, i) => i % lblEvery === 0 && html`<text x=${x(i)} y=${H - 6} class="ax" text-anchor="middle">${v.label}</text>`)}
+        ${hi != null && html`<line x1=${x(hi)} x2=${x(hi)} y1=${T1} y2=${H - B} class="cross" />`}
       </svg>
-      ${h && html`<div class="tip" style=${`left:${Math.min(W - 90, Math.max(90, x(hi)))}px;top:${T1 + 8}px`}><b>${longDate(h.d, showYear)}</b>
-        <div>Spent ${h.spend > 0 ? R.money(h.spend) : '$0 (not running)'}</div>
-        ${h.spend > 0 && html`<div>${h.purchases} buy${h.purchases === 1 ? '' : 's'} · that day ${R.xroas(h.roas)}</div>`}
-        ${marks[hi].length ? html`<div style="color:var(--mid)">${marks[hi].join(' · ')}</div>` : ''}</div>`}
     </div>
-    <div class="tiny muted">${mode === 'day' ? html`Each bar is one day: <span style="color:var(--pass)">green</span> above break-even, <span style="color:var(--fail)">red</span> below, a thin red line = no sales. Below: what it spent.` : html`Each point is the last 7 days added up, so one bad day doesn't swing it. Use it to see the trend.`} Tap a day for numbers.${marks.some((m) => m.length) ? ' Shaded: holidays, sales or changes you logged.' : ''}</div>
-    <button class="link small" style="align-self:flex-start" onClick=${() => setTable(!table)}>${table ? 'Hide days' : 'Show each day'}</button>
+    ${tab === 'all' && html`<div class="mp-tiles">
+      <div class="mp-tile"><small>Lifetime ROAS</small><b class=${be && life.roas < be ? 'bad' : 'good'}>${R.xroas(life.roas)}</b><span>${R.money0(life.spend)} spent · ${life.purchases} buys</span></div>
+      <div class="mp-tile"><small>Ran</small><b>${spent.length} days</b><span>${R.shortDate(first)} to ${R.shortDate(spent[spent.length - 1])}</span></div>
+      <div class="mp-tile"><small>Best week</small><b class=${bestW && be && bestW.roas < be ? 'bad' : 'good'}>${bestW ? R.xroas(bestW.roas) : '—'}</b><span>${bestW ? 'week of ' + R.shortDate(bestW.w) : 'needs $20+ in a week'}</span></div>
+      <div class="mp-tile"><small>Worst week</small><b class=${worstW && be && worstW.roas >= be ? 'good' : 'bad'}>${worstW && weeksAll.length > 1 ? R.xroas(worstW.roas) : '—'}</b><span>${worstW && weeksAll.length > 1 ? 'week of ' + R.shortDate(worstW.w) : ''}</span></div>
+    </div>`}
+    <div class="tiny muted">${tab === 'all' ? `Line = estimated profit after ads, added up day by day. Up means it's making money, flat is break-even, down is losing. Trend looks at the last 2 weeks.` : 'Tap a bar for its numbers.'}${items.some((v) => v.marks.length) ? ' Shaded: holidays, sales or changes you logged.' : ''}</div>
+    ${tab === 'days' && html`<button class="link small" style="align-self:flex-start" onClick=${() => setTable(!table)}>${table ? 'Hide days' : 'Show each day'}</button>
     ${table && html`<div class="tscroll"><table class="t"><thead><tr><th>Day</th><th>Spend</th><th>Buys</th><th>Value</th><th>ROAS</th></tr></thead><tbody>
-      ${days.slice().reverse().map((v) => html`<tr><td>${longDate(v.d, showYear)}</td><td>${v.spend > 0 ? R.money(v.spend) : '—'}</td><td>${v.spend > 0 ? v.purchases : '—'}</td><td>${v.spend > 0 ? R.money(v.revenue) : '—'}</td><td>${v.spend > 0 ? R.xroas(v.roas) : '—'}</td></tr>`)}
-    </tbody></table></div>`}
+      ${items.slice().reverse().map((v) => html`<tr><td>${v.title}</td><td>${v.spend > 0 ? R.money(v.spend) : '—'}</td><td>${v.spend > 0 ? v.purchases : '—'}</td><td>${v.spend > 0 ? R.money(v.revenue) : '—'}</td><td>${v.spend > 0 ? R.xroas(v.roas) : '—'}</td></tr>`)}
+    </tbody></table></div>`}`}
   </div>`;
 }
 
