@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=90';
-import * as R from './rules.js?v=90';
-import { importHistory } from './importer.js?v=90';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=90';
+import { createBackend } from './data.js?v=91';
+import * as R from './rules.js?v=91';
+import { importHistory } from './importer.js?v=91';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=91';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1416,6 +1416,7 @@ function Today(ctx) {
     }
   }
 
+  { const td = R.today(), pm = monthKey(R.addDays(td.slice(0, 8) + '01', -1)); if (+td.slice(8) <= 5 && (data.meta_days.some((r) => r.day.startsWith(pm)) || goalPeriods(data).some((x) => x.to >= pm + '-01' && x.from <= monthEnd(pm)))) items.push({ kind: 'heads', tone: 'blue', title: `${MON_LONG[+pm.slice(5) - 1]}'s report card is ready`, sub: 'Profit, best and worst ad, what changed and one lesson. On the Goal page.', tag: 'REPORT', go: () => setView('goal') }); }
   for (const a of spendAlarms(data)) items.push({ ...a, go: a.adId ? () => setModal({ type: AdDetail, props: { adId: a.adId } }) : a.pid ? () => { setPid(a.pid); setView('board'); } : () => setView('stats') });
   const lastMeta = data.meta_days.reduce((m, r) => (r.day > m ? r.day : m), '');
   if (!lastMeta || lastMeta < R.addDays(R.today(), -1)) items.push({ kind: 'todo', tone: 'blue', title: lastMeta ? `Add yesterday's Ads Manager file (last one: ${lastMeta})` : 'Add your first Ads Manager file', sub: 'Keeps check-ins, fatigue warnings and Stats up to date.', tag: 'DAILY', go: () => setView('stats') });
@@ -2300,6 +2301,7 @@ function Goal(ctx) {
       ${!before.length && html`<div class="tiny muted">Want your months before October as a baseline? <button class="link tiny" onClick=${() => setModal({ type: PastMonthsForm, props: {} })}>Add past months</button></div>`}
       <div class="stages">${STAGES_GOAL.map((g) => html`<div class=${g === stage ? 'on' : ''}><b>${g.name}</b>${g.months}<br/>${R.money0(g.profit[0])}–${R.money0(g.profit[1])}/mo</div>`)}</div>
     </section>
+    <${ReportCard} data=${data} dm=${dm} months=${months} before=${before} />
     <div class="grid2">
       <section class="panel"><div class="row"><h2 style="margin:0">${stage.name} stage</h2><span class="spacer"></span><span class="tiny muted">${R.daysBetween(t, stage.to)} days left</span></div>
         ${stageOk && html`<div class="status good small"><b>Stage complete.</b> ${nextStage ? `${nextStage.name} is next.` : ''}</div>`}
@@ -2343,6 +2345,62 @@ function Goal(ctx) {
     </section>`;
 }
 // Add numbers for any dates: this week, last week, a month or custom.
+// Monthly report card: one finished month at a glance, with the month before for comparison.
+function monthReport(data, dm, ym) {
+  const a = ym + '-01', b = monthEnd(ym), pym = monthKey(R.addDays(a, -1));
+  const s0 = sumRange(dm, a, b), p0 = sumRange(dm, pym + '-01', monthEnd(pym));
+  const rows = data.meta_days.filter((r) => r.day >= a && r.day <= b);
+  const byAd = new Map();
+  for (const r of rows) { const k = normName(r.ad_name); const g = byAd.get(k) || { name: r.ad_name, rows: [] }; g.rows.push(r); byAd.set(k, g); }
+  const ads = [...byAd.values()].map((g) => { const t = sumRows(g.rows); const ad = data.ads.find((x) => normName(x.base_name) === normName(g.name)); return { name: ad ? displayName(ad) : g.name, ad, spend: t.spend, roas: t.spend ? t.revenue / t.spend : 0, buys: t.purchases, angle: ad && ad.angle }; }).filter((x) => x.spend >= 50).sort((x, y) => y.roas - x.roas);
+  const meta = sumRows(rows);
+  const tests = data.tests.filter((t) => t.stage === 1 && t.start_date >= a && t.start_date <= b);
+  const passed = tests.filter((t) => ['pass', 'strong_pass'].includes(t.result)).length, failed = tests.filter((t) => t.result === 'fail').length;
+  const dIn = (d) => { const x = String(d.day || d.created_at || '').slice(0, 10); return x >= a && x <= b; };
+  const changes = [
+    ...data.events.filter(dIn).map((e) => `${R.shortDate(e.day)} ${e.kind}${e.note ? ': ' + e.note : ''}`),
+    ...data.decisions.filter((d) => dIn(d) && d.kind === 'budget').map((d) => `${R.shortDate(String(d.day || d.created_at).slice(0, 10))} ${d.choice}`),
+    ...data.decisions.filter((d) => dIn(d) && d.kind === 'move' && /Main/.test(d.choice || '') && !/Turned off/.test(d.choice || '')).map((d) => { const ad = data.ads.find((x) => x.id === d.ad_id); return `${R.shortDate(String(d.day || d.created_at).slice(0, 10))} ${ad ? displayName(ad) : 'An ad'} into Main`; }),
+    ...data.decisions.filter((d) => dIn(d) && d.kind === 'kill' && /Main/.test(d.choice || '')).map((d) => { const ad = data.ads.find((x) => x.id === d.ad_id); return `${R.shortDate(String(d.day || d.created_at).slice(0, 10))} ${ad ? displayName(ad) : 'An ad'} out of Main`; }),
+  ];
+  // Angles with real spend this month
+  const ang = {}; for (const x of ads) if (x.angle) { const g = ang[x.angle] || (ang[x.angle] = { spend: 0, rev: 0 }); g.spend += x.spend; g.rev += x.roas * x.spend; }
+  const angles = Object.entries(ang).filter(([, g]) => g.spend >= 100).map(([k, g]) => ({ k, roas: g.rev / g.spend, spend: g.spend })).sort((x, y) => y.roas - x.roas);
+  const be0 = R.econOf(data.products.find((p) => p.kind === 'crew') || data.products[0]).opBE || 2.85;
+  let lesson;
+  if (!s0.days && !meta.spend) lesson = null;
+  else if (s0.days && s0.spend && s0.rev / s0.spend < be0) lesson = `The store took in ${R.xroas(s0.rev / s0.spend)} of ad spend, under break-even (${R.xroas(be0)}). Fix the ads before spending more: swap weak Main ads and keep the Bench full.`;
+  else if (angles.length >= 2 && angles[0].roas >= angles[angles.length - 1].roas * 1.3) lesson = `"${angles[0].k}" did best (${R.xroas(angles[0].roas)} on ${R.money0(angles[0].spend)}) and "${angles[angles.length - 1].k}" worst (${R.xroas(angles[angles.length - 1].roas)}). Lead next month's tests with ${angles[0].k}.`;
+  else if (tests.length >= 3 && passed === 0) lesson = `${tests.length} tests, none passed. Try a different angle or concept before testing more of the same.`;
+  else if (s0.days && p0.days && s0.profit < p0.profit && s0.spend > p0.spend * 1.15) lesson = `You spent ${Math.round((s0.spend / p0.spend - 1) * 100)}% more on ads than the month before but made less. Scale slower: one 20% raise at a time, 3 days apart.`;
+  else if (ads[0]) lesson = `Best ad: ${ads[0].name} (${R.xroas(ads[0].roas)}). Make more like it: same angle, new visuals.`;
+  return { ym, s0, p0, meta, ads, best: ads[0], worst: ads.length > 1 ? ads[ads.length - 1] : null, tests: tests.length, passed, failed, changes, lesson };
+}
+function ReportCard({ data, dm, months, before }) {
+  const t = R.today(), cur = monthKey(t);
+  const opts = [...before.filter((m) => !m.block).map((m) => m.ym), ...months.map((m) => m.ym)].filter((ym) => ym < cur && (sumRange(dm, ym + '-01', monthEnd(ym)).days || data.meta_days.some((r) => r.day.startsWith(ym))));
+  const [sel, setSel] = useState(null);
+  const [open, setOpen] = useState(() => { try { return localStorage.getItem('adlab-report') !== '0'; } catch (e) { return true; } });
+  if (!opts.length) return null;
+  const ym = sel && opts.includes(sel) ? sel : opts[opts.length - 1];
+  const r = monthReport(data, dm, ym), g = months.find((m) => m.ym === ym);
+  const name = (k) => `${MON_LONG[+k.slice(5) - 1]} ${k.slice(0, 4)}`;
+  const flip = () => { setOpen(!open); try { localStorage.setItem('adlab-report', open ? '0' : '1'); } catch (e) {} };
+  const D = (now, prev, fmt, goodUp = true) => (prev ? html` <span class=${'tiny ' + ((now >= prev) === goodUp ? 'good' : 'bad')}>${now >= prev ? '↑' : '↓'} from ${fmt(prev)}</span>` : '');
+  const grade = !g || g.actual == null ? null : g.status;
+  return html`<section class="panel"><div class="row" style="gap:8px;flex-wrap:wrap"><h2 style="margin:0">Report card</h2><select value=${ym} onChange=${(e) => setSel(e.target.value)}>${opts.slice().reverse().map((k) => html`<option value=${k}>${name(k)}</option>`)}</select><span class="spacer"></span><button class="link small" onClick=${flip}>${open ? 'Hide' : 'Show'}</button></div>
+    ${!open ? html`<div class="small muted">${name(ym)} at a glance: profit, best and worst ad, what changed, one lesson.</div>` : html`
+    <div class="mp-tiles">
+      <div class="mp-tile"><small>Profit</small><b class=${grade === 'hit' || grade === 'crushed' ? 'good' : grade === 'missed' ? 'bad' : ''}>${r.s0.days ? R.money0(r.s0.profit) : '—'}</b><span>${g ? `Goal ${R.money0(g.lo)}–${R.money0(g.hi)}${grade ? ' · ' + ({ hit: 'Hit', crushed: 'Crushed it', close: 'Close', missed: 'Missed' }[grade] || '') : ''}` : 'Before the plan'}${r.s0.days && r.p0.days ? html` · ${D(r.s0.profit, r.p0.profit, R.money0)}` : ''}</span>${r.s0.days && r.s0.days < R.daysBetween(ym + '-01', monthEnd(ym)) + 1 ? html`<span>Numbers for ${r.s0.days} days only</span>` : ''}</div>
+      <div class="mp-tile"><small>Sales · ads</small><b>${r.s0.days ? R.money0(r.s0.rev) : '—'}</b><span>${r.s0.days ? html`Ads ${R.money0(r.s0.spend)} · ${r.s0.spend ? R.xroas(r.s0.rev / r.s0.spend) : '—'} blended${D(r.s0.spend ? r.s0.rev / r.s0.spend : 0, r.p0.spend ? r.p0.rev / r.p0.spend : 0, (v) => R.xroas(v))}` : r.meta.spend ? `Meta: ${R.money0(r.meta.spend)} spent, ${R.xroas(r.meta.revenue / r.meta.spend)}` : 'No numbers'}</span><span>${r.s0.orders ? `${Math.round(r.s0.orders)} orders · ${R.money(r.s0.rev / r.s0.orders)} average` : ''}</span></div>
+      <div class="mp-tile"><small>Best ad</small>${r.best ? html`<b class="good">${R.xroas(r.best.roas)}</b><span>${r.best.name.slice(0, 40)}</span><span>${R.money0(r.best.spend)} spent · ${r.best.buys} buy${r.best.buys === 1 ? '' : 's'}</span>` : html`<span>Not enough spend</span>`}</div>
+      <div class="mp-tile"><small>Worst ad</small>${r.worst ? html`<b class="bad">${R.xroas(r.worst.roas)}</b><span>${r.worst.name.slice(0, 40)}</span><span>${R.money0(r.worst.spend)} spent · ${r.worst.buys} buy${r.worst.buys === 1 ? '' : 's'}</span>` : html`<span>Only one ad with $50+ spend</span>`}</div>
+    </div>
+    <div class="small"><b>Tests:</b> ${r.tests ? `${r.tests} launched · ${r.passed} passed · ${r.failed} failed` : 'none launched'}</div>
+    <div class="small"><b>What changed:</b> ${r.changes.length ? r.changes.slice(0, 6).join(' · ') + (r.changes.length > 6 ? ` · +${r.changes.length - 6} more` : '') : 'nothing logged'}</div>
+    ${r.lesson && html`<div class="status live small"><b>Lesson:</b> ${r.lesson}</div>`}`}
+  </section>`;
+}
 // Your real cost per order, entry by entry, from the numbers you typed (never from estimates).
 // Each row is compared with the one before it; Rules gets a one-tap update when the recent average drifts.
 function CostTrend({ periods, reload, say }) {
