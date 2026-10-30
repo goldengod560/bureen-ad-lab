@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=92';
-import * as R from './rules.js?v=92';
-import { importHistory } from './importer.js?v=92';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=92';
+import { createBackend } from './data.js?v=93';
+import * as R from './rules.js?v=93';
+import { importHistory } from './importer.js?v=93';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=93';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -905,7 +905,8 @@ function AdDetail(ctx) {
           <select class="inp" style="width:auto;min-height:36px" value=${ad.stage} onChange=${(e) => (e.target.value === 'testing' && !active ? open(LaunchForm) : move(e.target.value, 'Moved by hand'))}>
             ${[...R.STAGES, ...R.SHELVES].map((s) => html`<option value=${s.key}>${s.label}</option>`)}</select></label></div>
         ${(ad.headline || ad.primary_text || ad.offer || ad.notes) && html`<div class="panel">
-          ${ad.offer && html`<div class="small"><span class="muted">Offer:</span> ${ad.offer}</div>`}
+          ${ad.offer && html`<div class="small"><span class="muted">Offer:</span> ${offerOf(ad)}</div>`}
+          <div class="small"><span class="muted">Hook:</span> ${hookOf(ad)}${(ad.tags || {}).hook ? '' : html` <span class="tiny muted">(from the name)</span>`}</div>
           ${ad.headline && html`<div class="small"><span class="muted">Headline:</span> ${ad.headline}</div>`}
           ${ad.primary_text && html`<div class="small" style="white-space:pre-wrap"><span class="muted">Primary text:</span> ${ad.primary_text}</div>`}
           ${ad.notes && html`<div class="small" style="white-space:pre-wrap"><span class="muted">Notes:</span> ${ad.notes}</div>`}</div>`}
@@ -1001,8 +1002,8 @@ function AdForm(ctx) {
   const src = adId ? data.ads.find((a) => a.id === adId) : null;
   const bumpV = (n) => /V\d+\s*$/i.test(n) ? n.replace(/V(\d+)\s*$/i, (_, d) => 'V' + (+d + 1)) : n + ' | V2';
   const init = mode === 'new'
-    ? { base_name: '', short: '', variant: '', v: 1, format: 'image', angle: '', offer: '$6 per shirt · 6 for $36 · Free shipping', headline: '', primary_text: '', notes: '', concept: '' }
-    : { ...src, short: '', variant: '', base_name: mode === 'version' ? bumpV(src.base_name) : src.base_name, notes: mode === 'version' ? (recycle ? 'Recycled. The fix: ' : 'What changed: ') : src.notes };
+    ? { base_name: '', short: '', variant: '', v: 1, format: 'image', angle: '', offer: OFFERS[0], headline: '', primary_text: '', notes: '', concept: '', hook: '' }
+    : { ...src, offer: offerOf(src), hook: (src.tags || {}).hook || '', short: '', variant: '', base_name: mode === 'version' ? bumpV(src.base_name) : src.base_name, notes: mode === 'version' ? (recycle ? 'Recycled. The fix: ' : 'What changed: ') : src.notes };
   const [f, setF] = useState({ ...init, product_id: src ? src.product_id : product.id }); const [file, setFile] = useState(null); const [story, setStory] = useState(null); const [busy, setBusy] = useState(false); const [upNext, setUpNext] = useState(false);
   const hasStory = src && ((src.tags || {}).files || []).some((x) => x.label === '9:16');
   const [custom, setCustom] = useState(mode !== 'new');
@@ -1028,6 +1029,7 @@ function AdForm(ctx) {
         const sp = await be.upload(`${pidUse}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}-916.${extOf(story)}`, story);
         tags.files = [...(tags.files || []).filter((x) => x.label !== '9:16'), { path: sp, type: story.type, label: '9:16' }];
       }
+      if ((f.hook || '').trim()) tags.hook = f.hook.trim(); else delete tags.hook;
       const row = { base_name: name.trim(), format: f.format, angle: f.angle || null, offer: f.offer, headline: f.headline, primary_text: f.primary_text, notes: f.notes, concept: f.concept || null, media_path, media_type, tags };
       if (mode === 'edit') { await be.update('ads', src.id, { ...row, product_id: f.product_id }); await reload(); close(); say(f.product_id !== src.product_id ? 'Moved to ' + ((data.products.find((p) => p.id === f.product_id) || {}).name || 'other product') : 'Saved'); return; }
       if (upNext) row.tags = { ...(row.tags || {}), queue: Date.now() };
@@ -1051,9 +1053,10 @@ function AdForm(ctx) {
       <div class="full pickpair"><div><div class="tiny muted" style="margin-bottom:6px">Angle: what it says</div><${AnglePicker} value=${f.angle} onPick=${(v) => setF({ ...f, angle: v })} product=${data.products.find((p) => p.id === f.product_id) || product} reload=${reload} say=${say} /></div>
       <div><div class="tiny muted" style="margin-bottom:6px">Concept: what it shows</div><${ConceptPicker} value=${f.concept || ''} onPick=${(v) => setF({ ...f, concept: v })} product=${data.products.find((p) => p.id === f.product_id) || product} data=${data} reload=${reload} say=${say} />
         ${cs && cs.counted > 0 && html`<div class="tiny muted" style="margin-top:6px">${f.concept}: ${cs.won} of ${cs.counted} worked since Era 1.</div>`}</div></div>
-      <button type="button" class="link small full" style="text-align:left" onClick=${() => setMore(!more)}>${more ? '− Fewer details' : '+ More details (offer, headline, text, notes)'}</button>
+      <button type="button" class="link small full" style="text-align:left" onClick=${() => setMore(!more)}>${more ? '− Fewer details' : '+ More details (offer, hook, headline, text, notes)'}</button>
       ${more && html`
-        <${Field} full label="Offer"><input value=${f.offer || ''} onInput=${set('offer')} /><//>
+        <${Field} label="Offer"><select value=${f.offer || OFFERS[0]} onChange=${set('offer')}>${OFFERS.map((o) => html`<option value=${o}>${o}</option>`)}</select><//>
+        <${Field} label="Hook (the words people see first)"><input value=${f.hook || ''} onInput=${set('hook')} placeholder=${hookOf({ base_name: name, tags: {} })} /><//>
         <${Field} full label="Headline"><input value=${f.headline || ''} onInput=${set('headline')} /><//>
         <${Field} full label="Primary text"><textarea value=${f.primary_text || ''} onInput=${set('primary_text')}></textarea><//>
         <${Field} full label="Notes"><textarea value=${f.notes || ''} onInput=${set('notes')}></textarea><//>`}
@@ -1467,7 +1470,8 @@ function summarize(list, data, withEra1) {
   const b = {}; BUCKETS.forEach(([k]) => { b[k] = []; });
   list.forEach((a) => { const hit = BUCKETS.find(([, , , fn]) => fn(a)); b[hit[0]].push(a); });
   const cnt = {}; BUCKETS.forEach(([k, , , fn]) => { cnt[k] = counted.filter((a) => BUCKETS.find(([, , , f]) => f(a))[0] === k).length; });
-  const tot = counted.reduce((s, a) => { const n = adNumbers(a, data); return { spend: s.spend + n.spend, buys: s.buys + n.buys, rev: s.rev + n.rev }; }, { spend: 0, buys: 0, rev: 0 });
+  // Same numbers as the cards: your Ads Manager files when they cover more, otherwise imported history and check-ins.
+  const tot = counted.reduce((s, a) => { const q = quickStats(a, data); return q ? { spend: s.spend + q.spend, buys: s.buys + (q.buys || 0), rev: s.rev + (q.roas || 0) * q.spend } : s; }, { spend: 0, buys: 0, rev: 0 });
   const judged = cnt.worked + cnt.exhausted + cnt.mid + cnt.failed;
   return { b, cnt, tot, roas: tot.spend ? tot.rev / tot.spend : null, cpa: tot.buys ? tot.spend / tot.buys : null, winRate: judged ? (cnt.worked + cnt.exhausted) / judged : null, judged, hidden: list.length - counted.length };
 }
@@ -1482,21 +1486,44 @@ function QuickSet({ list, field, data, reload, say, product: ctxProduct }) {
         : html`<select class="inp" style="max-width:220px;min-height:34px" value="" onChange=${(e) => e.target.value === '__new' ? setCustom({ ...custom, [ad.id]: '' }) : setIt(ad, e.target.value)}><option value="">Choose…</option>${opts.map((o) => html`<option value=${o}>${o}</option>`)}<option value="__new">+ New ${field}…</option></select>`}</div>`)}</div></section>`;
 }
 
+// Hook = the words people see first (the on-image text or opening line). Set it on the ad, or it's read from the name:
+// "IMG | Crew | Why Sada | Olive | V1" → "Why Sada".
+const HOOK_SKIP = /^(img|image|vid|video|car|carousel|crew|crew neck|v-?neck|ls|long sleeve|tank|tank top|thermal|v\d+|\d{1,2}[-/]\d{1,2}|(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]* \d{1,2}|olive|navy|black|white|grey|gray|heather|mix|color mix|9x16|1x1|stories|feed)$/i;
+function hookOf(ad) {
+  const t = ((ad.tags || {}).hook || '').trim(); if (t) return t;
+  const parts = String(ad.base_name || '').split('|').map((x) => x.trim()).filter(Boolean);
+  if (parts.length > 1) { const keep = parts.filter((x) => !HOOK_SKIP.test(x)); if (keep.length) return keep[0]; }
+  return String(ad.base_name || '').replace(/^(img|image|vid|video)\s*[–|-]\s*/i, '').replace(/\s*[|–-]\s*V\d+\s*$/i, '').trim() || 'No name';
+}
+// Offer: one of a short fixed list, so results compare. Older free-text offers are read into the list.
+const OFFERS = ['Standard: $6 each, free shipping', 'Bundle deal (10% / 15% off)', 'Sale / % off', 'Black Friday / holiday', 'Free gift', 'Other'];
+function offerOf(ad) {
+  const o = String(ad.offer || '').trim();
+  if (OFFERS.includes(o)) return o;
+  if (/black friday|bfcm|cyber|holiday|christmas/i.test(o)) return OFFERS[3];
+  if (/bundle|2 packs|3 packs|10%|15%/i.test(o)) return OFFERS[1];
+  if (/% off|sale|discount/i.test(o)) return OFFERS[2];
+  if (/gift|free \w+ with/i.test(o)) return OFFERS[4];
+  return OFFERS[0];
+}
 function Angles(ctx) {
   const { data, product } = ctx;
   const [by, setBy] = useState('angle');
   const [sel, setSel] = useState(null);
   const [era1, setEra1] = useState(false);
   const ads = data.ads.filter((a) => a.product_id === product.id && a.stage !== 'retired');
-  const keyOf = (a) => ((by === 'angle' ? a.angle : a.concept) || '').trim();
+  const keyOf = (a) => (by === 'hook' ? hookOf(a) : by === 'offer' ? offerOf(a) : ((by === 'angle' ? a.angle : a.concept) || '').trim());
+  const ranked = by === 'hook' || by === 'offer';
   const groups = {};
   ads.forEach((a) => { const k = keyOf(a) || '__none'; (groups[k] = groups[k] || []).push(a); });
   const rows = Object.entries(groups).map(([k, list]) => ({ k, label: k === '__none' ? 'Not set' : k, list, s: summarize(list, data, era1) }))
-    .sort((x, y) => (x.k === '__none') - (y.k === '__none') || (y.s.cnt.worked + y.s.cnt.exhausted) - (x.s.cnt.worked + x.s.cnt.exhausted) || y.s.tot.spend - x.s.tot.spend);
-  const what = by === 'angle' ? 'angle' : 'concept';
-  const head = html`<div class="row"><h1 style="font-size:30px">${by === 'angle' ? 'Angles' : 'Concepts'} · ${product.name}</h1><span class="spacer"></span>
-    <div class="seg" role="group" aria-label="Group by"><button class=${by === 'angle' ? 'on' : ''} onClick=${() => { setBy('angle'); setSel(null); }}>By angle</button><button class=${by === 'concept' ? 'on' : ''} onClick=${() => { setBy('concept'); setSel(null); }}>By concept</button></div></div>
-    <div class="row small muted" style="margin-top:-6px"><span>${by === 'angle' ? 'Angle = the message ($6 per shirt, lifestyle, pack value).' : 'Concept = the creative itself (same footage or shot, different text).'}</span><span class="spacer"></span>
+    .sort((x, y) => (x.k === '__none') - (y.k === '__none') || (ranked ? ((y.s.tot.spend >= 50) - (x.s.tot.spend >= 50) || (y.s.roas || 0) - (x.s.roas || 0)) : 0) || (y.s.cnt.worked + y.s.cnt.exhausted) - (x.s.cnt.worked + x.s.cnt.exhausted) || y.s.tot.spend - x.s.tot.spend);
+  const what = by;
+  const TITLE = { angle: 'Angles', concept: 'Concepts', hook: 'Hooks', offer: 'Offers' };
+  const EXPLAIN = { angle: 'Angle = the message ($6 per shirt, lifestyle, pack value).', concept: 'Concept = the creative itself (same footage or shot, different text).', hook: 'Hook = the words people see first. Read from the ad name, or set it on the ad. Ranked by ROAS (ads with $50+ spend first).', offer: 'Offer = the deal in the ad. Set it on the ad (Edit → More details). Ranked by ROAS.' };
+  const head = html`<div class="row" style="flex-wrap:wrap"><h1 style="font-size:30px">${TITLE[by]} · ${product.name}</h1><span class="spacer"></span>
+    <div class="seg" role="group" aria-label="Group by">${['angle', 'concept', 'hook', 'offer'].map((k) => html`<button class=${by === k ? 'on' : ''} onClick=${() => { setBy(k); setSel(null); }}>By ${k}</button>`)}</div></div>
+    <div class="row small muted" style="margin-top:-6px"><span>${EXPLAIN[by]}</span><span class="spacer"></span>
       <label class="chk" style="margin:0"><input type="checkbox" checked=${era1} onChange=${(e) => setEra1(e.target.checked)} /> Count Era 1 in totals</label></div>`;
   const cur = sel && rows.find((r) => r.k === sel);
   if (cur) {
@@ -1509,14 +1536,14 @@ function Angles(ctx) {
         <div class="tile"><div class="k">ROAS</div><div class="v">${R.xroas(s.roas)}</div><div class="s">${R.money(s.cpa)} CPA</div></div>
         <div class="tile"><div class="k">Spend</div><div class="v">${R.money0(s.tot.spend)}</div><div class="s">${Math.round(s.tot.buys)} purchases</div></div>
       </section>
-      ${cur.k === '__none' && html`<${QuickSet} list=${cur.list} field=${by} ...${ctx} />`}
+      ${cur.k === '__none' && !ranked && html`<${QuickSet} list=${cur.list} field=${by} ...${ctx} />`}
       ${BUCKETS.map(([k, label, tone]) => s.b[k].length > 0 && html`<section class="panel"><div class="row"><h2>${label}</h2><span class=${'chip t-' + tone}>${s.b[k].length}</span></div>
         <div class="shelf">${s.b[k].map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${ctx} />`)}</div></section>`)}`;
   }
   return html`${head}
     ${rows.length ? html`<div class="angles">${rows.map((r) => { const s = r.s; const total = BUCKETS.reduce((n, [k]) => n + s.b[k].length, 0);
       return html`<button class=${'angle' + (r.k === '__none' ? ' none' : '')} onClick=${() => setSel(r.k)}>
-        <span class="row" style="gap:6px"><b>${r.label}</b><span class="spacer"></span><span class="mono small muted">${r.list.length} ad${r.list.length === 1 ? '' : 's'}</span></span>
+        <span class="row" style="gap:6px">${ranked && r.s.tot.spend >= 50 ? html`<span class="mono small muted">#${rows.filter((z) => z.s.tot.spend >= 50).indexOf(r) + 1}</span>` : ''}<b>${r.label}</b><span class="spacer"></span><span class="mono small muted">${r.list.length} ad${r.list.length === 1 ? '' : 's'}</span></span>
         <span class="abar">${BUCKETS.map(([k, , tone]) => s.b[k].length > 0 && html`<i class=${'b-' + tone} style=${`flex:${s.b[k].length}`} title=${k}></i>`)}</span>
         <span class="small">${s.b.worked.length + s.b.exhausted.length} worked · ${s.b.mid.length} mid · ${s.b.failed.length} failed${s.b.open.length ? ` · ${s.b.open.length} untested` : ''}${s.b.seasonal.length ? ` · ${s.b.seasonal.length} seasonal` : ''}</span>
         <span class="mono small muted">${s.tot.spend ? `${R.xroas(s.roas)} · ${R.money0(s.tot.spend)} spent` : 'No spend counted'}${s.hidden ? ` · ${s.hidden} Era 1 not counted` : ''}</span>
