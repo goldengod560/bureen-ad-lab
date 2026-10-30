@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=108';
-import * as R from './rules.js?v=108';
-import { importHistory } from './importer.js?v=108';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=108';
+import { createBackend } from './data.js?v=109';
+import * as R from './rules.js?v=109';
+import { importHistory } from './importer.js?v=109';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=109';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2607,7 +2607,7 @@ function CostTrend({ periods, reload, say }) {
   const st = R.storeEcon();
   const [open, setOpen] = useState(() => { try { return localStorage.getItem('adlab-costs') !== '0'; } catch (e) { return true; } });
   const flip = () => { setOpen(!open); try { localStorage.setItem('adlab-costs', open ? '0' : '1'); } catch (e) {} };
-  const rows = periods.filter((x) => x.revType === 'net' && x.orders > 0 && x.exact == null && (x.labels != null || x.packaging != null || x.fees != null || x.cogs != null)).map((x) => {
+  const rows = periods.filter((x) => x.revType === 'net' && x.orders > 0 && x.exact == null && (x.labels != null || x.fees != null || x.cogs != null)).map((x) => {
     const sales = x.rev + (x.shipIn || 0) + (x.retFees || 0);
     const label = x.from.slice(8) === '01' && x.to === monthEnd(monthKey(x.from)) ? `${MON_LONG[+x.from.slice(5, 7) - 1].slice(0, 3)} ${x.from.slice(0, 4)}` : `${R.shortDate(x.from)} to ${R.shortDate(x.to)}`;
     return { x, label, orders: x.orders, ship: x.labels != null ? x.labels / x.orders : null, pack: x.packaging != null ? x.packaging / x.orders : null,
@@ -2621,16 +2621,15 @@ function CostTrend({ periods, reload, say }) {
   const sug = [];
   const a = avg('ship'), b = avg('pack'), f = avg('fee');
   if (a && Math.abs(a.v - (R.num(st.ship) || 7.6)) / (R.num(st.ship) || 7.6) > 0.03) sug.push({ k: 'ship', v: Math.round(a.v * 100) / 100, text: `Shipping labels averaged ${R.money(a.v)} per order (${a.n === 1 ? 'last entry' : `last ${a.n} entries`}). Rules says ${R.money(R.num(st.ship) || 7.6)}.` });
-  if (b && Math.abs(b.v - (R.num(st.pack) || 0.6)) / (R.num(st.pack) || 0.6) > 0.1) sug.push({ k: 'pack', v: Math.round(b.v * 100) / 100, text: `Packaging averaged ${R.money(b.v)} per order. Rules says ${R.money(R.num(st.pack) || 0.6)}.` });
   if (f && f.v > 0 && Math.abs(f.v - (R.num(st.feePct) || 2.9)) > 0.15) sug.push({ k: 'feePct', v: Math.round(f.v * 100) / 100, text: `Payment fees came to ${f.v.toFixed(2)}% + 30¢. Rules says ${(R.num(st.feePct) || 2.9).toFixed(2)}%.` });
   const apply = async (x) => { const next = { ...st, [x.k]: x.v }; await be.saveStore(next); R.setStoreEcon(next); await reload(); say('Rules updated'); };
   const cell = (r, i, k, fmt) => html`<td class="mono">${r[k] == null ? html`<span class="muted">—</span>` : fmt(r[k])}${cmp(r[k], last(k, i), k)}</td>`;
   return html`<section class="panel"><div class="row"><h2 style="margin:0">Costs per order</h2><span class="spacer"></span><button class="link small" onClick=${flip}>${open ? 'Hide' : 'Show'}</button></div>
-    ${!open ? html`<div class="small muted">Your real shipping, packaging, fees and product cost per order, month by month.</div>` : html`
+    ${!open ? html`<div class="small muted">Your real shipping, fees and product cost per order, month by month.</div>` : html`
       ${sug.map((x) => html`<div class="status live small row" style="gap:8px;flex-wrap:wrap"><span class="grow">${x.text}</span><button class="btn sm" onClick=${() => apply(x)}>Update Rules to ${x.k === 'feePct' ? x.v + '%' : R.money(x.v)}</button></div>`)}
-      <div class="tscroll"><table class="t"><thead><tr><th>Dates</th><th>Orders</th><th>Shipping / order</th><th>Packaging / order</th><th>Fees</th><th>Product cost</th></tr></thead><tbody>
-        ${rows.slice().reverse().map((r) => { const i = rows.indexOf(r); return html`<tr><td class="mono">${r.label}</td><td>${r.orders}</td>${cell(r, i, 'ship', R.money)}${cell(r, i, 'pack', R.money)}${cell(r, i, 'fee', (v) => v.toFixed(2) + '%')}${cell(r, i, 'cogs', (v) => html`${v.toFixed(0)}% of sales${r.costFinal ? '' : html` <span class="tiny muted">est.</span>`}`)}</tr>`; })}
-        <tr><td class="muted">Rules use</td><td></td><td class="mono muted">${R.money(R.num(st.ship) || 7.6)}</td><td class="mono muted">${R.money(R.num(st.pack) || 0.6)}</td><td class="mono muted">${(R.num(st.feePct) || 2.9).toFixed(2)}%</td><td class="muted tiny">per product in Rules</td></tr>
+      <div class="tscroll"><table class="t"><thead><tr><th>Dates</th><th>Orders</th><th>Shipping / order</th><th>Fees</th><th>Product cost</th></tr></thead><tbody>
+        ${rows.slice().reverse().map((r) => { const i = rows.indexOf(r); return html`<tr><td class="mono">${r.label}</td><td>${r.orders}</td>${cell(r, i, 'ship', R.money)}${cell(r, i, 'fee', (v) => v.toFixed(2) + '%')}${cell(r, i, 'cogs', (v) => html`${v.toFixed(0)}% of sales${r.costFinal ? '' : html` <span class="tiny muted">est.</span>`}`)}</tr>`; })}
+        <tr><td class="muted">Rules use</td><td></td><td class="mono muted">${R.money(R.num(st.ship) || 7.6)}</td><td class="mono muted">${(R.num(st.feePct) || 2.9).toFixed(2)}%</td><td class="muted tiny">per product in Rules</td></tr>
       </tbody></table></div>
       <div class="tiny muted">Only numbers you typed count. ↓ / ↑ compares with the entry before. Fees: the % part after 30¢ an order.</div>`}
   </section>`;
