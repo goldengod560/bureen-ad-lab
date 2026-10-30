@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=105';
-import * as R from './rules.js?v=105';
-import { importHistory } from './importer.js?v=105';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=105';
+import { createBackend } from './data.js?v=106';
+import * as R from './rules.js?v=106';
+import { importHistory } from './importer.js?v=106';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=106';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1753,6 +1753,13 @@ function TrendPanel({ ad, data, product }) {
   const life = sumRows(rows), lifeProfit = profitOf(life);
   const weeksAll = (() => { const mon = (d) => R.addDays(d, -((R.parseDay(d).getDay() + 6) % 7)); const out = []; for (let w = mon(first); w <= last; w = R.addDays(w, 7)) { const t = { spend: 0, revenue: 0 }; for (let k = 0; k < 7; k++) { const d = R.addDays(w, k); if (d > last) break; const u = dayOf(d); t.spend += u.spend; t.revenue += u.revenue; } if (t.spend >= 20) out.push({ w, roas: t.revenue / t.spend }); } return out; })();
   const bestW = weeksAll.slice().sort((a, b) => b.roas - a.roas)[0], worstW = weeksAll.slice().sort((a, b) => a.roas - b.roas)[0];
+  // Trend in plain words, from its weekly ROAS (weeks with $20+ spend): going up, going down, up and down, or stable.
+  const wTrend = (() => { const r = weeksAll.map((x) => x.roas); if (r.length < 3) return { label: 'Too new to tell', tone: 'muted', why: 'Needs 3 weeks with spend.' };
+    const m = r.reduce((a, b) => a + b, 0) / r.length, k = r.length, mx = (k - 1) / 2;
+    const slope = r.reduce((t, v, i) => t + (i - mx) * (v - m), 0) / (r.reduce((t, v, i) => t + (i - mx) ** 2, 0) || 1);
+    const vol = Math.sqrt(r.reduce((t, v) => t + (v - m) ** 2, 0) / k) / (m || 1), rel = slope / (m || 1);
+    const why = `Weekly ROAS: ${r.slice(-6).map((v) => v.toFixed(1)).join(' → ')}`;
+    return rel <= -0.08 ? { label: 'Going down', tone: 'fail', why } : rel >= 0.08 ? { label: 'Going up', tone: 'pass', why } : vol > 0.3 ? { label: 'Up and down', tone: 'mid', why } : { label: 'Stable', tone: 'pass', why }; })();
   const trend = (() => { if (tab !== 'all' || n < 7) return null; const k = Math.min(14, n - 1); const d14 = items[n - 1].cum - items[n - 1 - k].cum; let s14 = 0; for (let i = n - k; i < n; i++) s14 += items[i].spend; if (s14 < 20) return { label: 'Not running lately', tone: 'muted' }; const r = d14 / s14; return r >= 0.1 ? { label: 'Rising', tone: 'pass' } : r >= -0.05 ? { label: 'Steady', tone: 'live' } : r >= -0.2 ? { label: 'Slipping', tone: 'mid' } : { label: 'Falling', tone: 'fail' }; })();
   // ----- geometry (real pixels) -----
   const L = 44, Rt = 8, T1 = 10, H1 = kind === 'line' ? 170 : 120, G = 18, H2 = kind === 'line' ? 0 : 64, B = 22, H = T1 + H1 + (H2 ? G + H2 : 0) + B;
@@ -1778,10 +1785,10 @@ function TrendPanel({ ad, data, product }) {
   return html`<div class="panel">
     <div class="row" style="gap:8px;flex-wrap:wrap"><h2 style="margin:0">Performance</h2><span class="spacer"></span>
       <div class="seg sm" role="group" aria-label="View">${[['days', 'Days'], ['weeks', 'Weeks'], ['all', 'All time']].map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => setTab(k)}>${l}</button>`)}</div></div>
-    ${tab === 'all' && (() => { const gr = adGrade(ad, data, product); return html`<div class="row" style="gap:10px;align-items:center"><span class=${'gbadge big t-' + gradeTone(gr && gr.g)}>${gr && gr.g ? gr.g : '—'}</span><span class="small">${gradeAdvice(gr, ad)}</span></div>`; })()}
-    ${tab === 'all' && html`<div class="row" style="gap:10px;align-items:baseline;flex-wrap:wrap"><span style="font-size:22px;font-weight:700" class=${lifeProfit >= 0 ? 'good' : 'bad'}>${lifeProfit >= 0 ? 'Made' : 'Lost'} about ${R.money0(Math.abs(lifeProfit))}</span><span class="small muted">so far, after ads (est.)</span>${trend && html`<span class=${'chip t-' + trend.tone}>${trend.label}</span>`}</div>`}
+    ${tab === 'all' && (() => { const gr = adGrade(ad, data, product); return html`<div class="row" style="gap:10px;align-items:center"><span class=${'gbadge big t-' + gradeTone(gr && gr.g)}>${gr && gr.g ? gr.g : '—'}</span><span class="small">${gradeAdvice(gr, ad)}${gr && gr.g && ['main', 'bench'].includes(ad.stage) && wTrend.label === 'Going down' ? ' Heads up: it\'s going down week by week, so have its replacement ready.' : ''}</span></div>`; })()}
+    ${tab === 'all' && html`<div class="row" style="gap:10px;align-items:center;flex-wrap:wrap"><span class="small muted">Trend</span><span class=${'chip t-' + wTrend.tone}>${wTrend.label}</span><span class="tiny muted">${wTrend.why}</span></div>`}
     <div class="small" style="min-height:20px">${info}</div>
-    <div class="chart" ref=${box}>
+    <div class="chart" ref=${box} style=${tab === 'all' ? 'display:none' : ''}>
       <svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${pick} onPointerDown=${pick} onPointerLeave=${() => setHi(null)} role="img" aria-label=${tab === 'all' ? 'Profit so far' : 'ROAS and spend'}>
         ${items.map((v, i) => v.marks.length > 0 && html`<rect x=${x(i) - step / 2} y=${T1} width=${step} height=${H - B - T1} fill="var(--mid)" opacity=${tab === 'weeks' ? 0.05 : 0.10} />`)}
         ${ticks.map(([v, t]) => html`<line x1=${L} x2=${W - Rt} y1=${yV(v)} y2=${yV(v)} class=${v === 0 && kind === 'line' ? 'ref' : 'grid'} /><text x=${L - 6} y=${yV(v) + 4} class="ax" text-anchor="end">${t}</text>`)}
@@ -1803,7 +1810,7 @@ function TrendPanel({ ad, data, product }) {
       <div class="mp-tile"><small>Best week</small><b class=${bestW && be && bestW.roas < be ? 'bad' : 'good'}>${bestW ? R.xroas(bestW.roas) : '—'}</b><span>${bestW ? 'week of ' + R.shortDate(bestW.w) : 'needs $20+ in a week'}</span></div>
       <div class="mp-tile"><small>Worst week</small><b class=${worstW && be && worstW.roas >= be ? 'good' : 'bad'}>${worstW && weeksAll.length > 1 ? R.xroas(worstW.roas) : '—'}</b><span>${worstW && weeksAll.length > 1 ? 'week of ' + R.shortDate(worstW.w) : ''}</span></div>
     </div>`}
-    <div class="tiny muted">${tab === 'all' ? `Line = estimated profit after ads, added up day by day. Up means it's making money, flat is break-even, down is losing. Trend looks at the last 2 weeks.` : 'Tap a bar for its numbers.'}${items.some((v) => v.marks.length) ? ' Shaded: holidays, sales or changes you logged.' : ''}</div>
+    <div class="tiny muted">${tab === 'all' ? 'Grade: all-time ROAS against break-even. Trend: its week-by-week results (see Weeks).' : 'Tap a bar for its numbers.'}${items.some((v) => v.marks.length) ? ' Shaded: holidays, sales or changes you logged.' : ''}</div>
     ${tab === 'days' && html`<button class="link small" style="align-self:flex-start" onClick=${() => setTable(!table)}>${table ? 'Hide days' : 'Show each day'}</button>
     ${table && html`<div class="tscroll"><table class="t"><thead><tr><th>Day</th><th>Spend</th><th>Buys</th><th>Value</th><th>ROAS</th></tr></thead><tbody>
       ${items.slice().reverse().map((v) => html`<tr><td>${v.title}</td><td>${v.spend > 0 ? R.money(v.spend) : '—'}</td><td>${v.spend > 0 ? v.purchases : '—'}</td><td>${v.spend > 0 ? R.money(v.revenue) : '—'}</td><td>${v.spend > 0 ? R.xroas(v.roas) : '—'}</td></tr>`)}
