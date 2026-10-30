@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=103';
-import * as R from './rules.js?v=103';
-import { importHistory } from './importer.js?v=103';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=103';
+import { createBackend } from './data.js?v=104';
+import * as R from './rules.js?v=104';
+import { importHistory } from './importer.js?v=104';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=104';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2303,6 +2303,13 @@ function confetti() {
   const step = (t) => { g.clearRect(0, 0, c.width, c.height); for (const p of ps) { p.vy += 0.35; p.x += p.vx; p.y += p.vy; p.r += 0.2; g.save(); g.translate(p.x, p.y); g.rotate(p.r); g.fillStyle = p.c; g.fillRect(-p.s / 2, -p.s / 2, p.s, p.s * 0.6); g.restore(); } if (t - t0 < 2600) requestAnimationFrame(step); else c.remove(); };
   requestAnimationFrame(step);
 }
+// Month grade: profit against that month's goal (lo) and stretch (hi).
+function monthGrade(p, lo, hi) {
+  if (p == null || !lo) return null;
+  if (p < 0) return 'F'; if (p >= hi) return 'A+'; if (p >= (lo + hi) / 2) return 'A'; if (p >= lo) return 'A−';
+  const r = p / lo; return r >= 0.9 ? 'B+' : r >= 0.8 ? 'B' : r >= 0.7 ? 'B−' : r >= 0.5 ? 'C' : 'D';
+}
+const gradeTone = (g) => (!g ? 'muted' : g[0] === 'A' ? 'pass' : g[0] === 'B' ? 'live' : g === 'C' ? 'mid' : 'fail');
 // Month by month toward $12k: actual profit bars against each month's target range.
 function RoadChart({ months: plan, before = [] }) {
   const [box, W] = useWidth(); const [hi, setHi] = useState(null);
@@ -2321,9 +2328,10 @@ function RoadChart({ months: plan, before = [] }) {
       ${nb > 0 && html`<line x1=${L + step * nb} x2=${L + step * nb} y1=${T} y2=${H - B} stroke="var(--line2)" stroke-dasharray="3 3" /><text x=${L + step * nb + 4} y=${T + 10} class="ax">Plan starts</text>`}
       ${months.map((m, i) => !m.pre && html`<rect x=${x(i) - step * 0.42} y=${y(m.hi)} width=${step * 0.84} height=${Math.max(1, y(m.lo) - y(m.hi))} rx="3" fill="var(--line2)" opacity=${m.future ? 0.35 : 0.55} />`)}
       ${months.map((m, i) => m.actual != null && html`<rect x=${x(i) - bw / 2} y=${Math.min(y(m.actual), y(0))} width=${bw} height=${Math.max(2, Math.abs(y(0) - y(m.actual)))} rx="3" fill=${m.pre ? 'var(--muted)' : col(m)} opacity=${hi == null || hi === i ? 1 : 0.6} />`)}
+      ${months.map((m, i) => !m.pre && m.done && m.actual != null && html`<text x=${x(i)} y=${Math.min(y(m.actual), y(m.hi)) - 5} text-anchor="middle" style=${'font:700 12px var(--body);fill:var(--' + gradeTone(monthGrade(m.actual, m.lo, m.hi)) + ')'}>${monthGrade(m.actual, m.lo, m.hi)}</text>`)}
       ${months.map((m, i) => (step >= 26 || i % 2 === (n - 1) % 2) && html`<text x=${x(i)} y=${H - 6} class="ax" text-anchor="middle" style=${m.current ? 'fill:var(--ink);font-weight:600' : ''}>${m.block ? m.label : MON_LONG[+m.ym.slice(5) - 1].slice(0, step >= 26 ? 3 : 1)}</text>`)}
     </svg>
-    ${h && html`<div class="tip" style=${`left:${Math.min(W - 160, Math.max(160, x(hi)))}px;top:8px;max-width:300px`}><b>${h.block ? h.title : `${MON_LONG[+h.ym.slice(5) - 1]} ${h.ym.slice(0, 4)}`}</b><div>${h.pre ? 'Before the plan' : `Goal ${R.money0(h.lo)}–${R.money0(h.hi)}`}</div>${h.block ? html`<div>Profit ${R.money0(h.total)} total, about ${R.money0(h.actual)} a month</div>` : h.actual != null ? html`<div>Profit ${R.money0(h.actual)}${h.partial ? ` (${h.days} of ${h.dim} days)` : ''}</div>` : html`<div>${h.future ? 'Not started' : 'No numbers yet'}</div>`}${h.actual != null && h.est && h.est.length ? html`<div class="tiny muted">Estimated: ${h.est.join(', ')}</div>` : ''}</div>`}
+    ${h && html`<div class="tip" style=${`left:${Math.min(W - 160, Math.max(160, x(hi)))}px;top:8px;max-width:300px`}><b>${h.block ? h.title : `${MON_LONG[+h.ym.slice(5) - 1]} ${h.ym.slice(0, 4)}`}</b><div>${h.pre ? 'Before the plan' : `Goal ${R.money0(h.lo)}–${R.money0(h.hi)}`}${!h.pre && h.done && h.actual != null ? ` · Grade ${monthGrade(h.actual, h.lo, h.hi)}` : ''}</div>${h.block ? html`<div>Profit ${R.money0(h.total)} total, about ${R.money0(h.actual)} a month</div>` : h.actual != null ? html`<div>Profit ${R.money0(h.actual)}${h.partial ? ` (${h.days} of ${h.dim} days)` : ''}</div>` : html`<div>${h.future ? 'Not started' : 'No numbers yet'}</div>`}${h.actual != null && h.est && h.est.length ? html`<div class="tiny muted">Estimated: ${h.est.join(', ')}</div>` : ''}</div>`}
     <div class="legend">${nb > 0 && html`<span><i style="background:var(--muted)"></i>Before the plan</span>`}<span><i style="background:var(--line2)"></i>Goal range</span><span><i style="background:var(--pass)"></i>Hit</span><span><i style="background:var(--mid)"></i>Close</span><span><i style="background:var(--fail)"></i>Missed</span></div>
     <div class="tiny" style="color:var(--dim);font-size:10.5px;cursor:pointer" title="Online-sales profit with some costs estimated. Many business costs (gas, travel, one-off expenses) aren't included." onClick=${() => setNote(!note)}>Estimates, not for taxes ${note ? '· Online-sales profit with some costs estimated. Many business costs (gas, travel, one-offs) aren\'t included.' : 'ⓘ'}</div>
   </div>`;
@@ -2425,7 +2433,7 @@ function Goal(ctx) {
     <div class="row"><h1 style="font-size:30px">Goal</h1><span class="spacer"></span><button class="btn primary" onClick=${() => setModal({ type: PeriodForm, props: {} })}>Add numbers</button></div>
     <section class=${'panel goalhero g-' + heroTone}>
       <div class="row" style="gap:10px;flex-wrap:wrap"><span class="tiny muted" style="letter-spacing:.12em">${MON_LONG[+curYm.slice(5) - 1].toUpperCase()} · ${stage.name.toUpperCase()} STAGE</span><span class="spacer"></span>${streak > 0 && html`<span class="chip t-pass">${streak} month${streak > 1 ? 's' : ''} in a row on target</span>`}</div>
-      <div class="gh-head">${heroHead}</div>
+      <div class="gh-head row" style="gap:10px">${heroHead}${cm.actual != null && (hitNow || cm.days >= 3) && (() => { const g = monthGrade(Math.max(cm.actual, cm.proj || 0), cm.lo, cm.hi); return html`<span class=${'chip t-' + gradeTone(g)} style="font-size:13px">On pace for ${g}</span>`; })()}</div>
       <div class="gh-num"><b>${cm.actual == null ? '—' : R.money0(cm.actual)}</b> <span>of ${R.money0(cm.lo)} goal this month${cm.hi > cm.lo ? ` · stretch ${R.money0(cm.hi)}` : ''}</span></div>
       <div class="gh-bar"><i style=${`width:${pct}%`}></i><b title="Goal" style=${`left:${cm.lo / (cm.hi * 1.1) * 100}%`}></b><b class="s" title="Stretch" style=${`left:${cm.hi / (cm.hi * 1.1) * 100}%`}></b>${cm.actual != null && !hitNow && html`<em title="Where you should be by now" style=${`left:${Math.min(100, paceLo / (cm.hi * 1.1) * 100)}%`}></em>`}</div>
       <div class="small muted">${cm.actual == null ? 'Add numbers for this month to see your progress.' : hitNow ? `${crushNow ? 'Past your stretch goal' : 'Goal reached'} with ${dimNow - elapsed} day${dimNow - elapsed === 1 ? '' : 's'} left.` : `By today you'd want about ${R.money0(paceLo)}. At this pace the month ends near ${R.money0(cm.proj)}.`}${cm.actual != null && cm.days < elapsed ? ` Counted ${cm.days} of ${elapsed} days so far.` : ''}${lastMonth ? ` Last month (${MON_LONG[+lastMonth.ym.slice(5) - 1]}): ${R.money0(lastMonth.actual)}${lastMonth.status === 'hit' || lastMonth.status === 'crushed' ? ', goal hit.' : '.'}` : ''}${cm.actual != null && provisional(curYm) ? ' Product cost is still an estimate until the Sada bill at month end.' : ''}</div>
@@ -2525,7 +2533,7 @@ function ReportCard({ data, dm, months, before }) {
   return html`<section class="panel"><div class="row" style="gap:8px;flex-wrap:wrap"><h2 style="margin:0">Report card</h2><select value=${ym} onChange=${(e) => setSel(e.target.value)}>${opts.slice().reverse().map((k) => html`<option value=${k}>${name(k)}</option>`)}</select><span class="spacer"></span><button class="link small" onClick=${flip}>${open ? 'Hide' : 'Show'}</button></div>
     ${!open ? html`<div class="small muted">${name(ym)} at a glance: profit, best and worst ad, what changed, one lesson.</div>` : html`
     <div class="mp-tiles">
-      <div class="mp-tile"><small>Profit</small><b class=${grade === 'hit' || grade === 'crushed' ? 'good' : grade === 'missed' ? 'bad' : ''}>${r.s0.days ? R.money0(r.s0.profit) : '—'}</b><span>${g ? `Goal ${R.money0(g.lo)}–${R.money0(g.hi)}${grade ? ' · ' + ({ hit: 'Hit', crushed: 'Crushed it', close: 'Close', missed: 'Missed' }[grade] || '') : ''}` : 'Before the plan'}${r.s0.days && r.p0.days ? html` · ${D(r.s0.profit, r.p0.profit, R.money0)}` : ''}</span>${r.s0.days && r.s0.days < R.daysBetween(ym + '-01', monthEnd(ym)) + 1 ? html`<span>Numbers for ${r.s0.days} days only</span>` : ''}</div>
+      <div class="mp-tile"><small>Profit${g && r.s0.days ? html` · <span class=${'chip t-' + gradeTone(monthGrade(r.s0.profit, g.lo, g.hi))} style="font-size:11px">Grade ${monthGrade(r.s0.profit, g.lo, g.hi)}</span>` : ''}</small><b class=${grade === 'hit' || grade === 'crushed' ? 'good' : grade === 'missed' ? 'bad' : ''}>${r.s0.days ? R.money0(r.s0.profit) : '—'}</b><span>${g ? `Goal ${R.money0(g.lo)}–${R.money0(g.hi)}${grade ? ' · ' + ({ hit: 'Hit', crushed: 'Crushed it', close: 'Close', missed: 'Missed' }[grade] || '') : ''}` : 'Before the plan'}${r.s0.days && r.p0.days ? html` · ${D(r.s0.profit, r.p0.profit, R.money0)}` : ''}</span>${r.s0.days && r.s0.days < R.daysBetween(ym + '-01', monthEnd(ym)) + 1 ? html`<span>Numbers for ${r.s0.days} days only</span>` : ''}</div>
       <div class="mp-tile"><small>Sales · ads</small><b>${r.s0.days ? R.money0(r.s0.rev) : '—'}</b><span>${r.s0.days ? html`Ads ${R.money0(r.s0.spend)} · ${r.s0.spend ? R.xroas(r.s0.rev / r.s0.spend) : '—'} blended${D(r.s0.spend ? r.s0.rev / r.s0.spend : 0, r.p0.spend ? r.p0.rev / r.p0.spend : 0, (v) => R.xroas(v))}` : r.meta.spend ? `Meta: ${R.money0(r.meta.spend)} spent, ${R.xroas(r.meta.revenue / r.meta.spend)}` : 'No numbers'}</span><span>${r.s0.orders ? `${Math.round(r.s0.orders)} orders · ${R.money(r.s0.rev / r.s0.orders)} average` : ''}</span></div>
       <div class="mp-tile"><small>Best ad</small>${r.best ? html`<b class="good">${R.xroas(r.best.roas)}</b><span>${r.best.name.slice(0, 40)}</span><span>${R.money0(r.best.spend)} spent · ${r.best.buys} buy${r.best.buys === 1 ? '' : 's'}</span>` : html`<span>Not enough spend</span>`}</div>
       <div class="mp-tile"><small>Worst ad</small>${r.worst ? html`<b class="bad">${R.xroas(r.worst.roas)}</b><span>${r.worst.name.slice(0, 40)}</span><span>${R.money0(r.worst.spend)} spent · ${r.worst.buys} buy${r.worst.buys === 1 ? '' : 's'}</span>` : html`<span>Only one ad with $50+ spend</span>`}</div>
