@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=106';
-import * as R from './rules.js?v=106';
-import { importHistory } from './importer.js?v=106';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=106';
+import { createBackend } from './data.js?v=107';
+import * as R from './rules.js?v=107';
+import { importHistory } from './importer.js?v=107';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=107';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1715,7 +1715,7 @@ function TrendPanel({ ad, data, product }) {
   const [hi, setHi] = useState(null); const [table, setTable] = useState(false);
   const [tab, setTab0] = useState(() => { try { return localStorage.getItem('adlab-trend2') || 'weeks'; } catch (e) { return 'weeks'; } });
   const setTab = (k) => { setTab0(k); setHi(null); try { localStorage.setItem('adlab-trend2', k); } catch (e) {} };
-  const [box, W] = useWidth();
+  const [box, W] = useWidth(); const [box2, W2] = useWidth();
   const rows = rowsForAd(ad, data.meta_days || []);
   const byDay = new Map(); rows.forEach((r) => { const t = byDay.get(r.day) || { spend: 0, revenue: 0, purchases: 0 }; t.spend += +r.spend || 0; t.revenue += +r.revenue || 0; t.purchases += +r.purchases || 0; byDay.set(r.day, t); });
   const spent = [...byDay.keys()].filter((d) => byDay.get(d).spend > 0).sort();
@@ -1804,13 +1804,26 @@ function TrendPanel({ ad, data, product }) {
         ${hi != null && html`<line x1=${x(hi)} x2=${x(hi)} y1=${T1} y2=${H - B} class="cross" />`}
       </svg>
     </div>
+    ${tab === 'all' && weeksAll.length >= 2 && (() => {
+      // Week-by-week ROAS line: one point per Mon–Sun week with $20+ spend.
+      const k = weeksAll.length, Lw = 44, Rw = 12, Th = 18, Hh = 150, Bh = 22, Hw = Th + Hh + Bh;
+      const mx = Math.max(be || 0, ...weeksAll.map((w) => w.roas)) * 1.15;
+      const W = W2, pad = 22, xw = (i) => Lw + pad + (k === 1 ? 0 : i * (W - Lw - Rw - 2 * pad) / (k - 1)), yw = (v) => Th + Hh * (1 - v / mx);
+      return html`<div class="chart" ref=${box2}><svg width=${W} height=${Hw} style=${`height:${Hw}px`} role="img" aria-label="ROAS each week">
+        <text x=${Lw} y=${Th - 6} class="ax">ROAS each week</text>
+        ${[0, mx / 1.15].map((v) => html`<line x1=${Lw} x2=${W - Rw} y1=${yw(v)} y2=${yw(v)} class="grid" /><text x=${Lw - 6} y=${yw(v) + 4} class="ax" text-anchor="end">${v.toFixed(1)}x</text>`)}
+        ${be && html`<line x1=${Lw} x2=${W - Rw} y1=${yw(be)} y2=${yw(be)} class="ref" /><text x=${W - Rw} y=${yw(be) + 13} class="ax" text-anchor="end">break-even ${R.xroas(be)}</text>`}
+        <polyline points=${weeksAll.map((w, i) => `${xw(i)},${yw(w.roas)}`).join(' ')} fill="none" stroke="#3D8BFF" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" />
+        ${weeksAll.map((w, i) => html`<circle cx=${xw(i)} cy=${yw(w.roas)} r="4.5" fill=${tone(w.roas)} stroke="var(--panel)" stroke-width="2" /><text x=${xw(i)} y=${yw(w.roas) - 9} class="ax" text-anchor="middle" style="fill:var(--ink)">${w.roas.toFixed(1)}x</text>
+          <text x=${xw(i)} y=${Hw - 6} class="ax" text-anchor="middle">${R.shortDate(w.w)}</text>`)}
+      </svg></div>`; })()}
     ${tab === 'all' && html`<div class="mp-tiles">
       <div class="mp-tile"><small>Lifetime ROAS</small><b class=${be && life.roas < be ? 'bad' : 'good'}>${R.xroas(life.roas)}</b><span>${R.money0(life.spend)} spent · ${life.purchases} buys</span></div>
       <div class="mp-tile"><small>Ran</small><b>${spent.length} days</b><span>${R.shortDate(first)} to ${R.shortDate(spent[spent.length - 1])}</span></div>
       <div class="mp-tile"><small>Best week</small><b class=${bestW && be && bestW.roas < be ? 'bad' : 'good'}>${bestW ? R.xroas(bestW.roas) : '—'}</b><span>${bestW ? 'week of ' + R.shortDate(bestW.w) : 'needs $20+ in a week'}</span></div>
       <div class="mp-tile"><small>Worst week</small><b class=${worstW && be && worstW.roas >= be ? 'good' : 'bad'}>${worstW && weeksAll.length > 1 ? R.xroas(worstW.roas) : '—'}</b><span>${worstW && weeksAll.length > 1 ? 'week of ' + R.shortDate(worstW.w) : ''}</span></div>
     </div>`}
-    <div class="tiny muted">${tab === 'all' ? 'Grade: all-time ROAS against break-even. Trend: its week-by-week results (see Weeks).' : 'Tap a bar for its numbers.'}${items.some((v) => v.marks.length) ? ' Shaded: holidays, sales or changes you logged.' : ''}</div>
+    <div class="tiny muted">${tab === 'all' ? 'Grade: all-time ROAS against break-even. Trend and line: each Mon–Sun week with $20+ spend (dates are the Mondays).' : 'Tap a bar for its numbers.'}${tab !== 'all' && items.some((v) => v.marks.length) ? ' Shaded: holidays, sales or changes you logged.' : ''}</div>
     ${tab === 'days' && html`<button class="link small" style="align-self:flex-start" onClick=${() => setTable(!table)}>${table ? 'Hide days' : 'Show each day'}</button>
     ${table && html`<div class="tscroll"><table class="t"><thead><tr><th>Day</th><th>Spend</th><th>Buys</th><th>Value</th><th>ROAS</th></tr></thead><tbody>
       ${items.slice().reverse().map((v) => html`<tr><td>${v.title}</td><td>${v.spend > 0 ? R.money(v.spend) : '—'}</td><td>${v.spend > 0 ? v.purchases : '—'}</td><td>${v.spend > 0 ? R.money(v.revenue) : '—'}</td><td>${v.spend > 0 ? R.xroas(v.roas) : '—'}</td></tr>`)}
