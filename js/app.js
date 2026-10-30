@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=88';
-import * as R from './rules.js?v=88';
-import { importHistory } from './importer.js?v=88';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=88';
+import { createBackend } from './data.js?v=89';
+import * as R from './rules.js?v=89';
+import { importHistory } from './importer.js?v=89';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=89';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1354,6 +1354,32 @@ function ProductForm({ data, close, reload, say }) {
 }
 
 // ---------- today ----------
+// Spend alarm: checks the last day your files cover for $0 spend, overspending and days with spend but no sales.
+function spendAlarms(data) {
+  const out = [], last = data.meta_days.reduce((m, r) => (r.day > m ? r.day : m), '');
+  if (!last || last < R.addDays(R.today(), -3)) return out;
+  const on = (d) => data.meta_days.filter((r) => r.day === d), dayT = sumRows(on(last)), prevT = sumRows(on(R.addDays(last, -1)));
+  const adOn = (ad, d) => sumRows(rowsForAd(ad, data.meta_days).filter((r) => r.day === d));
+  const when = R.shortDate(last);
+  for (const t of data.tests.filter((x) => x.status === 'active' && x.stage === 1 && x.start_date && x.start_date < last)) {
+    const ad = data.ads.find((a) => a.id === t.ad_id); if (!ad) continue;
+    const d = adOn(ad, last);
+    if (!d.spend && dayT.spend > 0) out.push({ kind: 'todo', tone: 'red', title: `${displayName(ad)} spent $0 on ${when}`, sub: 'Check Ads Manager: rejected, paused, or stuck in review? Or the name in Ads Manager changed.', tag: 'SPEND', adId: ad.id });
+    else if (t.budget && d.spend > t.budget * 1.75) out.push({ kind: 'heads', tone: 'amber', title: `${displayName(ad)} spent ${R.money0(d.spend)} on ${when}`, sub: `Budget is ${R.money0(t.budget)}/day. Meta can go up to 75% over on one day; more than that, check the budget wasn't changed.`, tag: 'SPEND', adId: ad.id });
+  }
+  for (const p of data.products) {
+    const main = data.ads.filter((a) => a.product_id === p.id && a.stage === 'main'); if (!main.length) continue;
+    const mOn = (d) => main.reduce((t, ad) => t + adOn(ad, d).spend, 0);
+    const today = mOn(last), avg = [1, 2, 3, 4, 5, 6, 7].reduce((t, k) => t + mOn(R.addDays(last, -k)), 0) / 7;
+    if (!today && avg >= 10 && dayT.spend > 0) out.push({ kind: 'todo', tone: 'red', title: `${p.name} Main spent $0 on ${when}`, sub: `It usually spends about ${R.money0(avg)}/day. Check it's still on and nothing got rejected.`, tag: 'SPEND', pid: p.id });
+    else if (avg >= 20 && today > avg * 1.6) out.push({ kind: 'heads', tone: 'amber', title: `${p.name} Main spent ${R.money0(today)} on ${when}`, sub: `${Math.round((today / avg - 1) * 100)}% above its usual ${R.money0(avg)}/day. Make sure no budget was raised by mistake.`, tag: 'SPEND', pid: p.id });
+  }
+  if (dayT.spend >= 40 && !dayT.purchases) {
+    const two = prevT.spend >= 40 && !prevT.purchases;
+    out.push({ kind: two ? 'todo' : 'heads', tone: two ? 'red' : 'amber', title: two ? `No sales two days in a row (${R.shortDate(R.addDays(last, -1))} and ${when})` : `${R.money0(dayT.spend)} spent on ${when}, no sales in your files`, sub: two ? 'Place a test order: check the site, checkout and payments work. Sales can also show up late in Meta.' : 'One day like this happens. If tomorrow is the same, check the site and checkout.', tag: 'SPEND' });
+  }
+  return out;
+}
 function Today(ctx) {
   const { data, products, setModal, setPid, setView } = ctx;
   const items = [];
@@ -1389,6 +1415,7 @@ function Today(ctx) {
     }
   }
 
+  for (const a of spendAlarms(data)) items.push({ ...a, go: a.adId ? () => setModal({ type: AdDetail, props: { adId: a.adId } }) : a.pid ? () => { setPid(a.pid); setView('board'); } : () => setView('stats') });
   const lastMeta = data.meta_days.reduce((m, r) => (r.day > m ? r.day : m), '');
   if (!lastMeta || lastMeta < R.addDays(R.today(), -1)) items.push({ kind: 'todo', tone: 'blue', title: lastMeta ? `Add yesterday's Ads Manager file (last one: ${lastMeta})` : 'Add your first Ads Manager file', sub: 'Keeps check-ins, fatigue warnings and Stats up to date.', tag: 'DAILY', go: () => setView('stats') });
   const ready = data.ads.filter((a) => a.stage === 'next').sort((a, b) => R.queueOf(a) - R.queueOf(b));
