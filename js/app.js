@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=100';
-import * as R from './rules.js?v=100';
-import { importHistory } from './importer.js?v=100';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=100';
+import { createBackend } from './data.js?v=101';
+import * as R from './rules.js?v=101';
+import { importHistory } from './importer.js?v=101';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=101';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1688,8 +1688,7 @@ function calendarOf(data) { return [...SALE_CAL, ...(data.events || []).filter((
 const marksOn = (cal, d) => cal.filter((c) => d >= c.from && d <= c.to).map((c) => c.name);
 function TrendPanel({ ad, data, product }) {
   const [hi, setHi] = useState(null); const [table, setTable] = useState(false);
-  const [mode, setMode0] = useState(() => { try { return localStorage.getItem('adlab-trend') || 'day'; } catch (e) { return 'day'; } });
-  const setMode = (m) => { setMode0(m); try { localStorage.setItem('adlab-trend', m); } catch (e) {} };
+  const mode = 'day'; // one simple view: each day's own ROAS
   const [box, W] = useWidth();
   const rows = rowsForAd(ad, data.meta_days || []);
   const byDay = new Map(); rows.forEach((r) => { const t = byDay.get(r.day) || { spend: 0, revenue: 0, purchases: 0 }; t.spend += +r.spend || 0; t.revenue += +r.revenue || 0; t.purchases += +r.purchases || 0; byDay.set(r.day, t); });
@@ -1724,10 +1723,10 @@ function TrendPanel({ ad, data, product }) {
   const h = hi != null ? days[hi] : null;
   const range = `${longDate(first, showYear)} to ${longDate(last, showYear)}`;
   const cal = calendarOf(data), marks = days.map((v) => marksOn(cal, v.d));
-  return html`<div class="panel"><div class="row"><h2 style="margin:0">Day by day</h2><span class="spacer"></span><div class="seg sm" role="group" aria-label="View" style="grid-template-columns:repeat(2,auto)"><button class=${mode === 'day' ? 'on' : ''} onClick=${() => setMode('day')}>Each day</button><button class=${mode === 'week' ? 'on' : ''} onClick=${() => setMode('week')}>7-day trend</button></div></div>
+  return html`<div class="panel"><h2>Day by day</h2>
     <div class="tiny muted">${range}${showYear ? ' · this ad hasn\'t run recently' : ''}</div>
     <div class="chart" ref=${box}>
-      <svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${pick} onPointerDown=${pick} onPointerLeave=${() => setHi(null)} role="img" aria-label="7-day ROAS and daily spend">
+      <svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${pick} onPointerDown=${pick} onPointerLeave=${() => setHi(null)} role="img" aria-label="ROAS and spend each day">
         ${marks.map((m, i) => m.length > 0 && html`<rect x=${x(i) - step / 2} y=${T1} width=${step} height=${top2 + H2 - T1} fill="var(--mid)" opacity="0.10"><title>${m.join(', ')}</title></rect>`)}
         <text x=${L} y=${T1 - 1} class="ax">${mode === 'day' ? 'ROAS each day' : '7-day average ROAS'}</text>
         ${[0, rMax / 1.15].map((t) => html`<line x1=${L} x2=${W - Rt} y1=${yR(t)} y2=${yR(t)} class="grid" /><text x=${L - 6} y=${yR(t) + 4} class="ax" text-anchor="end">${t.toFixed(1)}x</text>`)}
@@ -1746,12 +1745,12 @@ function TrendPanel({ ad, data, product }) {
       ${h && html`<div class="tip" style=${`left:${Math.min(W - 90, Math.max(90, x(hi)))}px;top:${T1 + 8}px`}><b>${longDate(h.d, showYear)}</b>
         <div>Spent ${h.spend > 0 ? R.money(h.spend) : '$0 (not running)'}</div>
         ${h.spend > 0 && html`<div>${h.purchases} buy${h.purchases === 1 ? '' : 's'} · that day ${R.xroas(h.roas)}</div>`}
-        ${h.roll != null && html`<div><i style="background:#3D8BFF"></i>7-day ROAS (${R.shortDate(R.addDays(h.d, -6))} to ${R.shortDate(h.d)}): ${R.xroas(h.roll)}</div>${mode !== 'day' ? html`<div class="tiny muted">${R.money0(h.rRv)} in sales ÷ ${R.money0(h.rSp)} spent over those 7 days</div>` : ''}`}${marks[hi].length ? html`<div style="color:var(--mid)">${marks[hi].join(' · ')}</div>` : ''}</div>`}
+        ${marks[hi].length ? html`<div style="color:var(--mid)">${marks[hi].join(' · ')}</div>` : ''}</div>`}
     </div>
     <div class="tiny muted">${mode === 'day' ? html`Each bar is one day: <span style="color:var(--pass)">green</span> above break-even, <span style="color:var(--fail)">red</span> below, a thin red line = no sales. Below: what it spent.` : html`Each point is the last 7 days added up, so one bad day doesn't swing it. Use it to see the trend.`} Tap a day for numbers.${marks.some((m) => m.length) ? ' Shaded: holidays, sales or changes you logged.' : ''}</div>
     <button class="link small" style="align-self:flex-start" onClick=${() => setTable(!table)}>${table ? 'Hide days' : 'Show each day'}</button>
-    ${table && html`<div class="tscroll"><table class="t"><thead><tr><th>Day</th><th>Spend</th><th>Buys</th><th>Value</th><th>ROAS</th><th>7-day ROAS</th></tr></thead><tbody>
-      ${days.slice().reverse().map((v) => html`<tr><td>${longDate(v.d, showYear)}</td><td>${v.spend > 0 ? R.money(v.spend) : '—'}</td><td>${v.spend > 0 ? v.purchases : '—'}</td><td>${v.spend > 0 ? R.money(v.revenue) : '—'}</td><td>${v.spend > 0 ? R.xroas(v.roas) : '—'}</td><td>${v.roll != null ? R.xroas(v.roll) : '—'}</td></tr>`)}
+    ${table && html`<div class="tscroll"><table class="t"><thead><tr><th>Day</th><th>Spend</th><th>Buys</th><th>Value</th><th>ROAS</th></tr></thead><tbody>
+      ${days.slice().reverse().map((v) => html`<tr><td>${longDate(v.d, showYear)}</td><td>${v.spend > 0 ? R.money(v.spend) : '—'}</td><td>${v.spend > 0 ? v.purchases : '—'}</td><td>${v.spend > 0 ? R.money(v.revenue) : '—'}</td><td>${v.spend > 0 ? R.xroas(v.roas) : '—'}</td></tr>`)}
     </tbody></table></div>`}
   </div>`;
 }
