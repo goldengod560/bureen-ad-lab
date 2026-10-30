@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=89';
-import * as R from './rules.js?v=89';
-import { importHistory } from './importer.js?v=89';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=89';
+import { createBackend } from './data.js?v=90';
+import * as R from './rules.js?v=90';
+import { importHistory } from './importer.js?v=90';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=90';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -508,7 +508,7 @@ function Board(ctx) {
   const results = searching ? b.apply(ads.filter(b.match), data) : [];
   return html`
     <${SummaryStrip} data=${data} product=${product} />
-    <${MainPlan} data=${data} product=${product} setModal=${ctx.setModal} />
+    <${MainPlan} data=${data} product=${product} setModal=${ctx.setModal} reload=${ctx.reload} say=${ctx.say} />
     <${Toolbar} b=${b} data=${data} product=${product} sel=${sel} setSel=${setSel} extra=${upload} />
     ${dragging && html`<div class="droprow"><span class="small muted">Drop on a folder:</span>${FOLDERS.map((f) => html`<span class=${'dropchip' + (dropCol === f ? ' on' : '')} ...${dz(f)}>${R.stageLabel(f)}</span>`)}</div>`}
     ${searching ? html`<section class="panel"><div class="row"><h2>Search: ${results.length} ad${results.length === 1 ? '' : 's'}</h2><span class="muted small">across every folder</span></div>
@@ -1409,6 +1409,7 @@ function Today(ctx) {
     const toBoard = () => { setPid(p.id); setView('board'); };
     if (mp.swapNow && mp.best) items.unshift({ kind: 'todo', tone: 'red', title: `${p.name} Main: swap in ${displayName(mp.best.a)}`, sub: mp.head, tag: 'ACT', go: toBoard });
     else if (mp.budget.tone !== 'good') items.push({ kind: 'heads', tone: mp.budget.tone === 'bad' ? 'red' : 'amber', title: `${p.name} Main: ${mp.budget.call}`, sub: mp.head, tag: 'MAIN', go: toBoard });
+    else if (mp.scale && mp.scale.ok) items.push({ kind: 'heads', tone: 'blue', title: `${p.name} Main: you can raise ${mp.scale.step}% today`, sub: `About ${R.money0(mp.scale.perDay)}/day → ${R.money0(mp.scale.to)}/day. Two good weeks and holding. Log it on the Board once you do.`, tag: 'SCALE', go: toBoard });
     for (const ad of data.ads.filter((x) => x.product_id === p.id && x.stage === 'main')) {
       const h = mainHealth(ad, data, p);
       if (h && h.creative === 'fatigue' && !(ad.tags || {}).fatiguing) items.push({ kind: 'heads', tone: 'amber', title: `${displayName(ad)}: possible fatigue`, sub: healthText(h).c, tag: 'CHECK', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) });
@@ -1806,7 +1807,28 @@ function mainPlan(data, product) {
   else if (nowB === 'below' && prevB === 'below') budget = { call: `Lower ~${rules.raiseStep}%`, tone: 'bad', why: 'Under break-even two weeks in a row.' };
   else if (nowB === 'below') budget = { call: 'Hold', tone: 'warn', why: market ? 'One bad week, and every Main ad fell together, so it looks like Meta, not your ads.' : 'One bad week. Lower it only if next week is also under.' };
   else if (nowB === 'near') budget = { call: 'Hold', tone: 'warn', why: 'Around break-even.' };
-  else budget = { call: prevB === 'above' ? 'Can raise 20%' : 'Leave it', tone: 'good', why: 'Making money this week.' };
+  else budget = { call: 'Leave it', tone: 'good', why: 'Making money this week.' };
+  // Scale planner: can Main go up ~20% today? Every check has to pass.
+  const mainSpend = (d) => sumRows(per.flatMap(({ ad }) => rowsForAd(ad, data.meta_days).filter((r) => r.day === d)));
+  const l3 = sumRows([0, 1, 2].flatMap((k) => per.flatMap(({ ad }) => rowsForAd(ad, data.meta_days).filter((r) => r.day === R.addDays(w.end, -k)))));
+  const dDay = (d) => String(d.day || d.created_at || '').slice(0, 10);
+  const raises = data.decisions.filter((d) => d.product_id === product.id && d.kind === 'budget').map(dDay).filter(Boolean).sort();
+  const lastRaise = raises[raises.length - 1], sinceRaise = lastRaise ? R.daysBetween(lastRaise, R.today()) : null;
+  const added = data.decisions.filter((d) => d.product_id === product.id && d.kind === 'move' && /Main/.test(d.choice || '') && !/Turned off/.test(d.choice || '')).map(dDay).filter(Boolean).sort().pop();
+  const sinceAdd = added ? R.daysBetween(added, R.today()) : null;
+  const alarms = spendAlarms(data).filter((a) => a.pid === product.id || (a.adId && (data.ads.find((x) => x.id === a.adId) || {}).product_id === product.id));
+  const perDay = cur.spend / 7;
+  const scaleChecks = [
+    [nowB === 'above', `Last 7 days above break-even (${R.xroas(cur.roas)} vs ${R.xroas(be)})`],
+    [prevB === 'above', `The week before too (${R.xroas(prev.roas)})`],
+    [l3.spend > 0 && l3.roas >= be, `Last 3 days holding (${R.xroas(l3.roas)})`],
+    [sinceRaise == null || sinceRaise >= 3, sinceRaise == null ? 'No raise logged yet' : sinceRaise >= 3 ? `Last raise ${sinceRaise} days ago` : `Raised ${sinceRaise === 0 ? 'today' : sinceRaise === 1 ? 'yesterday' : '2 days ago'} (wait 3 days between raises)`],
+    [sinceAdd == null || sinceAdd >= 3, sinceAdd == null ? 'No ad added to Main recently' : sinceAdd >= 3 ? `Last ad added to Main ${sinceAdd} days ago` : `Ad added to Main ${sinceAdd === 0 ? 'today' : sinceAdd === 1 ? 'yesterday' : '2 days ago'} (let it settle 3 days)`],
+    [!R.isWeekendLock(), R.isWeekendLock() ? 'Weekend lock (your rule: no budget changes Fri night to Sun)' : 'Not the weekend lock'],
+    [!alarms.length, alarms.length ? 'A spend alarm is open (see Today)' : 'No spend alarms'],
+  ];
+  const scale = main.length && cur.spend ? { ok: scaleChecks.every((c) => c[0]), checks: scaleChecks, perDay, to: perDay * (1 + rules.raiseStep / 100), step: rules.raiseStep, lastRaise } : null;
+  if (scale && scale.ok) budget = { call: `Can raise ${rules.raiseStep}%`, tone: 'good', why: 'Making money two weeks running and holding.' };
   const swapNow = nowB === 'below' && (prevB === 'below' || (weak && per.find((x) => x.ad === weak.ad).h.prevBand === 'below'));
   // Testing: one testing campaign for every product, so slots are shared
   const slots = rules.slots, used = testingCount(data), free = Math.max(0, slots - used);
@@ -1829,10 +1851,18 @@ function mainPlan(data, product) {
     : nowB === 'below' && swapNow ? 'Main has lost money two weeks running. Time to act.'
     : nowB === 'below' ? `Under break-even over ${d7}. Hold for now.`
     : nowB === 'near' ? `Around break-even over ${d7}.` : budget.why;
-  return { head, w, cur, prev, be, nowB, prevB, thisWk, lastWk, thisB, market, ads, weak, best, swapNow, budget, slots, used, free, usedBy, next, lastLaunch, daysLeft, steps, mainCount: main.length };
+  return { head, w, cur, prev, be, nowB, prevB, thisWk, lastWk, thisB, market, ads, weak, best, swapNow, budget, slots, used, free, usedBy, next, lastLaunch, daysLeft, steps, mainCount: main.length, scale };
 }
 
-function MainPlan({ data, product, setModal }) {
+function ScaleRow({ s, product, reload, say }) {
+  const [why, setWhy] = useState(false);
+  const fail = s.checks.find((c) => !c[0]);
+  const log = async () => { await be.insert('decisions', { product_id: product.id, kind: 'budget', day: R.today(), choice: `Raised Main ~${s.step}%`, reason: `About ${R.money0(s.perDay)}/day to ${R.money0(s.to)}/day` }); await reload(); say('Raise logged. Next check in 3 days.'); };
+  return html`<div class=${'status small ' + (s.ok ? 'good' : 'live')}><div class="row" style="gap:8px;flex-wrap:wrap"><span class="grow">Raise Main ${s.step}% today? <b>${s.ok ? 'Yes' : 'Not today'}</b>${s.ok ? ` · about ${R.money0(s.perDay)}/day → ${R.money0(s.to)}/day` : ` · ${fail[1]}`}</span>
+    <button class="link small" onClick=${() => setWhy(!why)}>${why ? 'Hide' : 'Why'}</button>${s.ok && html`<button class="btn sm" onClick=${log}>I raised it</button>`}</div>
+    ${why && html`<div class="stack" style="gap:2px;margin-top:6px">${s.checks.map(([ok, t]) => html`<div><span class=${ok ? 'good' : 'bad'}>${ok ? '✓' : '✗'}</span> ${t}</div>`)}${s.lastRaise ? html`<div class="tiny muted">Last raise logged ${R.shortDate(s.lastRaise)}.</div>` : ''}</div>`}</div>`;
+}
+function MainPlan({ data, product, setModal, reload, say }) {
   const [more, setMore] = useState(false);
   const p = mainPlan(data, product); if (!p) return null;
   const open = (ad) => setModal({ type: AdDetail, props: { adId: ad.id } });
@@ -1846,6 +1876,7 @@ function MainPlan({ data, product, setModal }) {
       <div class="mp-tile"><small>Backup ready</small>${p.best ? html`<button class="link mp-ad" onClick=${() => open(p.best.a)}>${displayName(p.best.a).replace(/^(IMG|VID|Image|Video)\s*[|–-]\s*/i, '').replace(/\s*\|\s*\d{1,2}-\d{1,2}$/, '').slice(0, 26)} <b>${R.xroas(p.best.r && p.best.r.full.roas)}</b></button><span>${p.swapNow ? 'Swap it in now' : 'Swap only if next week is also bad'}</span>` : html`<b class="bad">None</b><span>Bench is empty</span>`}</div>
       <div class="mp-tile"><small>Testing</small><b>${p.used}/${p.slots}</b><span>${p.free ? `${p.free} free · Up Next ${p.next}${p.free > p.next ? ` · make ${p.free - p.next}` : ''}` : `in use${p.usedBy.length ? ': ' + p.usedBy.join(', ') : ''}`}${p.daysLeft >= 0 ? ` · Black Friday batch by ${R.shortDate(p.lastLaunch)}` : ''}</span></div>
     </div>
+    ${p.scale && html`<${ScaleRow} s=${p.scale} product=${product} reload=${reload} say=${say} />`}
     <button class="link small" style="align-self:flex-start" onClick=${() => setMore(!more)}>${more ? 'Hide details' : 'Show details'}</button>
     ${more && html`<ol style="margin:0;padding-left:20px" class="small">${p.steps.map((st) => html`<li style="margin:4px 0"><span class=${'dot ' + st.tone}></span>${st.text}${st.ad && html` <button class="link small" onClick=${() => open(st.ad)}>Open</button>`}</li>`)}</ol>
       <div class="tiny muted">Suggestions from your numbers. Nothing changes until you act.</div>`}
