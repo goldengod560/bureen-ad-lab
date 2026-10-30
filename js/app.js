@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=94';
-import * as R from './rules.js?v=94';
-import { importHistory } from './importer.js?v=94';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=94';
+import { createBackend } from './data.js?v=95';
+import * as R from './rules.js?v=95';
+import { importHistory } from './importer.js?v=95';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=95';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1452,6 +1452,8 @@ function Today(ctx) {
   }
 
   { const td = R.today(), pm = monthKey(R.addDays(td.slice(0, 8) + '01', -1)); if (+td.slice(8) <= 5 && (data.meta_days.some((r) => r.day.startsWith(pm)) || goalPeriods(data).some((x) => x.to >= pm + '-01' && x.from <= monthEnd(pm)))) items.push({ kind: 'heads', tone: 'blue', title: `${MON_LONG[+pm.slice(5) - 1]}'s report card is ready`, sub: 'Profit, best and worst ad, what changed and one lesson. On the Goal page.', tag: 'REPORT', go: () => setView('goal') }); }
+  { const td = R.today(); const up = SALE_CAL.filter((c) => c.big && c.from > td && R.daysBetween(td, c.from) <= 7).sort((a, b) => a.from.localeCompare(b.from))[0];
+    if (up) { const n = R.daysBetween(td, up.from); items.push({ kind: 'heads', tone: 'blue', title: `${up.name} ${n === 1 ? 'tomorrow' : `in ${n} days`} (${R.shortDate(up.from)})`, sub: 'Costs on Meta often rise around big shopping days. Judge ads that week a little more gently.', tag: 'CALENDAR', go: () => setView('stats') }); } }
   for (const a of spendAlarms(data)) items.push({ ...a, go: a.adId ? () => setModal({ type: AdDetail, props: { adId: a.adId } }) : a.pid ? () => { setPid(a.pid); setView('board'); } : () => setView('stats') });
   const lastMeta = data.meta_days.reduce((m, r) => (r.day > m ? r.day : m), '');
   if (!lastMeta || lastMeta < R.addDays(R.today(), -1)) items.push({ kind: 'todo', tone: 'blue', title: lastMeta ? `Add yesterday's Ads Manager file (last one: ${lastMeta})` : 'Add your first Ads Manager file', sub: 'Keeps check-ins, fatigue warnings and Stats up to date.', tag: 'DAILY', go: () => setView('stats') });
@@ -1672,6 +1674,18 @@ function useWidth() {
   useEffect(() => { const el = ref.current; if (!el) return; const ro = new ResizeObserver(() => setW(Math.max(260, el.clientWidth))); ro.observe(el); setW(Math.max(260, el.clientWidth)); return () => ro.disconnect(); }, []);
   return [ref, w];
 }
+// Sale calendar: shopping holidays, your own sales and anything you logged as a change, marked on the charts.
+const SALE_CAL = [
+  ['2026-02-14', '2026-02-14', "Valentine's Day"], ['2026-04-05', '2026-04-05', 'Easter'], ['2026-05-10', '2026-05-10', "Mother's Day"],
+  ['2026-05-25', '2026-05-25', 'Memorial Day'], ['2026-06-21', '2026-06-21', "Father's Day"], ['2026-07-04', '2026-07-04', 'July 4th'],
+  ['2026-09-07', '2026-09-07', 'Labor Day'], ['2026-10-31', '2026-10-31', 'Halloween'], ['2026-11-25', '2026-12-01', 'Your Black Friday sale', true],
+  ['2026-11-26', '2026-11-26', 'Thanksgiving'], ['2026-11-27', '2026-11-27', 'Black Friday', true], ['2026-11-30', '2026-11-30', 'Cyber Monday', true],
+  ['2026-12-25', '2026-12-25', 'Christmas', true], ['2027-01-01', '2027-01-01', "New Year's Day"], ['2027-02-14', '2027-02-14', "Valentine's Day"],
+  ['2027-03-28', '2027-03-28', 'Easter'], ['2027-05-09', '2027-05-09', "Mother's Day", true], ['2027-05-31', '2027-05-31', 'Memorial Day', true],
+  ['2027-06-20', '2027-06-20', "Father's Day", true], ['2027-07-04', '2027-07-04', 'July 4th', true], ['2027-09-06', '2027-09-06', 'Labor Day', true],
+].map(([from, to, name, big]) => ({ from, to, name, big: !!big }));
+function calendarOf(data) { return [...SALE_CAL, ...(data.events || []).filter((e) => e.day).map((e) => ({ from: String(e.day).slice(0, 10), to: String(e.day).slice(0, 10), name: `${e.kind}${e.note ? ': ' + e.note : ''}`, mine: true }))]; }
+const marksOn = (cal, d) => cal.filter((c) => d >= c.from && d <= c.to).map((c) => c.name);
 function TrendPanel({ ad, data, product }) {
   const [hi, setHi] = useState(null); const [table, setTable] = useState(false);
   const [box, W] = useWidth();
@@ -1704,10 +1718,12 @@ function TrendPanel({ ad, data, product }) {
   const pick = (e) => { const r = e.currentTarget.getBoundingClientRect(); const i = Math.floor((e.clientX - r.left - L) / step); setHi(i >= 0 && i < n ? i : null); };
   const h = hi != null ? days[hi] : null;
   const range = `${longDate(first, showYear)} to ${longDate(last, showYear)}`;
+  const cal = calendarOf(data), marks = days.map((v) => marksOn(cal, v.d));
   return html`<div class="panel"><h2>Day by day</h2>
     <div class="tiny muted">${range}${showYear ? ' · this ad hasn\'t run recently' : ''}</div>
     <div class="chart" ref=${box}>
       <svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${pick} onPointerDown=${pick} onPointerLeave=${() => setHi(null)} role="img" aria-label="7-day ROAS and daily spend">
+        ${marks.map((m, i) => m.length > 0 && html`<rect x=${x(i) - step / 2} y=${T1} width=${step} height=${top2 + H2 - T1} fill="var(--mid)" opacity="0.10"><title>${m.join(', ')}</title></rect>`)}
         <text x=${L} y=${T1 - 1} class="ax">7-day ROAS</text>
         ${[0, rMax / 1.15].map((t) => html`<line x1=${L} x2=${W - Rt} y1=${yR(t)} y2=${yR(t)} class="grid" /><text x=${L - 6} y=${yR(t) + 4} class="ax" text-anchor="end">${t.toFixed(1)}x</text>`)}
         ${be && be.roas && html`<line x1=${L} x2=${W - Rt} y1=${yR(be.roas)} y2=${yR(be.roas)} class="ref" /><text x=${W - Rt} y=${yR(be.roas) - 4} class="ax" text-anchor="end">break-even ${R.xroas(be.roas)}</text>`}
@@ -1722,9 +1738,9 @@ function TrendPanel({ ad, data, product }) {
       ${h && html`<div class="tip" style=${`left:${Math.min(W - 90, Math.max(90, x(hi)))}px;top:${T1 + 8}px`}><b>${longDate(h.d, showYear)}</b>
         <div>Spent ${h.spend > 0 ? R.money(h.spend) : '$0 (not running)'}</div>
         ${h.spend > 0 && html`<div>${h.purchases} buy${h.purchases === 1 ? '' : 's'} · that day ${R.xroas(h.roas)}</div>`}
-        ${h.roll != null && html`<div><i style="background:#3D8BFF"></i>7-day ROAS (${R.shortDate(R.addDays(h.d, -6))} to ${R.shortDate(h.d)}): ${R.xroas(h.roll)}</div>`}</div>`}
+        ${h.roll != null && html`<div><i style="background:#3D8BFF"></i>7-day ROAS (${R.shortDate(R.addDays(h.d, -6))} to ${R.shortDate(h.d)}): ${R.xroas(h.roll)}</div>`}${marks[hi].length ? html`<div style="color:var(--mid)">${marks[hi].join(' · ')}</div>` : ''}</div>`}
     </div>
-    <div class="tiny muted">Top: ROAS over the 7 days ending on that day, which smooths out Meta's random good and bad days. Gaps are days the ad didn't run. Bottom: what the ad spent each day. Hover or tap a day for the exact numbers. Today's partial day isn't shown.</div>
+    <div class="tiny muted">Top: ROAS over the 7 days ending on that day, which smooths out Meta's random good and bad days. Gaps are days the ad didn't run. Bottom: what the ad spent each day. Hover or tap a day for the exact numbers. Today's partial day isn't shown.${marks.some((m) => m.length) ? ' Shaded days: holidays, sales or changes you logged.' : ''}</div>
     <button class="link small" style="align-self:flex-start" onClick=${() => setTable(!table)}>${table ? 'Hide days' : 'Show each day'}</button>
     ${table && html`<div class="tscroll"><table class="t"><thead><tr><th>Day</th><th>Spend</th><th>Buys</th><th>Value</th><th>ROAS</th><th>7-day ROAS</th></tr></thead><tbody>
       ${days.slice().reverse().map((v) => html`<tr><td>${longDate(v.d, showYear)}</td><td>${v.spend > 0 ? R.money(v.spend) : '—'}</td><td>${v.spend > 0 ? v.purchases : '—'}</td><td>${v.spend > 0 ? R.money(v.revenue) : '—'}</td><td>${v.spend > 0 ? R.xroas(v.roas) : '—'}</td><td>${v.roll != null ? R.xroas(v.roll) : '—'}</td></tr>`)}
@@ -2044,7 +2060,7 @@ function ShopSync({ data, reload, say }) {
 }
 
 // Line chart: one money axis, hover crosshair + tooltip.
-function LineChart({ labels, series, fmt, refLine, height = 190, cap }) {
+function LineChart({ labels, series, fmt, refLine, height = 190, cap, marks }) {
   const [hi, setHi] = useState(null);
   const W = 720, H = height, L = 48, Rt = 10, T = 12, B = 24;
   const vals = series.flatMap((s) => s.values.filter((v) => v != null));
@@ -2058,6 +2074,7 @@ function LineChart({ labels, series, fmt, refLine, height = 190, cap }) {
   const move = (e) => { const r = e.currentTarget.getBoundingClientRect(); const px = (e.clientX - r.left) / r.width * W; const i = Math.round((px - L) / ((W - L - Rt) / Math.max(1, labels.length - 1))); setHi(Math.max(0, Math.min(labels.length - 1, i))); };
   return html`<div class="chart">
     <svg viewBox=${`0 0 ${W} ${H}`} preserveAspectRatio="none" onMouseMove=${move} onMouseLeave=${() => setHi(null)} role="img">
+      ${marks && marks.map((m, i) => m.length > 0 && html`<rect x=${x(i) - (W - L - Rt) / Math.max(1, labels.length - 1) / 2} y=${T} width=${(W - L - Rt) / Math.max(1, labels.length - 1)} height=${H - T - B} fill="var(--mid)" opacity="0.10" />`)}
       ${ticks.map((t) => html`<line x1=${L} x2=${W - Rt} y1=${y(t)} y2=${y(t)} class="grid" /><text x=${L - 6} y=${y(t) + 4} class="ax" text-anchor="end">${fmt(t, true)}</text>`)}
       ${labels.map((l, i) => i % step === 0 && html`<text x=${x(i)} y=${H - 6} class="ax" text-anchor="middle">${R.shortDate(l)}</text>`)}
       ${refLine && html`<line x1=${L} x2=${W - Rt} y1=${y(refLine.value)} y2=${y(refLine.value)} class="ref" /><text x=${W - Rt} y=${y(refLine.value) - 5} class="ax" text-anchor="end">${refLine.label}</text>`}
@@ -2066,7 +2083,7 @@ function LineChart({ labels, series, fmt, refLine, height = 190, cap }) {
       ${hi != null && html`<line x1=${x(hi)} x2=${x(hi)} y1=${T} y2=${H - B} class="cross" />${series.map((s) => s.values[hi] != null && html`<circle cx=${x(hi)} cy=${y(s.values[hi])} r="4" fill=${s.color} stroke="var(--panel)" stroke-width="2" vector-effect="non-scaling-stroke" />`)}`}
     </svg>
     ${series.length > 1 && html`<div class="legend">${series.map((s) => html`<span><i style=${'background:' + s.color + (s.dots ? ';opacity:.6;border-radius:50%;width:9px;height:9px' : '')}></i>${s.name}</span>`)}</div>`}
-    ${hi != null && html`<div class="tip" style=${`left:${Math.min(80, Math.max(8, x(hi) / W * 100))}%`}><b>${labels[hi]}</b>${series.map((s) => html`<div><i style=${'background:' + s.color}></i>${s.name}: ${s.values[hi] == null ? '—' : fmt(s.values[hi])}</div>`)}</div>`}
+    ${hi != null && html`<div class="tip" style=${`left:${Math.min(80, Math.max(8, x(hi) / W * 100))}%`}><b>${labels[hi]}</b>${series.map((s) => html`<div><i style=${'background:' + s.color}></i>${s.name}: ${s.values[hi] == null ? '—' : fmt(s.values[hi])}</div>`)}${marks && marks[hi] && marks[hi].length ? html`<div style="color:var(--mid)">${marks[hi].join(' · ')}</div>` : ''}</div>`}
   </div>`;
 }
 
@@ -2139,8 +2156,8 @@ function Stats(ctx) {
       <div class="tile"><div class="k">Meta ROAS · CPA</div><div class="v">${R.xroas(cur.roas)} <small>· ${R.money(cur.cpa)}</small></div><div class="s">${Math.round(cur.metaBuys)} Meta-reported buys</div></div>
     </section>
     <div class="grid2">
-      <section class="panel"><h2>Revenue and ad spend</h2><${LineChart} labels=${labels} fmt=${(v, ax) => (ax ? '$' + Math.round(v) : R.money0(v))} series=${[{ name: 'Revenue (Shopify)', color: '#3D8BFF', values: revS }, { name: 'Ad spend (Meta)', color: '#C2669E', values: spS }]} /></section>
-      <section class="panel"><h2>MER by day</h2><${LineChart} labels=${labels} fmt=${(v) => v.toFixed(2) + 'x'} refLine=${bev.roas ? { value: bev.roas, label: 'Store break-even ' + R.xroas(bev.roas) + (bev.estimated ? ' (est.)' : '') } : null} series=${[{ name: 'MER', color: '#3D8BFF', values: merS }]} /></section>
+      <section class="panel"><h2>Revenue and ad spend</h2><${LineChart} labels=${labels} marks=${labels.map((d) => marksOn(calendarOf(data), d))} fmt=${(v, ax) => (ax ? '$' + Math.round(v) : R.money0(v))} series=${[{ name: 'Revenue (Shopify)', color: '#3D8BFF', values: revS }, { name: 'Ad spend (Meta)', color: '#C2669E', values: spS }]} /></section>
+      <section class="panel"><h2>MER by day</h2><${LineChart} labels=${labels} marks=${labels.map((d) => marksOn(calendarOf(data), d))} fmt=${(v) => v.toFixed(2) + 'x'} refLine=${bev.roas ? { value: bev.roas, label: 'Store break-even ' + R.xroas(bev.roas) + (bev.estimated ? ' (est.)' : '') } : null} series=${[{ name: 'MER', color: '#3D8BFF', values: merS }]} /></section>
     </div>
     <section class="panel">
       <div class="row"><h2>Breakdown</h2><span class="spacer"></span><div class="seg wide">${[['ads', 'By ad'], ['angle', 'By angle'], ['camp', 'By campaign']].map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => setTab(k)}>${l}</button>`)}</div></div>
@@ -2828,7 +2845,7 @@ function Learn(ctx) {
         <div class="row"><button class="btn primary" onClick=${addL}>Save</button></div></section>
       <section class="panel"><h2>Log a change</h2><p class="small muted" style="margin:0">Site, offer, stock, tracking or Meta changes. Tests running then get flagged.</p><div class="form">
         <${Field} label="Date"><input type="date" value=${ev.day} onInput=${(e) => setEv({ ...ev, day: e.target.value })} /><//>
-        <${Field} label="Type"><select value=${ev.kind} onChange=${(e) => setEv({ ...ev, kind: e.target.value })}>${['Website change', 'Offer or price change', 'Stock problem', 'Tracking problem', 'Meta changed settings', 'Email sent', 'Other'].map((k) => html`<option>${k}</option>`)}</select><//>
+        <${Field} label="Type"><select value=${ev.kind} onChange=${(e) => setEv({ ...ev, kind: e.target.value })}>${['Website change', 'Sale or promo', 'Offer or price change', 'Stock problem', 'Tracking problem', 'Meta changed settings', 'Email sent', 'Other'].map((k) => html`<option>${k}</option>`)}</select><//>
         <${Field} full label="What happened"><input value=${ev.note} onInput=${(e) => setEv({ ...ev, note: e.target.value })} /><//>
         <label class="chk full"><input type="checkbox" checked=${ev.all} onChange=${(e) => setEv({ ...ev, all: e.target.checked })} /> Affects every product</label></div>
         <div class="row"><button class="btn" onClick=${addE}>Log change</button></div></section>
