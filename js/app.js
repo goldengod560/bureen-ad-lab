@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=115';
-import * as R from './rules.js?v=115';
-import { importHistory } from './importer.js?v=115';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=115';
+import { createBackend } from './data.js?v=116';
+import * as R from './rules.js?v=116';
+import { importHistory } from './importer.js?v=116';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=116';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -990,11 +990,14 @@ function TestPanel({ data, test, rules, econ, setModal, reload, say }) {
   const vb = m ? R.vsBreakEven(econ, m) : null;
   const hideOld = test.status !== 'active' && test.stage === 1 && !!(runsFor(test, ad, data) || {}).d7; // the Day-7 / full-run blocks replace it
   const c = test.conditions || {};
+  // Your guess shows instantly; it saves in the background (a full reload made clicks feel ignored).
+  const [guess, setGuess] = useState(c.guess || '');
+  const pickGuess = (g) => { setGuess(g); const n = { ...c, guess: g || undefined, guessDay: g ? (c.guess && c.guessDay ? c.guessDay : R.today()) : undefined }; be.update('tests', test.id, { conditions: n }).then(() => reload()).catch(() => { setGuess(c.guess || ''); say('Could not save your guess'); }); };
   return html`<div class=${'panel' + (test.status === 'active' ? ' accent' : '')}>
     <div class="row"><h2>${test.stage === 2 ? 'Stage 2 · Main' : 'Stage 1 test'}</h2><span class="spacer"></span>
       <span class="muted small">${test.start_date ? 'Day 1: ' + test.start_date : ''}${(test.conditions || {}).spendFrom ? ' (live from ' + test.conditions.spendFrom + ')' : ''}${test.budget ? ' · $' + test.budget + '/day' : ''}</span>
       <button class="link small" onClick=${() => setModal({ type: EditTestForm, props: { testId: test.id, adId: test.ad_id } })}>Edit</button></div>
-    ${test.stage === 1 && test.status === 'active' && html`<div class="row small" style="gap:8px;flex-wrap:wrap"><span class="muted">Your guess:</span><${GuessPicker} value=${c.guess || ''} onPick=${async (g) => { const n = { ...c, guess: g || undefined, guessDay: g ? R.today() : undefined }; await be.update('tests', test.id, { conditions: n }); await reload(); }} />${c.guess && !guessCounts(test) ? html`<span class="tiny muted">Made after day 2, so it won't count on the scoreboard.</span>` : !c.guess ? html`<span class="tiny muted">${R.testDay(test) > 2 ? "Past day 2, so a guess now won't count." : 'Guess by day 2 for it to count.'}</span>` : ''}</div>`}
+    ${test.stage === 1 && test.status === 'active' && html`<div class="row small" style="gap:8px;flex-wrap:wrap"><span class="muted">Your guess:</span><${GuessPicker} value=${guess} onPick=${pickGuess} />${guess && c.guess && !guessCounts(test) ? html`<span class="tiny muted">Made after day 2, so it won't count on the scoreboard.</span>` : !guess ? html`<span class="tiny muted">${R.testDay(test) > 2 ? "Past day 2, so a guess now won't count." : 'Guess by day 2 for it to count.'}</span>` : ''}</div>`}
     ${test.stage === 1 && test.status !== 'active' && c.guess && actualOf(test.result) && html`<div class="small">${c.guess === actualOf(test.result) ? html`<span class="good">✓</span>` : html`<span class="bad">✗</span>`} You guessed ${c.guess}; it was ${actualOf(test.result)}.</div>`}
     ${test.status === 'active' && test.stage === 1 && html`<div class=${'status ' + (st.final || st.onTrack ? 'good' : st.early ? 'bad' : st.behind || st.kept ? 'warn' : 'live')}>${st.text}
       ${st.early && html`<div class="row" style="margin-top:8px"><button class="btn sm" onClick=${async () => { await be.update('tests', test.id, { conditions: { ...(test.conditions || {}), keepRunning: R.today() } }); await be.insert('decisions', { product_id: test.product_id, ad_id: test.ad_id, test_id: test.id, kind: 'keep', day: R.today(), choice: 'Kept running after Pause? alert', reason: '' }); await reload(); say('Keeping it running'); }}>Keep running</button><button class="btn sm ghost" style="color:var(--fail)" onClick=${() => setModal({ type: StopForm, props: { testId: test.id } })}>Stop early</button></div>`}
