@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=117';
-import * as R from './rules.js?v=117';
-import { importHistory } from './importer.js?v=117';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=117';
+import { createBackend } from './data.js?v=118';
+import * as R from './rules.js?v=118';
+import { importHistory } from './importer.js?v=118';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=118';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2729,37 +2729,51 @@ function ReportCard({ data, dm, months, before }) {
     ${r.acts.length > 0 && html`<div class="status live small"><b>What to do next</b><ol style="margin:4px 0 0;padding-left:18px">${r.acts.map((x) => html`<li style="margin:2px 0">${x}</li>`)}</ol></div>`}`}
   </section>`;
 }
-// Your real cost per order, entry by entry, from the numbers you typed (never from estimates).
-// Each row is compared with the one before it; Rules gets a one-tap update when the recent average drifts.
+// Month by month: your sales, orders and real costs per order, one row per month (entries in the same month added together).
+// Up/down compares each month's daily rate with the month before, so a month in progress compares fairly.
 function CostTrend({ periods, reload, say }) {
   const st = R.storeEcon();
   const [open, setOpen] = useState(() => { try { return localStorage.getItem('adlab-costs') !== '0'; } catch (e) { return true; } });
   const flip = () => { setOpen(!open); try { localStorage.setItem('adlab-costs', open ? '0' : '1'); } catch (e) {} };
-  const rows = periods.filter((x) => x.revType === 'net' && x.orders > 0 && x.exact == null && (x.labels != null || x.fees != null || x.cogs != null)).map((x) => {
-    const sales = x.rev + (x.shipIn || 0) + (x.retFees || 0);
-    const label = x.from.slice(8) === '01' && x.to === monthEnd(monthKey(x.from)) ? `${MON_LONG[+x.from.slice(5, 7) - 1].slice(0, 3)} ${x.from.slice(0, 4)}` : `${R.shortDate(x.from)} to ${R.shortDate(x.to)}`;
-    return { x, label, orders: x.orders, ship: x.labels != null ? x.labels / x.orders : null, pack: x.packaging != null ? x.packaging / x.orders : null,
-      fee: x.fees != null && sales ? (x.fees - x.orders * (R.num(st.feeFixed) || 0.3)) / sales * 100 : null, cogs: x.cogs != null && x.rev ? x.cogs / x.rev * 100 : null, costFinal: x.costFinal };
+  const groups = new Map();
+  for (const x of periods.filter((p) => p.revType === 'net' && p.orders > 0 && p.exact == null)) {
+    const same = monthKey(x.from) === monthKey(x.to), key = same ? monthKey(x.from) : `${x.from}..${x.to}`;
+    const g = groups.get(key) || { key, month: same, from: x.from, to: x.to, days: 0, rev: 0, orders: 0, shipLab: 0, shipOrd: 0, fees: 0, feeSales: 0, feeOrd: 0 };
+    g.from = x.from < g.from ? x.from : g.from; g.to = x.to > g.to ? x.to : g.to; g.days += x.days; g.rev += x.rev; g.orders += x.orders;
+    if (x.labels != null) { g.shipLab += x.labels; g.shipOrd += x.orders; }
+    if (x.fees != null) { g.fees += x.fees; g.feeSales += x.rev + (x.shipIn || 0) + (x.retFees || 0); g.feeOrd += x.orders; }
+    groups.set(key, g);
+  }
+  const rows = [...groups.values()].sort((a, b) => a.from.localeCompare(b.from)).map((g) => {
+    const dim = g.month ? R.daysBetween(g.key + '-01', monthEnd(g.key)) + 1 : g.days;
+    const label = g.month ? `${MON_LONG[+g.key.slice(5) - 1].slice(0, 3)} ${g.key.slice(0, 4)}${g.days < dim ? ` (${g.days} days)` : ''}` : `${MON_LONG[+g.from.slice(5, 7) - 1].slice(0, 3)}–${MON_LONG[+g.to.slice(5, 7) - 1].slice(0, 3)} ${g.to.slice(0, 4)}`;
+    return { ...g, label, perDay: g.rev / g.days, ordDay: g.orders / g.days, aov: g.rev / g.orders, ship: g.shipOrd ? g.shipLab / g.shipOrd : null, fee: g.feeSales ? (g.fees - g.feeOrd * (R.num(st.feeFixed) || 0.3)) / g.feeSales * 100 : null };
   });
   if (!rows.length) return null;
-  // Weighted average over the last 3 entries that have each cost.
-  const avg = (k) => { const r = rows.filter((z) => z[k] != null).slice(-3); if (!r.length) return null; const w = r.reduce((t, z) => t + z.orders, 0); return { v: r.reduce((t, z) => t + z[k] * z.orders, 0) / w, n: r.length }; };
-  const cmp = (now, prev, k) => { if (now == null || prev == null) return ''; const d = (now - prev) / (Math.abs(prev) || 1); if (Math.abs(d) < 0.03) return html` <span class="tiny muted">≈ same</span>`; return html` <span class=${'tiny ' + (d < 0 ? 'good' : 'bad')}>${d < 0 ? '↓ cheaper' : '↑ pricier'}</span>`; };
-  const last = (k, i) => { for (let j = i - 1; j >= 0; j--) if (rows[j][k] != null) return rows[j][k]; return null; };
+  const avg = (k, wk) => { const r = rows.filter((z) => z[k] != null).slice(-3); if (!r.length) return null; const w = r.reduce((t, z) => t + z[wk], 0); return { v: r.reduce((t, z) => t + z[k] * z[wk], 0) / w, n: r.length }; };
   const sug = [];
-  const a = avg('ship'), b = avg('pack'), f = avg('fee');
-  if (a && Math.abs(a.v - (R.num(st.ship) || 7.6)) / (R.num(st.ship) || 7.6) > 0.03) sug.push({ k: 'ship', v: Math.round(a.v * 100) / 100, text: `Shipping labels averaged ${R.money(a.v)} per order (${a.n === 1 ? 'last entry' : `last ${a.n} entries`}). Rules says ${R.money(R.num(st.ship) || 7.6)}.` });
-  if (f && f.v > 0 && Math.abs(f.v - (R.num(st.feePct) || 2.9)) > 0.15) sug.push({ k: 'feePct', v: Math.round(f.v * 100) / 100, text: `Payment fees came to ${f.v.toFixed(2)}% + 30¢. Rules says ${(R.num(st.feePct) || 2.9).toFixed(2)}%.` });
+  const a = avg('ship', 'shipOrd'), f = avg('fee', 'feeOrd');
+  if (a && Math.abs(a.v - (R.num(st.ship) || 7.6)) / (R.num(st.ship) || 7.6) > 0.03) sug.push({ k: 'ship', v: Math.round(a.v * 100) / 100, text: `Shipping labels averaged ${R.money(a.v)} per order over your last ${a.n === 1 ? 'month' : a.n + ' months'}. Rules says ${R.money(R.num(st.ship) || 7.6)}.` });
+  if (f && f.v > 0 && Math.abs(f.v - (R.num(st.feePct) || 2.9)) > 0.15) sug.push({ k: 'feePct', v: Math.round(f.v * 100) / 100, text: `Payment fees came to ${f.v.toFixed(2)}% + 30¢ over your last ${f.n === 1 ? 'month' : f.n + ' months'}. Rules says ${(R.num(st.feePct) || 2.9).toFixed(2)}%.` });
   const apply = async (x) => { const next = { ...st, [x.k]: x.v }; await be.saveStore(next); R.setStoreEcon(next); await reload(); say('Rules updated'); };
-  const cell = (r, i, k, fmt) => html`<td class="mono">${r[k] == null ? html`<span class="muted">—</span>` : fmt(r[k])}${cmp(r[k], last(k, i), k)}</td>`;
-  return html`<section class="panel"><div class="row"><h2 style="margin:0">Costs per order</h2><span class="spacer"></span><button class="link small" onClick=${flip}>${open ? 'Hide' : 'Show'}</button></div>
-    ${!open ? html`<div class="small muted">Your real shipping, fees and product cost per order, month by month.</div>` : html`
+  const prevOf = (i, k) => { for (let j = i - 1; j >= 0; j--) if (rows[j][k] != null) return rows[j][k]; return null; };
+  // goodUp: true when up is good (sales), false when up is bad (costs)
+  const chg = (now, prev, goodUp, pct = true) => { if (now == null || prev == null || !prev) return ''; const d = (now - prev) / Math.abs(prev); if (Math.abs(d) < 0.03) return html` <span class="tiny muted">≈ same</span>`; const good = (d > 0) === goodUp; return html` <span class=${'tiny ' + (good ? 'good' : 'bad')}>${d > 0 ? '↑' : '↓'}${pct ? ' ' + Math.round(Math.abs(d) * 100) + '%' : ''}</span>`; };
+  const last = rows[rows.length - 1], prev = rows.length > 1 ? rows[rows.length - 2] : null;
+  return html`<section class="panel"><div class="row"><h2 style="margin:0">Month by month</h2><span class="spacer"></span><button class="link small" onClick=${flip}>${open ? 'Hide' : 'Show'}</button></div>
+    ${prev && html`<div class="small">${last.label}: sales ${last.perDay >= prev.perDay ? html`<b class="good">up ${Math.round((last.perDay / prev.perDay - 1) * 100)}%</b>` : html`<b class="bad">down ${Math.round((1 - last.perDay / prev.perDay) * 100)}%</b>`} vs ${prev.label.replace(/ \(.*\)$/, '')} (${R.money0(last.perDay)}/day vs ${R.money0(prev.perDay)}/day), orders ${last.ordDay >= prev.ordDay ? 'up' : 'down'} ${Math.round(Math.abs(last.ordDay / prev.ordDay - 1) * 100)}%, average order ${R.money(last.aov)}.</div>`}
+    ${!open ? '' : html`
       ${sug.map((x) => html`<div class="status live small row" style="gap:8px;flex-wrap:wrap"><span class="grow">${x.text}</span><button class="btn sm" onClick=${() => apply(x)}>Update Rules to ${x.k === 'feePct' ? x.v + '%' : R.money(x.v)}</button></div>`)}
-      <div class="tscroll"><table class="t"><thead><tr><th>Dates</th><th>Orders</th><th>Shipping / order</th><th>Fees</th><th>Product cost</th></tr></thead><tbody>
-        ${rows.slice().reverse().map((r) => { const i = rows.indexOf(r); return html`<tr><td class="mono">${r.label}</td><td>${r.orders}</td>${cell(r, i, 'ship', R.money)}${cell(r, i, 'fee', (v) => v.toFixed(2) + '%')}${cell(r, i, 'cogs', (v) => html`${v.toFixed(0)}% of sales${r.costFinal ? '' : html` <span class="tiny muted">est.</span>`}`)}</tr>`; })}
-        <tr><td class="muted">Rules use</td><td></td><td class="mono muted">${R.money(R.num(st.ship) || 7.6)}</td><td class="mono muted">${(R.num(st.feePct) || 2.9).toFixed(2)}%</td><td class="muted tiny">per product in Rules</td></tr>
+      <div class="tscroll"><table class="t"><thead><tr><th>Month</th><th>Sales</th><th>Orders</th><th>Avg order</th><th>Shipping / order</th><th>Fees</th></tr></thead><tbody>
+        ${rows.slice().reverse().map((r) => { const i = rows.indexOf(r); return html`<tr><td class="mono">${r.label}</td>
+          <td class="mono">${R.money0(r.rev)}${chg(r.perDay, i && r.month && rows[i - 1].month ? rows[i - 1].perDay : null, true)}</td>
+          <td class="mono">${r.orders}${chg(r.ordDay, i && r.month && rows[i - 1].month ? rows[i - 1].ordDay : null, true)}</td>
+          <td class="mono">${R.money(r.aov)}${chg(r.aov, i && r.month && rows[i - 1].month ? rows[i - 1].aov : null, true)}</td>
+          <td class="mono">${r.ship == null ? html`<span class="muted">—</span>` : R.money(r.ship)}${chg(r.ship, prevOf(i, 'ship'), false, false)}</td>
+          <td class="mono">${r.fee == null ? html`<span class="muted">—</span>` : r.fee.toFixed(2) + '%'}${chg(r.fee, prevOf(i, 'fee'), false, false)}</td></tr>`; })}
+        <tr><td class="muted">Rules use</td><td></td><td></td><td></td><td class="mono muted">${R.money(R.num(st.ship) || 7.6)}</td><td class="mono muted">${(R.num(st.feePct) || 2.9).toFixed(2)}%</td></tr>
       </tbody></table></div>
-      <div class="tiny muted">Only numbers you typed count. ↓ / ↑ compares with the entry before. Fees: the % part after 30¢ an order.</div>`}
+      <div class="tiny muted">Shopify net sales. ↑/↓ compares with the month before, per day, so a month in progress compares fairly. Green = good direction. Fees: the % part after 30¢ an order.</div>`}
   </section>`;
 }
 function PeriodForm(ctx) {

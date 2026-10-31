@@ -402,3 +402,4 @@ table.stats tr.click{cursor:pointer} table.stats tr.click:hover td{background:va
 .budgetline b{color:var(--ink);font-family:var(--mono)}
 .phonebudget{display:none}
 @media (max-width:900px){.phonebudget{display:block}}
+span.good,b.good,td.good{color:var(--pass)} span.bad,b.bad,td.bad{color:var(--fail)}
