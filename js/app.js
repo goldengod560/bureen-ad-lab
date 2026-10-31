@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=116';
-import * as R from './rules.js?v=116';
-import { importHistory } from './importer.js?v=116';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=116';
+import { createBackend } from './data.js?v=117';
+import * as R from './rules.js?v=117';
+import { importHistory } from './importer.js?v=117';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=117';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -483,6 +483,7 @@ function useDropFiles(onFiles) {
 }
 
 function Board(ctx) {
+  const budgetLine = (k) => html`<${BudgetLine} k=${k} data=${ctx.data} product=${ctx.product} setModal=${ctx.setModal} />`;
   const { data, product, stage, setStage, setModal, reload, say } = ctx;
   const b = useBrowse('board');
   const [sel, setSel] = useState(null);
@@ -524,15 +525,55 @@ function Board(ctx) {
     : html`
     <div class="board">
       ${PIPELINE.map((k) => { const s = R.STAGES.find((x) => x.key === k);
-        return html`<section class=${'col ' + k + (dropCol === k ? ' dropping' : '')} aria-label=${s.label} ...${dz(k)}><h2>${s.label}<span>${by(k).length}</span></h2><div class="hint">${s.hint}</div>
+        return html`<section class=${'col ' + k + (dropCol === k ? ' dropping' : '')} aria-label=${s.label} ...${dz(k)}><h2>${s.label}<span>${by(k).length}</span></h2><div class="hint">${s.hint}</div>${budgetLine(k)}
           <${CardGroupsSel} stageKey=${k} list=${by(k)} ctx=${cctx} cardCtx=${cardCtx} limit=${4} /></section>`; })}
     </div>
     <div class="stagepick" role="tablist" aria-label="Stages">
       ${PIPELINE.map((k) => html`<button role="tab" aria-selected=${k === cur} class=${k === cur ? 'on' : ''} onClick=${() => setStage(k)}><b>${R.stageLabel(k)}</b><span>${by(k).length}</span></button>`)}
     </div>
+    <div class="phonebudget">${budgetLine(cur)}</div>
     <div class="phonelist"><${CardGroupsSel} stageKey=${cur} list=${by(cur)} ctx=${cctx} cardCtx=${cardCtx} limit=${4} /></div>`}
     <${SelectBar} sel=${sel} setSel=${setSel} ctx=${ctx} />
     ${over && html`<div class="dropover"><div>Drop to add as new ads</div></div>`}`;
+}
+// Budgets at the top of the Testing and In Main columns. Main's is the whole Main campaign, set by you; changes are logged.
+function BudgetLine({ k, data, product, setModal }) {
+  if (k === 'testing') {
+    const live = data.tests.filter((t) => t.stage === 1 && t.status === 'active');
+    const here = live.filter((t) => t.product_id === product.id), sum = (l) => l.reduce((t, x) => t + (+x.budget || 0), 0);
+    if (!live.length) return null;
+    return html`<div class="budgetline"><b>${R.money0(sum(here))}/day</b> testing here (${here.length} live)${live.length > here.length ? html` · <span class="muted">${R.money0(sum(live))}/day all products</span>` : ''}</div>`;
+  }
+  if (k === 'main') {
+    const b = R.num((product.rules || {}).mainBudget), since = (product.rules || {}).mainBudgetSince;
+    return html`<div class="budgetline">${b ? html`<b>${R.money0(b)}/day</b> Main campaign${since ? html` <span class="muted">since ${R.shortDate(since)}</span>` : ''}` : html`<span class="muted">Main budget not set</span>`} <button class="link small" onClick=${(e) => { e.stopPropagation(); setModal({ type: BudgetForm, props: { productId: product.id } }); }}>${b ? 'Change' : 'Set'}</button></div>`;
+  }
+  return null;
+}
+function BudgetForm(ctx) {
+  const { data, productId, suggest, close, reload, say } = ctx;
+  const product = data.products.find((p) => p.id === productId);
+  const old = R.num((product.rules || {}).mainBudget);
+  const [f, setF] = useState({ amount: suggest ? String(Math.round(suggest)) : old ? String(old) : '', day: R.today(), note: '' });
+  const [busy, setBusy] = useState(false);
+  const hist = data.decisions.filter((d) => d.product_id === product.id && d.kind === 'budget').sort((a, b) => String(b.day || b.created_at).localeCompare(String(a.day || a.created_at))).slice(0, 6);
+  const nv = R.num(f.amount), pct = old && nv ? Math.round((nv / old - 1) * 100) : null;
+  const save = async () => {
+    if (!nv) { say('Add the daily budget.'); return; }
+    setBusy(true);
+    await be.update('products', product.id, { rules: { ...(product.rules || {}), mainBudget: nv, mainBudgetSince: f.day } });
+    if (old !== nv) await be.insert('decisions', { product_id: product.id, kind: 'budget', day: f.day, choice: old ? `Main budget ${R.money0(old)} → ${R.money0(nv)}/day (${pct > 0 ? '+' : ''}${pct}%)` : `Main budget set to ${R.money0(nv)}/day`, reason: f.note || '' });
+    await reload(); close(); say('Budget saved');
+  };
+  return html`<${Modal} title="Main campaign budget" sub=${product.name} onClose=${close}>
+    <div class="form">
+      <${Field} label="Daily budget for the whole Main campaign"><input inputmode="decimal" value=${f.amount} onInput=${(e) => setF({ ...f, amount: e.target.value })} placeholder="$/day" /><//>
+      <${Field} label="Changed on"><input type="date" value=${f.day} onInput=${(e) => setF({ ...f, day: e.target.value })} /><//>
+      ${old && nv && old !== nv && html`<div class=${'status small full ' + (Math.abs(pct) > 20 ? 'warn' : 'live')}>${R.money0(old)} → ${R.money0(nv)}/day (${pct > 0 ? '+' : ''}${pct}%).${pct > 20 ? ' More than your 20% step: Meta may restart learning.' : ''}</div>`}
+      <${Field} full label="Why (optional)"><input value=${f.note} onInput=${(e) => setF({ ...f, note: e.target.value })} placeholder="Two good weeks, scale planner said yes" /><//>
+    </div>
+    ${hist.length > 0 && html`<div class="small"><b>Recent changes</b>${hist.map((d) => html`<div class="tiny muted">${R.shortDate(String(d.day || d.created_at).slice(0, 10))} · ${d.choice}${d.reason ? ' · ' + d.reason : ''}</div>`)}</div>`}
+    <div class="row"><button class="btn primary" disabled=${busy} onClick=${save}>Save</button><button class="btn ghost" onClick=${close}>Cancel</button></div><//>`;
 }
 function CardGroupsSel({ stageKey, list, ctx, cardCtx, limit, grid }) {
   const [open, setOpen] = useState({});
@@ -1424,7 +1465,8 @@ function spendAlarms(data) {
     const mOn = (d) => main.reduce((t, ad) => t + adOn(ad, d).spend, 0);
     const today = mOn(last), avg = [1, 2, 3, 4, 5, 6, 7].reduce((t, k) => t + mOn(R.addDays(last, -k)), 0) / 7;
     if (!today && avg >= 10 && dayT.spend > 0) out.push({ kind: 'todo', tone: 'red', title: `${p.name} Main spent $0 on ${when}`, sub: `It usually spends about ${R.money0(avg)}/day. Check it's still on and nothing got rejected.`, tag: 'SPEND', pid: p.id });
-    else if (avg >= 20 && today > avg * 1.6) out.push({ kind: 'heads', tone: 'amber', title: `${p.name} Main spent ${R.money0(today)} on ${when}`, sub: `${Math.round((today / avg - 1) * 100)}% above its usual ${R.money0(avg)}/day. Make sure no budget was raised by mistake.`, tag: 'SPEND', pid: p.id });
+    else if (R.num((p.rules || {}).mainBudget) && today > R.num(p.rules.mainBudget) * 1.75) out.push({ kind: 'heads', tone: 'amber', title: `${p.name} Main spent ${R.money0(today)} on ${when}`, sub: `Budget is ${R.money0(p.rules.mainBudget)}/day. Meta can go up to 75% over on one day; more than that, check the budget in Ads Manager.`, tag: 'SPEND', pid: p.id });
+    else if (!R.num((p.rules || {}).mainBudget) && avg >= 20 && today > avg * 1.6) out.push({ kind: 'heads', tone: 'amber', title: `${p.name} Main spent ${R.money0(today)} on ${when}`, sub: `${Math.round((today / avg - 1) * 100)}% above its usual ${R.money0(avg)}/day. Make sure no budget was raised by mistake.`, tag: 'SPEND', pid: p.id });
   }
   if (dayT.spend >= 40 && !dayT.purchases) {
     const two = prevT.spend >= 40 && !prevT.purchases;
@@ -2015,12 +2057,12 @@ function mainPlan(data, product) {
   const added = data.decisions.filter((d) => d.product_id === product.id && d.kind === 'move' && /Main/.test(d.choice || '') && !/Turned off/.test(d.choice || '')).map(dDay).filter(Boolean).sort().pop();
   const sinceAdd = added ? R.daysBetween(added, R.today()) : null;
   const alarms = spendAlarms(data).filter((a) => a.pid === product.id || (a.adId && (data.ads.find((x) => x.id === a.adId) || {}).product_id === product.id));
-  const perDay = cur.spend / 7;
+  const setB = R.num((product.rules || {}).mainBudget), perDay = setB || cur.spend / 7;
   const scaleChecks = [
     [nowB === 'above', `Last 7 days above break-even (${R.xroas(cur.roas)} vs ${R.xroas(be)})`],
     [prevB === 'above', `The week before too (${R.xroas(prev.roas)})`],
     [l3.spend > 0 && l3.roas >= be, `Last 3 days holding (${R.xroas(l3.roas)})`],
-    [sinceRaise == null || sinceRaise >= 3, sinceRaise == null ? 'No raise logged yet' : sinceRaise >= 3 ? `Last raise ${sinceRaise} days ago` : `Raised ${sinceRaise === 0 ? 'today' : sinceRaise === 1 ? 'yesterday' : '2 days ago'} (wait 3 days between raises)`],
+    [sinceRaise == null || sinceRaise >= 3, sinceRaise == null ? 'No raise logged yet' : sinceRaise >= 3 ? `Last budget change ${sinceRaise} days ago` : `Budget changed ${sinceRaise === 0 ? 'today' : sinceRaise === 1 ? 'yesterday' : '2 days ago'} (wait 3 days between changes)`],
     [sinceAdd == null || sinceAdd >= 3, sinceAdd == null ? 'No ad added to Main recently' : sinceAdd >= 3 ? `Last ad added to Main ${sinceAdd} days ago` : `Ad added to Main ${sinceAdd === 0 ? 'today' : sinceAdd === 1 ? 'yesterday' : '2 days ago'} (let it settle 3 days)`],
     [!R.isWeekendLock(), R.isWeekendLock() ? 'Weekend lock (your rule: no budget changes Fri night to Sun)' : 'Not the weekend lock'],
     [!alarms.length, alarms.length ? 'A spend alarm is open (see Today)' : 'No spend alarms'],
@@ -2052,12 +2094,12 @@ function mainPlan(data, product) {
   return { head, w, cur, prev, be, nowB, prevB, thisWk, lastWk, thisB, market, ads, weak, best, swapNow, budget, slots, used, free, usedBy, next, lastLaunch, daysLeft, steps, mainCount: main.length, scale };
 }
 
-function ScaleRow({ s, product, reload, say }) {
+function ScaleRow({ s, product, reload, say, setModal }) {
   const [why, setWhy] = useState(false);
   const fail = s.checks.find((c) => !c[0]);
-  const log = async () => { await be.insert('decisions', { product_id: product.id, kind: 'budget', day: R.today(), choice: `Raised Main ~${s.step}%`, reason: `About ${R.money0(s.perDay)}/day to ${R.money0(s.to)}/day` }); await reload(); say('Raise logged. Next check in 3 days.'); };
-  return html`<div class=${'status small ' + (s.ok ? 'good' : 'live')}><div class="row" style="gap:8px;flex-wrap:wrap"><span class="grow">Raise Main ${s.step}% today? <b>${s.ok ? 'Yes' : 'Not today'}</b>${s.ok ? ` · about ${R.money0(s.perDay)}/day → ${R.money0(s.to)}/day` : ` · ${fail[1]}`}</span>
-    <button class="link small" onClick=${() => setWhy(!why)}>${why ? 'Hide' : 'Why'}</button>${s.ok && html`<button class="btn sm" onClick=${log}>I raised it</button>`}</div>
+  const log = () => setModal({ type: BudgetForm, props: { productId: product.id, suggest: s.to } });
+  return html`<div class=${'status small ' + (s.ok ? 'good' : 'live')}><div class="row" style="gap:8px;flex-wrap:wrap"><span class="grow">Raise Main ${s.step}% today? <b>${s.ok ? 'Yes' : 'Not today'}</b>${s.ok ? ` · ${R.money0(s.perDay)}/day → ${R.money0(s.to)}/day` : ` · ${fail[1]}`}</span>
+    <button class="link small" onClick=${() => setWhy(!why)}>${why ? 'Hide' : 'Why'}</button>${s.ok && html`<button class="btn sm" onClick=${log}>I raised it: update budget</button>`}</div>
     ${why && html`<div class="stack" style="gap:2px;margin-top:6px">${s.checks.map(([ok, t]) => html`<div><span class=${ok ? 'good' : 'bad'}>${ok ? '✓' : '✗'}</span> ${t}</div>`)}${s.lastRaise ? html`<div class="tiny muted">Last raise logged ${R.shortDate(s.lastRaise)}.</div>` : ''}</div>`}</div>`;
 }
 // Product day by day: everything this product's ads spent and sold, split into Main and Testing.
@@ -2141,7 +2183,7 @@ function MainPlan({ data, product, setModal, reload, say }) {
       <div class="mp-tile"><small>Backup ready</small>${p.best ? html`<button class="link mp-ad" onClick=${() => open(p.best.a)}>${displayName(p.best.a).replace(/^(IMG|VID|Image|Video)\s*[|–-]\s*/i, '').replace(/\s*\|\s*\d{1,2}-\d{1,2}$/, '').slice(0, 26)} <b>${R.xroas(p.best.r && p.best.r.full.roas)}</b></button><span>${p.swapNow ? 'Swap it in now' : 'Swap only if next week is also bad'}</span>` : html`<b class="bad">None</b><span>Bench is empty</span>`}</div>
       <div class="mp-tile"><small>Testing</small><b>${p.used}/${p.slots}</b><span>${p.free ? `${p.free} free · Up Next ${p.next}${p.free > p.next ? ` · make ${p.free - p.next}` : ''}` : `in use${p.usedBy.length ? ': ' + p.usedBy.join(', ') : ''}`}${p.daysLeft >= 0 ? ` · Black Friday batch by ${R.shortDate(p.lastLaunch)}` : ''}</span></div>
     </div>
-    ${p.scale && html`<${ScaleRow} s=${p.scale} product=${product} reload=${reload} say=${say} />`}
+    ${p.scale && html`<${ScaleRow} s=${p.scale} product=${product} reload=${reload} say=${say} setModal=${setModal} />`}
     <button class="link small" style="align-self:flex-start" onClick=${() => setMore(!more)}>${more ? 'Hide details' : 'Show details'}</button>
     ${more && html`<ol style="margin:0;padding-left:20px" class="small">${p.steps.map((st) => html`<li style="margin:4px 0"><span class=${'dot ' + st.tone}></span>${st.text}${st.ad && html` <button class="link small" onClick=${() => open(st.ad)}>Open</button>`}</li>`)}</ol>
       <div class="tiny muted">Suggestions from your numbers. Nothing changes until you act.</div>`}

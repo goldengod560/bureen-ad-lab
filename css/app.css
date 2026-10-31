@@ -397,3 +397,8 @@ table.stats tr.click{cursor:pointer} table.stats tr.click:hover td{background:va
 .gbadge{position:absolute;right:6px;top:6px;min-width:26px;height:22px;padding:0 5px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font:700 12px var(--body);background:rgba(6,10,18,.9);border:1px solid currentColor}
 .gbadge.big{position:static;min-width:44px;height:36px;font-size:18px;border-radius:9px}
 .gbadge.t-pass{color:var(--pass)}.gbadge.t-live{color:var(--accent2)}.gbadge.t-mid{color:var(--mid)}.gbadge.t-fail{color:var(--fail)}.gbadge.t-muted{color:var(--muted)}
+
+.budgetline{font-size:12.5px;color:var(--soft);margin:2px 0 8px;display:flex;flex-wrap:wrap;gap:4px 6px;align-items:baseline}
+.budgetline b{color:var(--ink);font-family:var(--mono)}
+.phonebudget{display:none}
+@media (max-width:900px){.phonebudget{display:block}}
