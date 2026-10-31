@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=121';
-import * as R from './rules.js?v=121';
-import { importHistory } from './importer.js?v=121';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=121';
+import { createBackend } from './data.js?v=122';
+import * as R from './rules.js?v=122';
+import { importHistory } from './importer.js?v=122';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=122';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2758,13 +2758,13 @@ function CostTrend({ periods, reload, say }) {
   const apply = async (x) => { const next = { ...st, [x.k]: x.v }; await be.saveStore(next); R.setStoreEcon(next); await reload(); say('Rules updated'); };
   const prevOf = (i, k) => { for (let j = i - 1; j >= 0; j--) if (rows[j][k] != null) return rows[j][k]; return null; };
   // goodUp: true when up is good (sales), false when up is bad (costs)
-  const chg = (now, prev, goodUp, pct = true) => { if (now == null || prev == null || !prev) return ''; const d = (now - prev) / Math.abs(prev); if (Math.abs(d) < 0.015) return html` <span class="tiny muted">same</span>`; const good = (d > 0) === goodUp; return html` <span class=${'tiny ' + (good ? 'good' : 'bad')}>${d > 0 ? '↑' : '↓'}${pct ? ' ' + Math.round(Math.abs(d) * 100) + '%' : ''}</span>`; };
+  const chg = (now, prev, goodUp, pct = true) => { if (now == null || prev == null || !prev) return ''; const d = (now - prev) / Math.abs(prev); if (Math.abs(d) < 0.01) return html` <span class="tiny muted">same</span>`; const good = (d > 0) === goodUp; return html` <span class=${'tiny ' + (good ? 'good' : 'bad')}>${d > 0 ? '↑' : '↓'}${pct ? ' ' + Math.round(Math.abs(d) * 100) + '%' : ''}</span>`; };
   const last = rows[rows.length - 1], prev = rows.length > 1 ? rows[rows.length - 2] : null;
   return html`<section class="panel"><div class="row"><h2 style="margin:0">Month by month</h2><span class="spacer"></span><button class="link small" onClick=${flip}>${open ? 'Hide' : 'Show'}</button></div>
     ${prev && html`<div class="small">${last.label}: sales ${last.perDay >= prev.perDay ? html`<b class="good">up ${Math.round((last.perDay / prev.perDay - 1) * 100)}%</b>` : html`<b class="bad">down ${Math.round((1 - last.perDay / prev.perDay) * 100)}%</b>`} vs ${prev.label.replace(/ \(.*\)$/, '')} (${R.money0(last.perDay)}/day vs ${R.money0(prev.perDay)}/day), orders ${last.ordDay >= prev.ordDay ? 'up' : 'down'} ${Math.round(Math.abs(last.ordDay / prev.ordDay - 1) * 100)}%, average order ${R.money(last.aov)}.</div>`}
     ${!open ? '' : html`
       ${sug.map((x) => html`<div class="status live small row" style="gap:8px;flex-wrap:wrap"><span class="grow">${x.text}</span><button class="btn sm" onClick=${() => apply(x)}>Update Rules to ${x.k === 'feePct' ? x.v + '%' : R.money(x.v)}</button></div>`)}
-      <div class="tiny muted">↑ ↓ = change vs the month before · <span style="cursor:help;text-decoration:underline dotted" title="Same = moved less than 1.5% from the month before (up or down). That's normal noise, so it gets no arrow." onClick=${() => say('Same = moved less than 1.5% from the month before (up or down). That is normal noise, so it gets no arrow.')}>same*</span></div>
+      <div class="tiny muted">↑ ↓ = change vs the month before · <span style="cursor:help;text-decoration:underline dotted" title="Same = moved less than 1% from the month before (up or down). That's normal noise, so it gets no arrow." onClick=${() => say('Same = moved less than 1% from the month before (up or down). That is normal noise, so it gets no arrow.')}>same*</span></div>
       <div class="tscroll"><table class="t"><thead><tr><th>Month</th><th>Sales</th><th>Orders</th><th>Avg order</th><th>Shipping / order</th><th>Fees</th></tr></thead><tbody>
         ${rows.slice().reverse().map((r) => { const i = rows.indexOf(r); return html`<tr><td class="mono">${r.label}</td>
           <td class="mono">${R.money0(r.rev)}${chg(r.perDay, i && r.month && rows[i - 1].month ? rows[i - 1].perDay : null, true)}</td>
