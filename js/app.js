@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=110';
-import * as R from './rules.js?v=110';
-import { importHistory } from './importer.js?v=110';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=110';
+import { createBackend } from './data.js?v=111';
+import * as R from './rules.js?v=111';
+import { importHistory } from './importer.js?v=111';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=111';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2929,14 +2929,16 @@ function Rules(ctx) {
 function Learn(ctx) {
   const { data, product, reload, say } = ctx;
   const [text, setText] = useState(''); const [kind, setKind] = useState('learning');
-  const [ev, setEv] = useState({ day: R.today(), kind: 'Website change', note: '', all: true, pid: product.id });
+  const [ev, setEv] = useState({ day: R.today(), kind: 'Website change', note: '', all: true, pid: product.id, t1: '', t2: '' });
+  const hm = (t) => { if (!t) return ''; const [h, m] = t.split(':').map(Number); return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`; };
+  const timeText = ev.t1 && ev.t2 ? `${hm(ev.t1)} to ${hm(ev.t2)}` : ev.t1 ? `from ${hm(ev.t1)}` : ev.t2 ? `fixed ${hm(ev.t2)}` : '';
   const items = [
     ...data.learnings.filter((l) => !['week', 'stock', 'period'].includes(l.kind) && (!l.product_id || l.product_id === product.id)).map((l) => ({ day: l.day, tag: l.kind === 'rule_change' ? 'Rule change' : l.kind === 'hypothesis' ? 'Hypothesis' : 'Learning', tone: l.kind === 'rule_change' ? 'mid' : l.kind === 'hypothesis' ? 'muted' : 'pass', text: l.text, src: l.source, id: l.id, t: 'learnings' })),
     ...data.events.filter((e) => !e.product_id || e.product_id === product.id).map((e) => ({ day: e.day, tag: 'Change', tone: 'ins', text: `${e.kind}${e.note ? ': ' + e.note : ''}`, id: e.id, t: 'events' })),
     ...data.decisions.filter((d) => d.product_id === product.id).map((d) => { const ad = data.ads.find((a) => a.id === d.ad_id); return { day: d.day || String(d.created_at || '').slice(0, 10), tag: 'Decision', tone: 'live', text: `${d.choice}${ad ? ' · ' + ad.base_name : ''}${d.reason ? ' · ' + d.reason : ''}` }; }),
   ].sort((a, b) => String(b.day).localeCompare(String(a.day)));
   const addL = async () => { if (!text.trim()) return; await be.insert('learnings', { product_id: product.id, kind, text: text.trim() }); setText(''); await reload(); say('Saved'); };
-  const addE = async () => { await be.insert('events', { product_id: ev.all ? null : (ev.pid || product.id), day: ev.day, kind: ev.kind, note: ev.note }); setEv({ ...ev, note: '' }); await reload(); say('Change logged'); };
+  const addE = async () => { await be.insert('events', { product_id: ev.all ? null : (ev.pid || product.id), day: ev.day, kind: ev.kind, note: [timeText, ev.note].filter(Boolean).join(' · ') }); setEv({ ...ev, note: '', t1: '', t2: '' }); await reload(); say('Change logged'); };
   return html`
     <h1 style="font-size:30px">Learnings · ${product.name}</h1>
     <${Scoreboard} data=${data} />
@@ -2948,6 +2950,8 @@ function Learn(ctx) {
       <section class="panel"><h2>Log a change</h2><p class="small muted" style="margin:0">Site, offer, stock, tracking or Meta changes. Tests running then get flagged.</p><div class="form">
         <${Field} label="Date"><input type="date" value=${ev.day} onInput=${(e) => setEv({ ...ev, day: e.target.value })} /><//>
         <${Field} label="Type"><select value=${ev.kind} onChange=${(e) => setEv({ ...ev, kind: e.target.value })}>${['Website change', 'Sale or promo', 'Offer or price change', 'Stock problem', 'Tracking problem', 'Meta changed settings', 'Email sent', 'Other'].map((k) => html`<option>${k}</option>`)}</select><//>
+        <${Field} label="Started (time, optional)"><input type="time" value=${ev.t1} onInput=${(e) => setEv({ ...ev, t1: e.target.value })} /><//>
+        <${Field} label="Fixed (time, optional)"><input type="time" value=${ev.t2} onInput=${(e) => setEv({ ...ev, t2: e.target.value })} /><//>
         <${Field} full label="What happened"><input value=${ev.note} onInput=${(e) => setEv({ ...ev, note: e.target.value })} /><//>
         <label class="chk full"><input type="checkbox" checked=${ev.all} onChange=${(e) => setEv({ ...ev, all: e.target.checked, pid: ev.pid || product.id })} /> Affects every product</label>
         ${!ev.all && html`<${Field} full label="Which product"><select value=${ev.pid || product.id} onChange=${(e) => setEv({ ...ev, pid: e.target.value })}>${data.products.filter((p) => !p.archived).map((p) => html`<option value=${p.id}>${p.name}</option>`)}</select><//>`}</div>
