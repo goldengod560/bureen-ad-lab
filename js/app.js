@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=111';
-import * as R from './rules.js?v=111';
-import { importHistory } from './importer.js?v=111';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=111';
+import { createBackend } from './data.js?v=112';
+import * as R from './rules.js?v=112';
+import { importHistory } from './importer.js?v=112';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=112';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2926,6 +2926,23 @@ function Rules(ctx) {
 }
 
 // ---------- learnings ----------
+// One History line. Changes and learnings can be edited or deleted; decisions are edited on the ad page.
+const CHANGE_KINDS = ['Website change', 'Meta changed settings', 'Sale or promo', 'Offer or price change', 'Stock problem', 'Tracking problem', 'Email sent', 'Other'];
+function HistoryRow({ it, data, reload, say }) {
+  const [ed, setEd] = useState(null);
+  const canEdit = it.raw && (it.t === 'events' || it.t === 'learnings');
+  const start = () => setEd(it.t === 'events' ? { day: String(it.raw.day).slice(0, 10), kind: it.raw.kind, note: it.raw.note || '', pid: it.raw.product_id || '' } : { text: it.raw.text || '' });
+  const save = async () => { if (it.t === 'events') await be.update('events', it.id, { day: ed.day, kind: ed.kind, note: ed.note, product_id: ed.pid || null }); else await be.update('learnings', it.id, { text: ed.text }); setEd(null); await reload(); say('Saved'); };
+  const del = async () => { if (!confirm('Delete this?')) return; await be.remove(it.t, it.id); await reload(); say('Deleted'); };
+  if (ed) return html`<div class="li" style="flex-wrap:wrap;gap:8px">${it.t === 'events' ? html`<div class="form" style="width:100%">
+      <${Field} label="Date"><input type="date" value=${ed.day} onInput=${(e) => setEd({ ...ed, day: e.target.value })} /><//>
+      <${Field} label="Type"><select value=${ed.kind} onChange=${(e) => setEd({ ...ed, kind: e.target.value })}>${[...new Set([...CHANGE_KINDS, ed.kind])].map((k) => html`<option>${k}</option>`)}</select><//>
+      <${Field} label="Product"><select value=${ed.pid} onChange=${(e) => setEd({ ...ed, pid: e.target.value })}><option value="">Every product</option>${data.products.filter((p) => !p.archived).map((p) => html`<option value=${p.id}>${p.name}</option>`)}</select><//>
+      <${Field} full label="What happened"><textarea value=${ed.note} onInput=${(e) => setEd({ ...ed, note: e.target.value })}></textarea><//></div>`
+    : html`<textarea class="inp" style="width:100%;min-height:70px" value=${ed.text} onInput=${(e) => setEd({ ...ed, text: e.target.value })}></textarea>`}
+    <div class="row"><button class="btn sm primary" onClick=${save}>Save</button><button class="btn sm ghost" onClick=${() => setEd(null)}>Cancel</button></div></div>`;
+  return html`<div class="li"><span class="mono small muted" style="width:52px">${R.shortDate(it.day)}</span><span class=${'chip t-' + it.tone}>${it.tag}</span><span class="grow small">${it.text}${it.src ? html` <span class="muted">· ${it.src}</span>` : ''}</span>${canEdit && html`<button class="link small" onClick=${start}>Edit</button><button class="link small" style="color:var(--fail)" onClick=${del}>Delete</button>`}</div>`;
+}
 function Learn(ctx) {
   const { data, product, reload, say } = ctx;
   const [text, setText] = useState(''); const [kind, setKind] = useState('learning');
@@ -2933,8 +2950,8 @@ function Learn(ctx) {
   const hm = (t) => { if (!t) return ''; const [h, m] = t.split(':').map(Number); return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`; };
   const timeText = ev.t1 && ev.t2 ? `${hm(ev.t1)} to ${hm(ev.t2)}` : ev.t1 ? `from ${hm(ev.t1)}` : ev.t2 ? `fixed ${hm(ev.t2)}` : '';
   const items = [
-    ...data.learnings.filter((l) => !['week', 'stock', 'period'].includes(l.kind) && (!l.product_id || l.product_id === product.id)).map((l) => ({ day: l.day, tag: l.kind === 'rule_change' ? 'Rule change' : l.kind === 'hypothesis' ? 'Hypothesis' : 'Learning', tone: l.kind === 'rule_change' ? 'mid' : l.kind === 'hypothesis' ? 'muted' : 'pass', text: l.text, src: l.source, id: l.id, t: 'learnings' })),
-    ...data.events.filter((e) => !e.product_id || e.product_id === product.id).map((e) => ({ day: e.day, tag: 'Change', tone: 'ins', text: `${e.kind}${e.note ? ': ' + e.note : ''}`, id: e.id, t: 'events' })),
+    ...data.learnings.filter((l) => !['week', 'stock', 'period'].includes(l.kind) && (!l.product_id || l.product_id === product.id)).map((l) => ({ day: l.day, tag: l.kind === 'rule_change' ? 'Rule change' : l.kind === 'hypothesis' ? 'Hypothesis' : 'Learning', tone: l.kind === 'rule_change' ? 'mid' : l.kind === 'hypothesis' ? 'muted' : 'pass', text: l.text, src: l.source, id: l.id, t: 'learnings', raw: l })),
+    ...data.events.filter((e) => !e.product_id || e.product_id === product.id).map((e) => ({ day: e.day, tag: 'Change', tone: 'ins', text: `${e.kind}${e.note ? ': ' + e.note : ''}`, id: e.id, t: 'events', raw: e })),
     ...data.decisions.filter((d) => d.product_id === product.id).map((d) => { const ad = data.ads.find((a) => a.id === d.ad_id); return { day: d.day || String(d.created_at || '').slice(0, 10), tag: 'Decision', tone: 'live', text: `${d.choice}${ad ? ' · ' + ad.base_name : ''}${d.reason ? ' · ' + d.reason : ''}` }; }),
   ].sort((a, b) => String(b.day).localeCompare(String(a.day)));
   const addL = async () => { if (!text.trim()) return; await be.insert('learnings', { product_id: product.id, kind, text: text.trim() }); setText(''); await reload(); say('Saved'); };
@@ -2949,7 +2966,7 @@ function Learn(ctx) {
         <div class="row"><button class="btn primary" onClick=${addL}>Save</button></div></section>
       <section class="panel"><h2>Log a change</h2><p class="small muted" style="margin:0">Site, offer, stock, tracking or Meta changes. Tests running then get flagged.</p><div class="form">
         <${Field} label="Date"><input type="date" value=${ev.day} onInput=${(e) => setEv({ ...ev, day: e.target.value })} /><//>
-        <${Field} label="Type"><select value=${ev.kind} onChange=${(e) => setEv({ ...ev, kind: e.target.value })}>${['Website change', 'Sale or promo', 'Offer or price change', 'Stock problem', 'Tracking problem', 'Meta changed settings', 'Email sent', 'Other'].map((k) => html`<option>${k}</option>`)}</select><//>
+        <${Field} label="Type"><select value=${ev.kind} onChange=${(e) => setEv({ ...ev, kind: e.target.value })}>${CHANGE_KINDS.map((k) => html`<option>${k}</option>`)}</select><//>
         <${Field} label="Started (time, optional)"><input type="time" value=${ev.t1} onInput=${(e) => setEv({ ...ev, t1: e.target.value })} /><//>
         <${Field} label="Fixed (time, optional)"><input type="time" value=${ev.t2} onInput=${(e) => setEv({ ...ev, t2: e.target.value })} /><//>
         <${Field} full label="What happened"><input value=${ev.note} onInput=${(e) => setEv({ ...ev, note: e.target.value })} /><//>
@@ -2957,7 +2974,7 @@ function Learn(ctx) {
         ${!ev.all && html`<${Field} full label="Which product"><select value=${ev.pid || product.id} onChange=${(e) => setEv({ ...ev, pid: e.target.value })}>${data.products.filter((p) => !p.archived).map((p) => html`<option value=${p.id}>${p.name}</option>`)}</select><//>`}</div>
         <div class="row"><button class="btn" onClick=${addE}>Log change</button></div></section>
     </div>
-    <section class="panel"><h2>History</h2>${items.length ? html`<div class="list">${items.map((it) => html`<div class="li"><span class="mono small muted" style="width:52px">${R.shortDate(it.day)}</span><span class=${'chip t-' + it.tone}>${it.tag}</span><span class="grow small">${it.text}${it.src ? html` <span class="muted">· ${it.src}</span>` : ''}</span></div>`)}</div>` : html`<div class="empty">Nothing yet</div>`}</section>`;
+    <section class="panel"><h2>History</h2>${items.length ? html`<div class="list">${items.map((it) => html`<${HistoryRow} key=${(it.t || 'd') + (it.id || it.day + it.text)} it=${it} data=${data} reload=${reload} say=${say} />`)}</div>` : html`<div class="empty">Nothing yet</div>`}</section>`;
 }
 
 // ---------- more ----------
