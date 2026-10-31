@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=113';
-import * as R from './rules.js?v=113';
-import { importHistory } from './importer.js?v=113';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=113';
+import { createBackend } from './data.js?v=114';
+import * as R from './rules.js?v=114';
+import { importHistory } from './importer.js?v=114';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=114';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -516,6 +516,7 @@ function Board(ctx) {
   return html`
     <${SummaryStrip} data=${data} product=${product} />
     <${MainPlan} data=${data} product=${product} setModal=${ctx.setModal} reload=${ctx.reload} say=${ctx.say} />
+    <${ProductDaily} data=${data} product=${product} />
     <${Toolbar} b=${b} data=${data} product=${product} sel=${sel} setSel=${setSel} extra=${upload} />
     ${dragging && html`<div class="droprow"><span class="small muted">Drop on a folder:</span>${FOLDERS.map((f) => html`<span class=${'dropchip' + (dropCol === f ? ' on' : '')} ...${dz(f)}>${R.stageLabel(f)}</span>`)}</div>`}
     ${searching ? html`<section class="panel"><div class="row"><h2>Search: ${results.length} ad${results.length === 1 ? '' : 's'}</h2><span class="muted small">across every folder</span></div>
@@ -1684,10 +1685,11 @@ async function autoCheckins(data) {
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const WKD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const longDate = (d, yr) => { const x = R.parseDay(d); return `${WKD[x.getDay()]} ${MON[x.getMonth()]} ${x.getDate()}${yr ? ', ' + x.getFullYear() : ''}`; };
+// Real width of a chart box. A callback ref, so it also works when the chart appears after the first render.
 function useWidth() {
-  const ref = useRef(null); const [w, setW] = useState(640);
-  useEffect(() => { const el = ref.current; if (!el) return; const ro = new ResizeObserver(() => setW(Math.max(260, el.clientWidth))); ro.observe(el); setW(Math.max(260, el.clientWidth)); return () => ro.disconnect(); }, []);
-  return [ref, w];
+  const [el, setEl] = useState(null); const [w, setW] = useState(640);
+  useEffect(() => { if (!el) return; const ro = new ResizeObserver(() => { if (el.clientWidth) setW(Math.max(260, el.clientWidth)); }); ro.observe(el); if (el.clientWidth) setW(Math.max(260, el.clientWidth)); return () => ro.disconnect(); }, [el]);
+  return [setEl, w];
 }
 // Sale calendar: shopping holidays, your own sales and anything you logged as a change, marked on the charts.
 const SALE_CAL = [
@@ -2054,6 +2056,68 @@ function ScaleRow({ s, product, reload, say }) {
   return html`<div class=${'status small ' + (s.ok ? 'good' : 'live')}><div class="row" style="gap:8px;flex-wrap:wrap"><span class="grow">Raise Main ${s.step}% today? <b>${s.ok ? 'Yes' : 'Not today'}</b>${s.ok ? ` · about ${R.money0(s.perDay)}/day → ${R.money0(s.to)}/day` : ` · ${fail[1]}`}</span>
     <button class="link small" onClick=${() => setWhy(!why)}>${why ? 'Hide' : 'Why'}</button>${s.ok && html`<button class="btn sm" onClick=${log}>I raised it</button>`}</div>
     ${why && html`<div class="stack" style="gap:2px;margin-top:6px">${s.checks.map(([ok, t]) => html`<div><span class=${ok ? 'good' : 'bad'}>${ok ? '✓' : '✗'}</span> ${t}</div>`)}${s.lastRaise ? html`<div class="tiny muted">Last raise logged ${R.shortDate(s.lastRaise)}.</div>` : ''}</div>`}</div>`;
+}
+// Product day by day: everything this product's ads spent and sold, split into Main and Testing.
+// Testing = rows from a campaign with "test" in its name, or an ad that was in its Stage 1 test that day.
+function ProductDaily({ data, product }) {
+  const [rng, setRng0] = useState(() => { try { return localStorage.getItem('adlab-pd-rng') || '7'; } catch (e) { return '7'; } });
+  const [scope, setScope0] = useState(() => { try { return localStorage.getItem('adlab-pd-scope') || 'all'; } catch (e) { return 'all'; } });
+  const setRng = (v) => { setRng0(v); try { localStorage.setItem('adlab-pd-rng', v); } catch (e) {} };
+  const setScope = (v) => { setScope0(v); try { localStorage.setItem('adlab-pd-scope', v); } catch (e) {} };
+  const [hi, setHi] = useState(null); const [box, W] = useWidth();
+  const w = healthWindow(data); if (!w) return null;
+  const be = R.econOf(product).opBE;
+  const n = +rng, from = R.addDays(w.end, -(n - 1));
+  const ads = data.ads.filter((a) => a.product_id === product.id);
+  const tests = data.tests.filter((t) => t.stage === 1 && t.product_id === product.id && t.start_date);
+  const inTest = (ad, d) => tests.some((t) => t.ad_id === ad.id && d >= ((t.conditions || {}).spendFrom || t.start_date) && (t.status === 'active' || d <= R.addDays(t.start_date, (t.planned_days || 7) - 1)));
+  const days = Array.from({ length: n }, (_, i) => ({ d: R.addDays(from, i), main: { spend: 0, revenue: 0, purchases: 0 }, test: { spend: 0, revenue: 0, purchases: 0 } }));
+  const at = new Map(days.map((x) => [x.d, x]));
+  for (const ad of ads) for (const r of rowsForAd(ad, data.meta_days)) {
+    const x = at.get(r.day); if (!x) continue;
+    const g = /test/i.test(r.campaign || '') || inTest(ad, r.day) ? x.test : x.main;
+    g.spend += +r.spend || 0; g.revenue += +r.revenue || 0; g.purchases += +r.purchases || 0;
+  }
+  const pick = (x) => (scope === 'main' ? x.main : scope === 'test' ? x.test : { spend: x.main.spend + x.test.spend, revenue: x.main.revenue + x.test.revenue, purchases: x.main.purchases + x.test.purchases });
+  const tot = (k) => days.reduce((t, x) => { const v = k === 'all' ? pick({ ...x }) : x[k]; return { spend: t.spend + v.spend, revenue: t.revenue + v.revenue, purchases: t.purchases + v.purchases }; }, { spend: 0, revenue: 0, purchases: 0 });
+  const all = days.reduce((t, x) => ({ spend: t.spend + x.main.spend + x.test.spend, revenue: t.revenue + x.main.revenue + x.test.revenue, purchases: t.purchases + x.main.purchases + x.test.purchases }), { spend: 0, revenue: 0, purchases: 0 });
+  const M = tot('main'), Tt = tot('test');
+  if (!all.spend) return null;
+  const vals = days.map((x) => { const v = pick(x); return { ...v, roas: v.spend ? v.revenue / v.spend : null }; });
+  const tone = (r) => (be && r < be ? 'var(--fail)' : 'var(--pass)');
+  const L = 44, Rt = 8, T1 = 12, H1 = 110, G = 18, H2 = 60, B = 22, H = T1 + H1 + G + H2 + B, step = (W - L - Rt) / n, x = (i) => L + step * (i + 0.5), bw = Math.max(3, Math.min(22, step * 0.6));
+  const rMax = Math.max(1, Math.min(Math.max(...vals.map((v) => v.roas || 0)), be ? be * 2.5 : 8), be || 0) * 1.15, yR = (v) => T1 + H1 * (1 - Math.min(v, rMax) / rMax);
+  const top2 = T1 + H1 + G, sMax = Math.max(1, ...days.map((d) => d.main.spend + d.test.spend)) * 1.1, yS = (v) => top2 + H2 * (1 - v / sMax);
+  const lblEvery = Math.max(1, Math.ceil(n / Math.max(3, Math.floor((W - L) / 56))));
+  const move = (e) => { const r = e.currentTarget.getBoundingClientRect(); const i = Math.floor((e.clientX - r.left - L) / step); setHi(i >= 0 && i < n ? i : null); };
+  const h = hi != null ? days[hi] : null, hv = hi != null ? vals[hi] : null;
+  const ro = (t) => (t.spend ? R.xroas(t.revenue / t.spend) : '—');
+  const info = h ? html`<b>${longDate(h.d)}</b> · Main ${R.money0(h.main.spend)} (${h.main.purchases} buys, ${ro(h.main)}) · Testing ${R.money0(h.test.spend)} (${h.test.purchases} buys, ${ro(h.test)}) · ${scope === 'all' ? 'together' : scope === 'main' ? 'Main' : 'Testing'} <b style=${'color:' + tone(hv.roas || 0)}>${R.xroas(hv.roas)}</b>`
+    : html`Tap a day for its numbers.`;
+  return html`<section class="panel">
+    <div class="row" style="gap:8px;flex-wrap:wrap"><h2 style="margin:0">${product.name} · day by day</h2><span class="spacer"></span>
+      <div class="seg sm" role="group" aria-label="Show">${[['all', 'All'], ['main', 'Main'], ['test', 'Testing']].map(([k, l]) => html`<button class=${scope === k ? 'on' : ''} onClick=${() => setScope(k)}>${l}</button>`)}</div>
+      <div class="seg sm" role="group" aria-label="Range" style="grid-template-columns:repeat(2,auto)">${[['7', '7 days'], ['30', '30 days']].map(([k, l]) => html`<button class=${rng === k ? 'on' : ''} onClick=${() => setRng(k)}>${l}</button>`)}</div></div>
+    <div class="mp-tiles">
+      <div class="mp-tile"><small>All · ${R.shortDate(from)} to ${R.shortDate(w.end)}</small><b class=${be && all.spend && all.revenue / all.spend < be ? 'bad' : 'good'}>${ro(all)}</b><span>${R.money0(all.spend)} spent · ${all.purchases} buys</span></div>
+      <div class="mp-tile"><small>Main</small><b class=${be && M.spend && M.revenue / M.spend < be ? 'bad' : M.spend ? 'good' : ''}>${ro(M)}</b><span>${R.money0(M.spend)} · ${M.purchases} buys</span></div>
+      <div class="mp-tile"><small>Testing</small><b class=${be && Tt.spend && Tt.revenue / Tt.spend < be ? 'bad' : Tt.spend ? 'good' : ''}>${ro(Tt)}</b><span>${R.money0(Tt.spend)} · ${Tt.purchases} buys</span></div>
+      <div class="mp-tile"><small>Break-even</small><b>${R.xroas(be)}</b><span>Meta-reported sales</span></div>
+    </div>
+    <div class="small" style="min-height:20px">${info}</div>
+    <div class="chart" ref=${box}><svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${move} onPointerDown=${move} onPointerLeave=${() => setHi(null)} role="img" aria-label="ROAS and spend each day">
+      <text x=${L} y=${T1 - 2} class="ax">ROAS</text>
+      ${[0, rMax / 1.15].map((v) => html`<line x1=${L} x2=${W - Rt} y1=${yR(v)} y2=${yR(v)} class="grid" /><text x=${L - 6} y=${yR(v) + 4} class="ax" text-anchor="end">${v.toFixed(1)}x</text>`)}
+      ${be && html`<line x1=${L} x2=${W - Rt} y1=${yR(be)} y2=${yR(be)} class="ref" /><text x=${W - Rt} y=${yR(be) - 4} class="ax" text-anchor="end">break-even ${R.xroas(be)}</text>`}
+      ${vals.map((v, i) => v.spend > 0 && (v.purchases > 0 ? html`<rect x=${x(i) - bw / 2} y=${yR(v.roas)} width=${bw} height=${Math.max(2, yR(0) - yR(v.roas))} rx="2" fill=${tone(v.roas)} opacity=${hi == null || hi === i ? 0.9 : 0.45} />` : html`<rect x=${x(i) - bw / 2} y=${yR(0) - 3} width=${bw} height="3" rx="1" fill="var(--fail)" />`))}
+      <text x=${L} y=${top2 - 5} class="ax">Spend: <tspan fill="#3D8BFF">Main</tspan> + <tspan fill="#C2669E">Testing</tspan></text>
+      <line x1=${L} x2=${W - Rt} y1=${top2 + H2} y2=${top2 + H2} class="grid" /><text x=${L - 6} y=${top2 + 8} class="ax" text-anchor="end">${R.money0(sMax / 1.1)}</text>
+      ${days.map((d, i) => html`${d.main.spend > 0 && html`<rect x=${x(i) - bw / 2} y=${yS(d.main.spend)} width=${bw} height=${Math.max(1, top2 + H2 - yS(d.main.spend))} fill="#3D8BFF" opacity=${hi == null || hi === i ? 0.9 : 0.45} />`}${d.test.spend > 0 && html`<rect x=${x(i) - bw / 2} y=${yS(d.main.spend + d.test.spend)} width=${bw} height=${Math.max(1, yS(d.main.spend) - yS(d.main.spend + d.test.spend))} fill="#C2669E" opacity=${hi == null || hi === i ? 0.9 : 0.45} />`}`)}
+      ${days.map((d, i) => i % lblEvery === 0 && html`<text x=${x(i)} y=${H - 6} class="ax" text-anchor="middle">${R.shortDate(d.d)}</text>`)}
+      ${hi != null && html`<line x1=${x(hi)} x2=${x(hi)} y1=${T1} y2=${H - B} class="cross" />`}
+    </svg></div>
+    <div class="tiny muted">Green day = above break-even, red = below, thin red line = no sales. Only ads in Ad Lab count; Testing = your test campaign or an ad in its test that day.</div>
+  </section>`;
 }
 function MainPlan({ data, product, setModal, reload, say }) {
   const [more, setMore] = useState(false);
