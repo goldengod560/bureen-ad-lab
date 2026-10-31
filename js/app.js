@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=114';
-import * as R from './rules.js?v=114';
-import { importHistory } from './importer.js?v=114';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=114';
+import { createBackend } from './data.js?v=115';
+import * as R from './rules.js?v=115';
+import { importHistory } from './importer.js?v=115';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=115';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2065,6 +2065,8 @@ function ProductDaily({ data, product }) {
   const setRng = (v) => { setRng0(v); try { localStorage.setItem('adlab-pd-rng', v); } catch (e) {} };
   const setScope = (v) => { setScope0(v); try { localStorage.setItem('adlab-pd-scope', v); } catch (e) {} };
   const [hi, setHi] = useState(null); const [box, W] = useWidth();
+  const [open, setOpen0] = useState(() => { try { return localStorage.getItem('adlab-pd-open') !== '0'; } catch (e) { return true; } });
+  const setOpen = (v) => { setOpen0(v); try { localStorage.setItem('adlab-pd-open', v ? '1' : '0'); } catch (e) {} };
   const w = healthWindow(data); if (!w) return null;
   const be = R.econOf(product).opBE;
   const n = +rng, from = R.addDays(w.end, -(n - 1));
@@ -2097,26 +2099,29 @@ function ProductDaily({ data, product }) {
   return html`<section class="panel">
     <div class="row" style="gap:8px;flex-wrap:wrap"><h2 style="margin:0">${product.name} · day by day</h2><span class="spacer"></span>
       <div class="seg sm" role="group" aria-label="Show">${[['all', 'All'], ['main', 'Main'], ['test', 'Testing']].map(([k, l]) => html`<button class=${scope === k ? 'on' : ''} onClick=${() => setScope(k)}>${l}</button>`)}</div>
-      <div class="seg sm" role="group" aria-label="Range" style="grid-template-columns:repeat(2,auto)">${[['7', '7 days'], ['30', '30 days']].map(([k, l]) => html`<button class=${rng === k ? 'on' : ''} onClick=${() => setRng(k)}>${l}</button>`)}</div></div>
+      <div class="seg sm" role="group" aria-label="Range" style="grid-template-columns:repeat(2,auto)">${[['7', '7 days'], ['30', '30 days']].map(([k, l]) => html`<button class=${rng === k ? 'on' : ''} onClick=${() => setRng(k)}>${l}</button>`)}</div>
+      <button class="link small" onClick=${() => setOpen(!open)}>${open ? 'Hide chart' : 'Show chart'}</button></div>
     <div class="mp-tiles">
       <div class="mp-tile"><small>All · ${R.shortDate(from)} to ${R.shortDate(w.end)}</small><b class=${be && all.spend && all.revenue / all.spend < be ? 'bad' : 'good'}>${ro(all)}</b><span>${R.money0(all.spend)} spent · ${all.purchases} buys</span></div>
       <div class="mp-tile"><small>Main</small><b class=${be && M.spend && M.revenue / M.spend < be ? 'bad' : M.spend ? 'good' : ''}>${ro(M)}</b><span>${R.money0(M.spend)} · ${M.purchases} buys</span></div>
       <div class="mp-tile"><small>Testing</small><b class=${be && Tt.spend && Tt.revenue / Tt.spend < be ? 'bad' : Tt.spend ? 'good' : ''}>${ro(Tt)}</b><span>${R.money0(Tt.spend)} · ${Tt.purchases} buys</span></div>
       <div class="mp-tile"><small>Break-even</small><b>${R.xroas(be)}</b><span>Meta-reported sales</span></div>
     </div>
-    <div class="small" style="min-height:20px">${info}</div>
-    <div class="chart" ref=${box}><svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${move} onPointerDown=${move} onPointerLeave=${() => setHi(null)} role="img" aria-label="ROAS and spend each day">
+    ${open && html`<div class="small" style="min-height:20px">${info}</div>`}
+    <div class="chart" ref=${box} style=${open ? '' : 'display:none'}><svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${move} onPointerDown=${move} onPointerLeave=${() => setHi(null)} role="img" aria-label="ROAS and spend each day">
       <text x=${L} y=${T1 - 2} class="ax">ROAS</text>
       ${[0, rMax / 1.15].map((v) => html`<line x1=${L} x2=${W - Rt} y1=${yR(v)} y2=${yR(v)} class="grid" /><text x=${L - 6} y=${yR(v) + 4} class="ax" text-anchor="end">${v.toFixed(1)}x</text>`)}
-      ${be && html`<line x1=${L} x2=${W - Rt} y1=${yR(be)} y2=${yR(be)} class="ref" /><text x=${W - Rt} y=${yR(be) - 4} class="ax" text-anchor="end">break-even ${R.xroas(be)}</text>`}
-      ${vals.map((v, i) => v.spend > 0 && (v.purchases > 0 ? html`<rect x=${x(i) - bw / 2} y=${yR(v.roas)} width=${bw} height=${Math.max(2, yR(0) - yR(v.roas))} rx="2" fill=${tone(v.roas)} opacity=${hi == null || hi === i ? 0.9 : 0.45} />` : html`<rect x=${x(i) - bw / 2} y=${yR(0) - 3} width=${bw} height="3" rx="1" fill="var(--fail)" />`))}
-      <text x=${L} y=${top2 - 5} class="ax">Spend: <tspan fill="#3D8BFF">Main</tspan> + <tspan fill="#C2669E">Testing</tspan></text>
+      ${be && html`<line x1=${L} x2=${W - Rt} y1=${yR(be)} y2=${yR(be)} class="ref" /><text x=${L + 4} y=${yR(be) + 12} class="ax">break-even ${R.xroas(be)}</text>`}
+      ${n <= 7 ? html`<polyline points=${vals.map((v, i) => (v.spend > 0 ? `${x(i)},${yR(v.roas || 0)}` : null)).filter(Boolean).join(' ')} fill="none" stroke="#3D8BFF" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" />
+          ${vals.map((v, i) => v.spend > 0 && html`<circle cx=${x(i)} cy=${yR(v.roas || 0)} r="5" fill=${v.purchases > 0 ? tone(v.roas) : 'var(--fail)'} stroke="var(--panel)" stroke-width="2" /><text x=${x(i)} y=${yR(v.roas || 0) - 10} class="ax" text-anchor="middle" style="fill:var(--ink)">${R.xroas(v.roas)}</text>`)}`
+        : vals.map((v, i) => v.spend > 0 && (v.purchases > 0 ? html`<rect x=${x(i) - bw / 2} y=${yR(v.roas)} width=${bw} height=${Math.max(2, yR(0) - yR(v.roas))} rx="2" fill=${tone(v.roas)} opacity=${hi == null || hi === i ? 0.9 : 0.45} />` : html`<rect x=${x(i) - bw / 2} y=${yR(0) - 3} width=${bw} height="3" rx="1" fill="var(--fail)" />`))}
+      <text x=${L} y=${top2 - 5} class="ax">Spend each day: <tspan fill="#3D8BFF">blue = Main</tspan>, <tspan fill="#C2669E">pink = Testing</tspan>, whole bar = total</text>
       <line x1=${L} x2=${W - Rt} y1=${top2 + H2} y2=${top2 + H2} class="grid" /><text x=${L - 6} y=${top2 + 8} class="ax" text-anchor="end">${R.money0(sMax / 1.1)}</text>
       ${days.map((d, i) => html`${d.main.spend > 0 && html`<rect x=${x(i) - bw / 2} y=${yS(d.main.spend)} width=${bw} height=${Math.max(1, top2 + H2 - yS(d.main.spend))} fill="#3D8BFF" opacity=${hi == null || hi === i ? 0.9 : 0.45} />`}${d.test.spend > 0 && html`<rect x=${x(i) - bw / 2} y=${yS(d.main.spend + d.test.spend)} width=${bw} height=${Math.max(1, yS(d.main.spend) - yS(d.main.spend + d.test.spend))} fill="#C2669E" opacity=${hi == null || hi === i ? 0.9 : 0.45} />`}`)}
       ${days.map((d, i) => i % lblEvery === 0 && html`<text x=${x(i)} y=${H - 6} class="ax" text-anchor="middle">${R.shortDate(d.d)}</text>`)}
       ${hi != null && html`<line x1=${x(hi)} x2=${x(hi)} y1=${T1} y2=${H - B} class="cross" />`}
     </svg></div>
-    <div class="tiny muted">Green day = above break-even, red = below, thin red line = no sales. Only ads in Ad Lab count; Testing = your test campaign or an ad in its test that day.</div>
+    ${open && html`<div class="tiny muted">Top: ROAS each day (${n <= 7 ? 'dots' : 'bars'} green above break-even, red below${n <= 7 ? '' : ', thin red line = no sales'}). Bottom: spend each day, blue = Main and pink = Testing stacked into the day's total. Only ads in Ad Lab count; Testing = your test campaign or an ad in its test that day.</div>`}
   </section>`;
 }
 function MainPlan({ data, product, setModal, reload, say }) {
