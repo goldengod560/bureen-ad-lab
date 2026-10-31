@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=112';
-import * as R from './rules.js?v=112';
-import { importHistory } from './importer.js?v=112';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable } from './metafile.js?v=112';
+import { createBackend } from './data.js?v=113';
+import * as R from './rules.js?v=113';
+import { importHistory } from './importer.js?v=113';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=113';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -214,11 +214,17 @@ const shortMoney = (n) => (n == null ? '—' : n >= 1000 ? '$' + (n / 1000).toFi
 
 // File rows grouped by ad name, built once per data load.
 const fileIndex = new WeakMap();
+const adByName = new WeakMap();
+function adForName(data, name) {
+  let m = adByName.get(data);
+  if (!m) { m = new Map(); for (const a of data.ads) for (const k of namesOf(a)) if (!m.has(k)) m.set(k, a); adByName.set(data, m); }
+  return m.get(normName(name)) || null;
+}
 function fileTotals(ad, data) {
   let idx = fileIndex.get(data);
   if (!idx) { idx = new Map(); for (const r of data.meta_days || []) { const k = normName(r.ad_name); if (!idx.has(k)) idx.set(k, []); idx.get(k).push(r); } fileIndex.set(data, idx); }
-  const rows = idx.get(normName(ad.base_name));
-  return rows ? sumRows(rows) : null;
+  const rows = namesOf(ad).flatMap((k) => idx.get(k) || []);
+  return rows.length ? sumRows(rows) : null;
 }
 // One set of numbers per ad: your Ads Manager files when they cover at least as much spend as the
 // imported history and typed check-ins; otherwise the history.
@@ -907,6 +913,7 @@ function AdDetail(ctx) {
             ${[...R.STAGES, ...R.SHELVES].map((s) => html`<option value=${s.key}>${s.label}</option>`)}</select></label></div>
         ${(ad.headline || ad.primary_text || ad.offer || ad.notes) && html`<div class="panel">
           ${ad.offer && html`<div class="small"><span class="muted">Offer:</span> ${offerOf(ad)}</div>`}
+          ${((ad.tags || {}).aliases || []).length > 0 && html`<div class="small"><span class="muted">Old names:</span> ${ad.tags.aliases.join(' · ')}</div>`}
           <div class="small"><span class="muted">Hook:</span> ${hookOf(ad)}${(ad.tags || {}).hook ? '' : html` <span class="tiny muted">(from the name)</span>`}</div>
           ${ad.headline && html`<div class="small"><span class="muted">Headline:</span> ${ad.headline}</div>`}
           ${ad.primary_text && html`<div class="small" style="white-space:pre-wrap"><span class="muted">Primary text:</span> ${ad.primary_text}</div>`}
@@ -1033,7 +1040,7 @@ function AdForm(ctx) {
   const bumpV = (n) => /V\d+\s*$/i.test(n) ? n.replace(/V(\d+)\s*$/i, (_, d) => 'V' + (+d + 1)) : n + ' | V2';
   const init = mode === 'new'
     ? { base_name: '', short: '', variant: '', v: 1, format: 'image', angle: '', offer: OFFERS[0], headline: '', primary_text: '', notes: '', concept: '', hook: '' }
-    : { ...src, offer: offerOf(src), hook: (src.tags || {}).hook || '', short: '', variant: '', base_name: mode === 'version' ? bumpV(src.base_name) : src.base_name, notes: mode === 'version' ? (recycle ? 'Recycled. The fix: ' : 'What changed: ') : src.notes };
+    : { ...src, offer: offerOf(src), hook: (src.tags || {}).hook || '', aliasText: (((src.tags || {}).aliases) || []).join('\n'), short: '', variant: '', base_name: mode === 'version' ? bumpV(src.base_name) : src.base_name, notes: mode === 'version' ? (recycle ? 'Recycled. The fix: ' : 'What changed: ') : src.notes };
   const [f, setF] = useState({ ...init, product_id: src ? src.product_id : product.id }); const [file, setFile] = useState(null); const [story, setStory] = useState(null); const [busy, setBusy] = useState(false); const [upNext, setUpNext] = useState(false);
   const hasStory = src && ((src.tags || {}).files || []).some((x) => x.label === '9:16');
   const [custom, setCustom] = useState(mode !== 'new');
@@ -1060,6 +1067,12 @@ function AdForm(ctx) {
         tags.files = [...(tags.files || []).filter((x) => x.label !== '9:16'), { path: sp, type: story.type, label: '9:16' }];
       }
       if ((f.hook || '').trim()) tags.hook = f.hook.trim(); else delete tags.hook;
+      if (mode === 'edit') { // renamed: remember the old name so Ads Manager files under it still count
+        let al = String(f.aliasText || '').split('\n').map((x) => x.trim()).filter(Boolean);
+        if (name.trim() !== src.base_name) al.push(src.base_name);
+        al = [...new Set(al)].filter((x) => normName(x) !== normName(name.trim()));
+        if (al.length) tags.aliases = al; else delete tags.aliases;
+      }
       const row = { base_name: name.trim(), format: f.format, angle: f.angle || null, offer: f.offer, headline: f.headline, primary_text: f.primary_text, notes: f.notes, concept: f.concept || null, media_path, media_type, tags };
       if (mode === 'edit') { await be.update('ads', src.id, { ...row, product_id: f.product_id }); await reload(); close(); say(f.product_id !== src.product_id ? 'Moved to ' + ((data.products.find((p) => p.id === f.product_id) || {}).name || 'other product') : 'Saved'); return; }
       if (upNext) row.tags = { ...(row.tags || {}), queue: Date.now() };
@@ -1089,7 +1102,8 @@ function AdForm(ctx) {
         <${Field} label="Hook (the words people see first)"><input value=${f.hook || ''} onInput=${set('hook')} placeholder=${hookOf({ base_name: name, tags: {} })} /><//>
         <${Field} full label="Headline"><input value=${f.headline || ''} onInput=${set('headline')} /><//>
         <${Field} full label="Primary text"><textarea value=${f.primary_text || ''} onInput=${set('primary_text')}></textarea><//>
-        <${Field} full label="Notes"><textarea value=${f.notes || ''} onInput=${set('notes')}></textarea><//>`}
+        <${Field} full label="Notes"><textarea value=${f.notes || ''} onInput=${set('notes')}></textarea><//>
+        ${mode === 'edit' && html`<${Field} full label="Old names, one per line (files under these still count for this ad)"><textarea value=${f.aliasText || ''} onInput=${set('aliasText')} placeholder="Renaming the ad adds its old name here automatically"></textarea><//>`}`}
     </div>
     ${mode !== 'edit' && html`<label class="chk"><input type="checkbox" checked=${upNext} onChange=${(e) => setUpNext(e.target.checked)} /> Ready to launch: put it in Up Next (otherwise it goes to Ideas)</label>`}
     <div class="row"><button class="btn primary" disabled=${busy} onClick=${save}>${busy ? 'Saving…' : upNext ? 'Save to Up Next' : 'Save to Ideas'}</button><button class="btn ghost" onClick=${close}>Cancel</button></div>
@@ -2094,7 +2108,7 @@ function MetaDrop({ data, reload, say, compact }) {
         const byName = new Map(); f.periods.forEach((x) => { const k = normName(x.ad_name); if (!byName.has(k)) byName.set(k, []); byName.get(k).push(x); });
         let n = 0;
         for (const ad of data.ads) {
-          const list = byName.get(normName(ad.base_name)); if (!list) continue;
+          const list = namesOf(ad).flatMap((k) => byName.get(k) || []); if (!list.length) continue;
           const keep = new Map(((ad.tags || {}).freq || []).map((x) => [x.from + '|' + x.to + '|' + x.adset, x]));
           list.forEach((x) => keep.set(x.from + '|' + x.to + '|' + x.adset, { from: x.from, to: x.to, adset: x.adset, reach: x.reach, impressions: x.impressions, frequency: x.frequency }));
           const freq = [...keep.values()].sort((a, b) => String(b.to).localeCompare(String(a.to))).slice(0, 24);
@@ -2111,7 +2125,7 @@ function MetaDrop({ data, reload, say, compact }) {
       try { await be.cleanMetaDays(); } catch (e) { /* optional */ }
       const fresh = await be.loadAll(); fresh.ads = fresh.ads.map(R.normalizeAd);
       const filled = await autoCheckins(fresh);
-      const known = new Set(fresh.ads.map((a) => normName(a.base_name)));
+      const known = new Set(fresh.ads.flatMap((a) => namesOf(a)));
       const unmatched = [...new Set(f.rows.filter((r) => r.spend > 0 && !known.has(normName(r.ad_name))).map((r) => r.ad_name))];
       await reload();
       setSt({ ok: true, msg: `Added ${f.days.length === 1 ? f.days[0] : f.days[0] + ' to ' + f.days[f.days.length - 1]}: ${f.rows.length} ad rows, ${R.money0(f.spend)} spend.`
@@ -2216,8 +2230,8 @@ function Stats(ctx) {
   // per-ad rows
   const inRange = data.meta_days.filter((r) => r.day >= start && r.day <= end);
   const groups = new Map();
-  inRange.forEach((r) => { const k = normName(r.ad_name); if (!groups.has(k)) groups.set(k, { name: r.ad_name, rows: [] }); groups.get(k).rows.push(r); });
-  const adRows = [...groups.values()].map((g) => { const ad = data.ads.find((a) => normName(a.base_name) === normName(g.name)); return { ...g, ad, t: sumRows(g.rows) }; }).sort((a, b) => b.t.spend - a.t.spend);
+  inRange.forEach((r) => { const a0 = adForName(data, r.ad_name), k = a0 ? 'id:' + a0.id : normName(r.ad_name); if (!groups.has(k)) groups.set(k, { name: a0 ? a0.base_name : r.ad_name, rows: [] }); groups.get(k).rows.push(r); });
+  const adRows = [...groups.values()].map((g) => { const ad = adForName(data, g.name); return { ...g, ad, t: sumRows(g.rows) }; }).sort((a, b) => b.t.spend - a.t.spend);
   const by = (keyFn) => { const m = new Map(); adRows.forEach((r) => { const k = keyFn(r) || 'Not in Ad Lab'; if (!m.has(k)) m.set(k, []); m.get(k).push(...r.rows); }); return [...m.entries()].map(([k, rows]) => ({ k, t: sumRows(rows) })).sort((a, b) => b.t.spend - a.t.spend); };
   const angleRows = by((r) => r.ad && (r.ad.angle || 'No angle set'));
   const campRows = (() => { const m = new Map(); inRange.forEach((r) => { const k = r.campaign || '—'; if (!m.has(k)) m.set(k, []); m.get(k).push(r); }); return [...m.entries()].map(([k, rows]) => ({ k, t: sumRows(rows) })).sort((a, b) => b.t.spend - a.t.spend); })();
@@ -2539,8 +2553,8 @@ function monthReport(data, dm, ym) {
   const s0 = sumRange(dm, a, b), p0 = sumRange(dm, pym + '-01', monthEnd(pym));
   const rows = data.meta_days.filter((r) => r.day >= a && r.day <= b);
   const byAd = new Map();
-  for (const r of rows) { const k = normName(r.ad_name); const g = byAd.get(k) || { name: r.ad_name, rows: [] }; g.rows.push(r); byAd.set(k, g); }
-  const ads = [...byAd.values()].map((g) => { const t = sumRows(g.rows); const ad = data.ads.find((x) => normName(x.base_name) === normName(g.name)); return { name: ad ? displayName(ad) : g.name, ad, spend: t.spend, roas: t.spend ? t.revenue / t.spend : 0, buys: t.purchases, angle: ad && ad.angle }; }).filter((x) => x.spend >= 50).sort((x, y) => y.roas - x.roas);
+  for (const r of rows) { const a0 = adForName(data, r.ad_name), k = a0 ? 'id:' + a0.id : normName(r.ad_name); const g = byAd.get(k) || { name: a0 ? a0.base_name : r.ad_name, rows: [] }; g.rows.push(r); byAd.set(k, g); }
+  const ads = [...byAd.values()].map((g) => { const t = sumRows(g.rows); const ad = adForName(data, g.name); return { name: ad ? displayName(ad) : g.name, ad, spend: t.spend, roas: t.spend ? t.revenue / t.spend : 0, buys: t.purchases, angle: ad && ad.angle }; }).filter((x) => x.spend >= 50).sort((x, y) => y.roas - x.roas);
   const meta = sumRows(rows);
   const tests = data.tests.filter((t) => t.stage === 1 && t.start_date >= a && t.start_date <= b);
   const passed = tests.filter((t) => ['pass', 'strong_pass'].includes(t.result)).length, failed = tests.filter((t) => t.result === 'fail').length;
