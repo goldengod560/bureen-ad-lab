@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=129';
-import * as R from './rules.js?v=129';
-import { importHistory } from './importer.js?v=129';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=129';
+import { createBackend } from './data.js?v=130';
+import * as R from './rules.js?v=130';
+import { importHistory } from './importer.js?v=130';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=130';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1298,7 +1298,8 @@ function FinalizeForm(ctx) {
   const end = runs ? runs.end : test.start_date ? R.addDays(test.start_date, (test.planned_days || rules.plannedDays) - 1) : null;
   const early = end && off < end;
   const [pick, setPick] = useState(c.result || 'insufficient'); const [why, setWhy] = useState('');
-  const events = data.events.filter((e) => (!e.product_id || e.product_id === test.product_id) && test.start_date && e.day >= test.start_date && e.day <= R.addDays(test.start_date, test.planned_days || 7));
+  const tAd = data.ads.find((a) => a.id === test.ad_id);
+  const events = data.events.filter((e) => (!e.product_id || e.product_id === test.product_id) && evInfo(e).part !== 'main' && (!tAd || evHits(e, tAd)) && test.start_date && e.day >= test.start_date && e.day <= R.addDays(test.start_date, test.planned_days || 7));
   const trend = trendAfter(runs);
   const slip = runs && isPassRes(pick) && runs.after && runs.after.spend > 0 && runs.full.roas != null && runs.full.roas < rules.failRoas;
   const go = async () => {
@@ -1328,7 +1329,7 @@ function FinalizeForm(ctx) {
     ${slip && html`<div class="status bad small"><b>${SLIP_TEXT}</b></div>`}
     ${!runs && m && html`<div class="tiny muted">No Ads Manager file rows for this ad yet, so there's no full run. Add your file to see it.</div>`}
     <${ProfitLine} econ=${econ} m=${runs ? runs.full : m} product=${product} />
-    ${events.length > 0 && html`<div class="banner">Changes logged during this test: ${events.map((e) => `${e.day} ${e.kind}`).join('; ')}. If they distorted it, file it as "Not a fair test".</div>`}
+    ${events.length > 0 && html`<div class="banner">Changes logged during this test: ${events.map((e) => `${e.day} ${evText(e, data)}`).join('; ')}. If they distorted it, file it as "Not a fair test".</div>`}
     <div class="form">
       <${Field} label="File it as"><select value=${pick} onChange=${(e) => setPick(e.target.value)}>${Object.entries(R.RESULTS).filter(([, v]) => !v.main).map(([k, v]) => html`<option value=${k}>${v.label}${k === c.result ? ' (your rules)' : ''}</option>`)}</select><//>
       <${Field} full label="Reason, if you change it"><input value=${why} onInput=${(e) => setWhy(e.target.value)} /><//>
@@ -1748,7 +1749,18 @@ const SALE_CAL = [
   ['2027-03-28', '2027-03-28', 'Easter'], ['2027-05-09', '2027-05-09', "Mother's Day", true], ['2027-05-31', '2027-05-31', 'Memorial Day', true],
   ['2027-06-20', '2027-06-20', "Father's Day", true], ['2027-07-04', '2027-07-04', 'July 4th', true], ['2027-09-06', '2027-09-06', 'Labor Day', true],
 ].map(([from, to, name, big]) => ({ from, to, name, big: !!big }));
-function calendarOf(data) { return [...SALE_CAL, ...(data.events || []).filter((e) => e.day).map((e) => ({ from: String(e.day).slice(0, 10), to: String(e.day).slice(0, 10), name: `${e.kind}${e.note ? ': ' + e.note : ''}`, mine: true }))]; }
+// A logged change can cover the whole product, only Main, only Testing, or specific ads. The scope is kept inside the note.
+const PARTS = { all: 'Whole product', main: 'Main campaign', test: 'Testing campaign', ads: 'Specific ads' };
+function evInfo(e) { const n = String(e.note || ''); if (n.startsWith('{')) { try { const v = JSON.parse(n); return { text: v.text || '', part: v.part || 'all', ads: v.ads || [] }; } catch (x) {} } return { text: n, part: 'all', ads: [] }; }
+function evText(e, data) {
+  const v = evInfo(e);
+  const scope = v.part === 'ads' ? ` (${v.ads.map((id) => { const a = data.ads.find((x) => x.id === id); return a ? a.base_name : 'removed ad'; }).join(', ') || 'no ads picked'})` : v.part !== 'all' ? ` (${PARTS[v.part]})` : '';
+  return `${e.kind}${scope}${v.text ? ': ' + v.text : ''}`;
+}
+const evNote = (text, part, ads) => (part && part !== 'all' ? JSON.stringify({ text, part, ads: part === 'ads' ? ads : undefined }) : text);
+// Does this change touch that ad? (Product match is checked separately.)
+const evHits = (e, ad) => { const v = evInfo(e); return v.part !== 'ads' || v.ads.includes(ad.id); };
+function calendarOf(data, ad) { return [...SALE_CAL, ...(data.events || []).filter((e) => e.day && (!ad || ((!e.product_id || e.product_id === ad.product_id) && evHits(e, ad)))).map((e) => ({ from: String(e.day).slice(0, 10), to: String(e.day).slice(0, 10), name: evText(e, data), mine: true }))]; }
 const marksOn = (cal, d) => cal.filter((c) => d >= c.from && d <= c.to).map((c) => c.name);
 // Testing vs Main: how the ad did in its Stage 1 test next to how it's doing in Main, side by side on one scale.
 // Testing rows = its test ad set (or any campaign with "test" in the name); Main rows = everything else.
@@ -1871,7 +1883,7 @@ function TrendPanel({ ad, data, product }) {
   }
   const n = items.length;
   // sale calendar: holidays, your sales and logged changes
-  const cal = calendarOf(data);
+  const cal = calendarOf(data, ad);
   items.forEach((v) => { const days = tab === 'weeks' ? Array.from({ length: 7 }, (_, k) => R.addDays(v.key, k)) : [v.key]; v.marks = [...new Set(days.flatMap((d) => marksOn(cal, d)))]; });
   // ----- all-time summary -----
   const life = sumRows(rows), lifeProfit = profitOf(life);
@@ -2744,7 +2756,7 @@ function monthReport(data, dm, ym) {
   const passed = tests.filter((t) => ['pass', 'strong_pass'].includes(t.result)).length, failed = tests.filter((t) => t.result === 'fail').length;
   const dIn = (d) => { const x = String(d.day || d.created_at || '').slice(0, 10); return x >= a && x <= b; };
   const changes = [
-    ...data.events.filter(dIn).map((e) => `${R.shortDate(e.day)} ${e.kind}${e.note ? ': ' + e.note : ''}`),
+    ...data.events.filter(dIn).map((e) => `${R.shortDate(e.day)} ${evText(e, data)}`),
     ...data.decisions.filter((d) => dIn(d) && d.kind === 'budget').map((d) => `${R.shortDate(String(d.day || d.created_at).slice(0, 10))} ${d.choice}`),
     ...data.decisions.filter((d) => dIn(d) && d.kind === 'move' && /Main/.test(d.choice || '') && !/Turned off/.test(d.choice || '')).map((d) => { const ad = data.ads.find((x) => x.id === d.ad_id); return `${R.shortDate(String(d.day || d.created_at).slice(0, 10))} ${ad ? displayName(ad) : 'An ad'} into Main`; }),
     ...data.decisions.filter((d) => dIn(d) && d.kind === 'kill' && /Main/.test(d.choice || '')).map((d) => { const ad = data.ads.find((x) => x.id === d.ad_id); return `${R.shortDate(String(d.day || d.created_at).slice(0, 10))} ${ad ? displayName(ad) : 'An ad'} out of Main`; }),
@@ -3140,17 +3152,29 @@ function Rules(ctx) {
 
 // ---------- learnings ----------
 // One History line. Changes and learnings can be edited or deleted; decisions are edited on the ad page.
+// Tick the ads a change touched: live ones first (Main, Testing, Bench), the rest behind "Show all".
+function AdPicks({ data, pid, value, onChange }) {
+  const [all, setAll] = useState(false);
+  const order = { main: 0, testing: 1, bench: 2, next: 3 };
+  const list = data.ads.filter((a) => a.product_id === pid && (all || a.stage in order || value.includes(a.id))).sort((a, b) => (order[a.stage] ?? 9) - (order[b.stage] ?? 9));
+  const flip = (id) => onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
+  return html`<div class="full stack" style="gap:4px"><span class="tiny muted">Which ads</span>
+    ${list.map((a) => html`<label class="chk" style="margin:0"><input type="checkbox" checked=${value.includes(a.id)} onChange=${() => flip(a.id)} /> ${displayName(a)} <span class="tiny muted">${R.stageLabel(a.stage)}</span></label>`)}
+    <button type="button" class="link small" style="align-self:flex-start" onClick=${() => setAll(!all)}>${all ? 'Only live ads' : 'Show all ads'}</button></div>`;
+}
 const CHANGE_KINDS = ['Website change', 'Meta changed settings', 'Sale or promo', 'Offer or price change', 'Stock problem', 'Tracking problem', 'Email sent', 'Other'];
 function HistoryRow({ it, data, reload, say }) {
   const [ed, setEd] = useState(null);
   const canEdit = it.raw && (it.t === 'events' || it.t === 'learnings');
-  const start = () => setEd(it.t === 'events' ? { day: String(it.raw.day).slice(0, 10), kind: it.raw.kind, note: it.raw.note || '', pid: it.raw.product_id || '' } : { text: it.raw.text || '' });
-  const save = async () => { if (it.t === 'events') await be.update('events', it.id, { day: ed.day, kind: ed.kind, note: ed.note, product_id: ed.pid || null }); else await be.update('learnings', it.id, { text: ed.text }); setEd(null); await reload(); say('Saved'); };
+  const start = () => setEd(it.t === 'events' ? { day: String(it.raw.day).slice(0, 10), kind: it.raw.kind, note: evInfo(it.raw).text, part: evInfo(it.raw).part, ads: evInfo(it.raw).ads, pid: it.raw.product_id || '' } : { text: it.raw.text || '' });
+  const save = async () => { if (it.t === 'events') await be.update('events', it.id, { day: ed.day, kind: ed.kind, note: evNote(ed.note, ed.pid ? ed.part : 'all', ed.ads), product_id: ed.pid || null }); else await be.update('learnings', it.id, { text: ed.text }); setEd(null); await reload(); say('Saved'); };
   const del = async () => { if (!confirm('Delete this?')) return; await be.remove(it.t, it.id); await reload(); say('Deleted'); };
   if (ed) return html`<div class="li" style="flex-wrap:wrap;gap:8px">${it.t === 'events' ? html`<div class="form" style="width:100%">
       <${Field} label="Date"><input type="date" value=${ed.day} onInput=${(e) => setEd({ ...ed, day: e.target.value })} /><//>
       <${Field} label="Type"><select value=${ed.kind} onChange=${(e) => setEd({ ...ed, kind: e.target.value })}>${[...new Set([...CHANGE_KINDS, ed.kind])].map((k) => html`<option>${k}</option>`)}</select><//>
       <${Field} label="Product"><select value=${ed.pid} onChange=${(e) => setEd({ ...ed, pid: e.target.value })}><option value="">Every product</option>${data.products.filter((p) => !p.archived).map((p) => html`<option value=${p.id}>${p.name}</option>`)}</select><//>
+      ${ed.pid && html`<${Field} label="Which part"><select value=${ed.part} onChange=${(e) => setEd({ ...ed, part: e.target.value })}>${Object.entries(PARTS).map(([k, l]) => html`<option value=${k}>${l}</option>`)}</select><//>`}
+      ${ed.pid && ed.part === 'ads' && html`<${AdPicks} data=${data} pid=${ed.pid} value=${ed.ads || []} onChange=${(ads) => setEd({ ...ed, ads })} />`}
       <${Field} full label="What happened"><textarea value=${ed.note} onInput=${(e) => setEd({ ...ed, note: e.target.value })}></textarea><//></div>`
     : html`<textarea class="inp" style="width:100%;min-height:70px" value=${ed.text} onInput=${(e) => setEd({ ...ed, text: e.target.value })}></textarea>`}
     <div class="row"><button class="btn sm primary" onClick=${save}>Save</button><button class="btn sm ghost" onClick=${() => setEd(null)}>Cancel</button></div></div>`;
@@ -3159,16 +3183,17 @@ function HistoryRow({ it, data, reload, say }) {
 function Learn(ctx) {
   const { data, product, reload, say } = ctx;
   const [text, setText] = useState(''); const [kind, setKind] = useState('learning');
-  const [ev, setEv] = useState({ day: R.today(), kind: 'Website change', note: '', all: true, pid: product.id, t1: '', t2: '' });
+  const [ev, setEv] = useState({ day: R.today(), kind: 'Website change', note: '', all: true, pid: product.id, t1: '', t2: '', part: 'all', ads: [] });
   const hm = (t) => { if (!t) return ''; const [h, m] = t.split(':').map(Number); return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`; };
   const timeText = ev.t1 && ev.t2 ? `${hm(ev.t1)} to ${hm(ev.t2)}` : ev.t1 ? `from ${hm(ev.t1)}` : ev.t2 ? `fixed ${hm(ev.t2)}` : '';
   const items = [
     ...data.learnings.filter((l) => !['week', 'stock', 'period'].includes(l.kind) && (!l.product_id || l.product_id === product.id)).map((l) => ({ day: l.day, tag: l.kind === 'rule_change' ? 'Rule change' : l.kind === 'hypothesis' ? 'Hypothesis' : 'Learning', tone: l.kind === 'rule_change' ? 'mid' : l.kind === 'hypothesis' ? 'muted' : 'pass', text: l.text, src: l.source, id: l.id, t: 'learnings', raw: l })),
-    ...data.events.filter((e) => !e.product_id || e.product_id === product.id).map((e) => ({ day: e.day, tag: 'Change', tone: 'ins', text: `${e.kind}${e.note ? ': ' + e.note : ''}`, id: e.id, t: 'events', raw: e })),
+    ...data.events.filter((e) => !e.product_id || e.product_id === product.id).map((e) => ({ day: e.day, tag: 'Change', tone: 'ins', text: evText(e, data), id: e.id, t: 'events', raw: e })),
     ...data.decisions.filter((d) => d.product_id === product.id).map((d) => { const ad = data.ads.find((a) => a.id === d.ad_id); return { day: d.day || String(d.created_at || '').slice(0, 10), tag: 'Decision', tone: 'live', text: `${d.choice}${ad ? ' · ' + ad.base_name : ''}${d.reason ? ' · ' + d.reason : ''}` }; }),
   ].sort((a, b) => String(b.day).localeCompare(String(a.day)));
   const addL = async () => { if (!text.trim()) return; await be.insert('learnings', { product_id: product.id, kind, text: text.trim() }); setText(''); await reload(); say('Saved'); };
-  const addE = async () => { await be.insert('events', { product_id: ev.all ? null : (ev.pid || product.id), day: ev.day, kind: ev.kind, note: [timeText, ev.note].filter(Boolean).join(' · ') }); setEv({ ...ev, note: '', t1: '', t2: '' }); await reload(); say('Change logged'); };
+  const addE = async () => { if (!ev.all && ev.part === 'ads' && !ev.ads.length) { say('Pick at least one ad.'); return; }
+    await be.insert('events', { product_id: ev.all ? null : (ev.pid || product.id), day: ev.day, kind: ev.kind, note: evNote([timeText, ev.note].filter(Boolean).join(' · '), ev.all ? 'all' : ev.part, ev.ads) }); setEv({ ...ev, note: '', t1: '', t2: '', part: 'all', ads: [] }); await reload(); say('Change logged'); };
   return html`
     <h1 style="font-size:30px">Learnings · ${product.name}</h1>
     <${Scoreboard} data=${data} />
@@ -3184,7 +3209,9 @@ function Learn(ctx) {
         <${Field} label="Fixed (time, optional)"><input type="time" value=${ev.t2} onInput=${(e) => setEv({ ...ev, t2: e.target.value })} /><//>
         <${Field} full label="What happened"><input value=${ev.note} onInput=${(e) => setEv({ ...ev, note: e.target.value })} /><//>
         <label class="chk full"><input type="checkbox" checked=${ev.all} onChange=${(e) => setEv({ ...ev, all: e.target.checked, pid: ev.pid || product.id })} /> Affects every product</label>
-        ${!ev.all && html`<${Field} full label="Which product"><select value=${ev.pid || product.id} onChange=${(e) => setEv({ ...ev, pid: e.target.value })}>${data.products.filter((p) => !p.archived).map((p) => html`<option value=${p.id}>${p.name}</option>`)}</select><//>`}</div>
+        ${!ev.all && html`<${Field} label="Which product"><select value=${ev.pid || product.id} onChange=${(e) => setEv({ ...ev, pid: e.target.value, ads: [] })}>${data.products.filter((p) => !p.archived).map((p) => html`<option value=${p.id}>${p.name}</option>`)}</select><//>
+        <${Field} label="Which part"><select value=${ev.part} onChange=${(e) => setEv({ ...ev, part: e.target.value })}>${Object.entries(PARTS).map(([k, l]) => html`<option value=${k}>${l}</option>`)}</select><//>
+        ${ev.part === 'ads' && html`<${AdPicks} data=${data} pid=${ev.pid || product.id} value=${ev.ads} onChange=${(ads) => setEv({ ...ev, ads })} />`}`}</div>
         <div class="row"><button class="btn" onClick=${addE}>Log change</button></div></section>
     </div>
     <section class="panel"><h2>History</h2>${items.length ? html`<div class="list">${items.map((it) => html`<${HistoryRow} key=${(it.t || 'd') + (it.id || it.day + it.text)} it=${it} data=${data} reload=${reload} say=${say} />`)}</div>` : html`<div class="empty">Nothing yet</div>`}</section>`;
