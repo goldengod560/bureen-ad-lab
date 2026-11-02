@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=127';
-import * as R from './rules.js?v=127';
-import { importHistory } from './importer.js?v=127';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=127';
+import { createBackend } from './data.js?v=128';
+import * as R from './rules.js?v=128';
+import { importHistory } from './importer.js?v=128';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=128';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1504,7 +1504,7 @@ function Today(ctx) {
     const toBoard = () => { setPid(p.id); setView('board'); };
     if (mp.swapNow && mp.best) items.unshift({ kind: 'todo', tone: 'red', title: `${p.name} Main: swap in ${displayName(mp.best.a)}`, sub: mp.head, tag: 'ACT', go: toBoard });
     else if (mp.budget.tone !== 'good') items.push({ kind: 'heads', tone: mp.budget.tone === 'bad' ? 'red' : 'amber', title: `${p.name} Main: ${mp.budget.call}`, sub: mp.head, tag: 'MAIN', go: toBoard });
-    else if (mp.scale && mp.scale.ok) items.push({ kind: 'heads', tone: 'blue', title: `${p.name} Main: you can raise ${mp.scale.step}% today`, sub: `About ${R.money0(mp.scale.perDay)}/day → ${R.money0(mp.scale.to)}/day. Two good weeks and holding. Log it on the Board once you do.`, tag: 'SCALE', go: toBoard });
+    else if (mp.scale && mp.scale.ok) items.push({ kind: 'heads', tone: 'blue', title: `${p.name} Main: you can raise ${mp.scale.step}% today`, sub: `About ${R.money0(mp.scale.perDay)}/day → ${R.money0(mp.scale.to)}/day. ${mp.scale.half ? 'One good week and holding, so a smaller step.' : 'Two good weeks and holding.'} Log it on the Board once you do.`, tag: 'SCALE', go: toBoard });
     for (const ad of data.ads.filter((x) => x.product_id === p.id && x.stage === 'main')) {
       const h = mainHealth(ad, data, p);
       const fc = fatigueForecast(ad, data, p);
@@ -2122,17 +2122,20 @@ function mainPlan(data, product) {
   const sinceAdd = added ? R.daysBetween(added, R.today()) : null;
   const alarms = spendAlarms(data).filter((a) => a.pid === product.id || (a.adId && (data.ads.find((x) => x.id === a.adId) || {}).product_id === product.id));
   const setB = R.num((product.rules || {}).mainBudget), perDay = setB || cur.spend / 7;
+  // Checks in order of importance. Must-haves (*) all have to pass; the last one only decides 20% vs a smaller 10% step.
   const scaleChecks = [
-    [nowB === 'above', `Last 7 days above break-even (${R.xroas(cur.roas)} vs ${R.xroas(be)})`],
-    [prevB === 'above', `The week before too (${R.xroas(prev.roas)})`],
-    [l3.spend > 0 && l3.roas >= be, `Last 3 days holding (${R.xroas(l3.roas)})`],
-    [sinceRaise == null || sinceRaise >= 3, sinceRaise == null ? 'No raise logged yet' : sinceRaise >= 3 ? `Last budget change ${sinceRaise} days ago` : `Budget changed ${sinceRaise === 0 ? 'today' : sinceRaise === 1 ? 'yesterday' : '2 days ago'} (wait 3 days between changes)`],
-    [sinceAdd == null || sinceAdd >= 3, sinceAdd == null ? 'No ad added to Main recently' : sinceAdd >= 3 ? `Last ad added to Main ${sinceAdd} days ago` : `Ad added to Main ${sinceAdd === 0 ? 'today' : sinceAdd === 1 ? 'yesterday' : '2 days ago'} (let it settle 3 days)`],
-    [!R.isWeekendLock(), R.isWeekendLock() ? 'Weekend lock (your rule: no budget changes Fri night to Sun)' : 'Not the weekend lock'],
-    [!alarms.length, alarms.length ? 'A spend alarm is open (see Today)' : 'No spend alarms'],
+    [nowB === 'above', `Last 7 days above break-even (${R.xroas(cur.roas)} vs ${R.xroas(be)})`, true],
+    [l3.spend > 0 && l3.roas >= be, `Last 3 days holding above break-even (${R.xroas(l3.roas)})`, true],
+    [!alarms.length, alarms.length ? 'A spend alarm is open (see Today)' : 'No spend alarms', true],
+    [sinceRaise == null || sinceRaise >= 3, sinceRaise == null ? 'No raise logged yet' : sinceRaise >= 3 ? `Last budget change ${sinceRaise} days ago` : `Budget changed ${sinceRaise === 0 ? 'today' : sinceRaise === 1 ? 'yesterday' : '2 days ago'} (wait 3 days between changes)`, true],
+    [sinceAdd == null || sinceAdd >= 3, sinceAdd == null ? 'No ad added to Main recently' : sinceAdd >= 3 ? `Last ad added to Main ${sinceAdd} days ago` : `Ad added to Main ${sinceAdd === 0 ? 'today' : sinceAdd === 1 ? 'yesterday' : '2 days ago'} (let it settle 3 days)`, true],
+    [!R.isWeekendLock(), R.isWeekendLock() ? 'Weekend lock (your rule: no budget changes Fri night to Sun)' : 'Not the weekend lock', true],
+    [prevB === 'above', `The week before was also above break-even (${R.xroas(prev.roas)})`, false],
   ];
-  const scale = main.length && cur.spend ? { ok: scaleChecks.every((c) => c[0]), checks: scaleChecks, perDay, to: perDay * (1 + rules.raiseStep / 100), step: rules.raiseStep, lastRaise } : null;
-  if (scale && scale.ok) budget = { call: `Can raise ${rules.raiseStep}%`, tone: 'good', why: 'Making money two weeks running and holding.' };
+  const musts = scaleChecks.filter((c) => c[2]), mustOk = musts.filter((c) => c[0]).length, extraOk = scaleChecks.filter((c) => !c[2]).every((c) => c[0]);
+  const stepNow = mustOk === musts.length ? (extraOk ? rules.raiseStep : Math.round(rules.raiseStep / 2)) : 0;
+  const scale = main.length && cur.spend ? { ok: stepNow > 0, half: stepNow > 0 && !extraOk, checks: scaleChecks, mustOk, mustN: musts.length, perDay, to: perDay * (1 + (stepNow || rules.raiseStep) / 100), step: stepNow || rules.raiseStep, full: rules.raiseStep, lastRaise } : null;
+  if (scale && scale.ok) budget = { call: `Can raise ${scale.step}%`, tone: 'good', why: scale.half ? 'Making money and holding, but only one good week, so a smaller step.' : 'Making money two weeks running and holding.' };
   const swapNow = nowB === 'below' && (prevB === 'below' || (weak && per.find((x) => x.ad === weak.ad).h.prevBand === 'below'));
   // Testing: one testing campaign for every product, so slots are shared
   const slots = rules.slots, used = testingCount(data), free = Math.max(0, slots - used);
@@ -2160,11 +2163,13 @@ function mainPlan(data, product) {
 
 function ScaleRow({ s, product, reload, say, setModal }) {
   const [why, setWhy] = useState(false);
-  const fail = s.checks.find((c) => !c[0]);
+  const fail = s.checks.find((c) => !c[0] && c[2]);
   const log = () => setModal({ type: BudgetForm, props: { productId: product.id, suggest: s.to } });
-  return html`<div class=${'status small ' + (s.ok ? 'good' : 'live')}><div class="row" style="gap:8px;flex-wrap:wrap"><span class="grow">Raise Main ${s.step}% today? <b>${s.ok ? 'Yes' : 'Not today'}</b>${s.ok ? ` · ${R.money0(s.perDay)}/day → ${R.money0(s.to)}/day` : ` · ${fail[1]}`}</span>
+  const STAR = 'Must-have: every starred check has to pass before raising. The unstarred one only decides the size: 20% if it passes, 10% if not.';
+  return html`<div class=${'status small ' + (s.ok ? 'good' : 'live')}><div class="row" style="gap:8px;flex-wrap:wrap"><span class="grow">Raise Main today? <b>${s.ok ? `Yes, ${s.step}%` : 'Not today'}</b> · <span class=${s.mustOk === s.mustN ? 'good' : ''}>${s.mustOk} of ${s.mustN} must-haves<span style="cursor:help" title=${STAR} onClick=${() => say(STAR)}>*</span></span>${s.ok ? ` · ${R.money0(s.perDay)}/day → ${R.money0(s.to)}/day${s.half ? ' (smaller step: only one good week)' : ''}` : ` · ${fail[1]}`}</span>
     <button class="link small" onClick=${() => setWhy(!why)}>${why ? 'Hide' : 'Why'}</button>${s.ok && html`<button class="btn sm" onClick=${log}>I raised it: update budget</button>`}</div>
-    ${why && html`<div class="stack" style="gap:2px;margin-top:6px">${s.checks.map(([ok, t]) => html`<div><span class=${ok ? 'good' : 'bad'}>${ok ? '✓' : '✗'}</span> ${t}</div>`)}${s.lastRaise ? html`<div class="tiny muted">Last raise logged ${R.shortDate(s.lastRaise)}.</div>` : ''}</div>`}</div>`;
+    ${why && html`<div class="stack" style="gap:2px;margin-top:6px">${s.checks.map(([ok, t, must]) => html`<div><span class=${ok ? 'good' : 'bad'}>${ok ? '✓' : '✗'}</span> ${t}${must ? html`<span class="muted" style="cursor:help" title=${STAR}>*</span>` : html` <span class="tiny muted">(decides 20% vs 10%)</span>`}</div>`)}
+      <div class="tiny muted">Most important first. * = must pass. ${s.lastRaise ? `Last raise logged ${R.shortDate(s.lastRaise)}.` : ''}</div></div>`}</div>`;
 }
 // Product day by day: everything this product's ads spent and sold, split into Main and Testing.
 // Testing = rows from a campaign with "test" in its name, or an ad that was in its Stage 1 test that day.
