@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=128';
-import * as R from './rules.js?v=128';
-import { importHistory } from './importer.js?v=128';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=128';
+import { createBackend } from './data.js?v=129';
+import * as R from './rules.js?v=129';
+import { importHistory } from './importer.js?v=129';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=129';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2122,13 +2122,14 @@ function mainPlan(data, product) {
   const sinceAdd = added ? R.daysBetween(added, R.today()) : null;
   const alarms = spendAlarms(data).filter((a) => a.pid === product.id || (a.adId && (data.ads.find((x) => x.id === a.adId) || {}).product_id === product.id));
   const setB = R.num((product.rules || {}).mainBudget), perDay = setB || cur.spend / 7;
+  const bw = rules.budgetWait || 5, aw = rules.mainAdWait || 5, ago = (d) => (d === 0 ? 'today' : d === 1 ? 'yesterday' : `${d} days ago`);
   // Checks in order of importance. Must-haves (*) all have to pass; the last one only decides 20% vs a smaller 10% step.
   const scaleChecks = [
     [nowB === 'above', `Last 7 days above break-even (${R.xroas(cur.roas)} vs ${R.xroas(be)})`, true],
     [l3.spend > 0 && l3.roas >= be, `Last 3 days holding above break-even (${R.xroas(l3.roas)})`, true],
     [!alarms.length, alarms.length ? 'A spend alarm is open (see Today)' : 'No spend alarms', true],
-    [sinceRaise == null || sinceRaise >= 3, sinceRaise == null ? 'No raise logged yet' : sinceRaise >= 3 ? `Last budget change ${sinceRaise} days ago` : `Budget changed ${sinceRaise === 0 ? 'today' : sinceRaise === 1 ? 'yesterday' : '2 days ago'} (wait 3 days between changes)`, true],
-    [sinceAdd == null || sinceAdd >= 3, sinceAdd == null ? 'No ad added to Main recently' : sinceAdd >= 3 ? `Last ad added to Main ${sinceAdd} days ago` : `Ad added to Main ${sinceAdd === 0 ? 'today' : sinceAdd === 1 ? 'yesterday' : '2 days ago'} (let it settle 3 days)`, true],
+    [sinceRaise == null || sinceRaise >= bw, sinceRaise == null ? 'No budget change logged yet' : sinceRaise >= bw ? `Last budget change ${sinceRaise} days ago` : `Budget changed ${ago(sinceRaise)} (wait at least ${bw} days between changes: ${bw - sinceRaise} more)`, true],
+    [sinceAdd == null || sinceAdd >= aw, sinceAdd == null ? 'No ad added to Main recently' : sinceAdd >= aw ? `Last ad added to Main ${sinceAdd} days ago` : `Ad added to Main ${ago(sinceAdd)} (let it settle at least ${aw} days: ${aw - sinceAdd} more)`, true],
     [!R.isWeekendLock(), R.isWeekendLock() ? 'Weekend lock (your rule: no budget changes Fri night to Sun)' : 'Not the weekend lock', true],
     [prevB === 'above', `The week before was also above break-even (${R.xroas(prev.roas)})`, false],
   ];
@@ -3042,7 +3043,7 @@ const RULE_ROWS = [
   ['Test window', [['plannedDays', 'Test window', 'days'], ['checkins', 'Check-in days', 'day']]],
   ['Testing target (your rule, not break-even)', [['minPurchases', 'Minimum purchases', 'buys'], ['passARoas', 'Pass A: ROAS at least', 'x'], ['passACpa', 'Pass A: CPA at most', '$'], ['passBRoas', 'Pass B: ROAS at least', 'x'], ['passBCpa', 'Pass B: CPA at most', '$'], ['failRoas', 'Fail below ROAS', 'x'], ['strongPct', 'Strong pass: CPA at most', '% of line'], ['collapseDays', 'Back-half collapse window', 'days']]],
   ['Early stop (Pause? alerts)', [['earlyDay', 'From day', 'day'], ['earlySpend', '0–1 sales: spend at least', '$'], ['earlyMaxPurchases', '0–1 sales: purchases at most', 'buys'], ['underSpend', 'Under the fail line: spend at least', '$']]],
-  ['Capacity & timing', [['slots', 'Test slots at once', 'slots'], ['testingCap', 'Testing cap, all products', '$/day'], ['stage2Min', 'Stage 2 minimum', 'days'], ['stage2Max', 'Stage 2 maximum', 'days'], ['raiseStep', 'Budget raise step', '%'], ['benchTarget', 'Tested backups to keep on the Bench', 'ads']]],
+  ['Capacity & timing', [['slots', 'Test slots at once', 'slots'], ['testingCap', 'Testing cap, all products', '$/day'], ['stage2Min', 'Stage 2 minimum', 'days'], ['stage2Max', 'Stage 2 maximum', 'days'], ['raiseStep', 'Budget raise step', '%'], ['budgetWait', 'Wait after a Main budget change', 'days'], ['mainAdWait', 'Wait after adding an ad to Main', 'days'], ['benchTarget', 'Tested backups to keep on the Bench', 'ads']]],
 ];
 
 function Rules(ctx) {

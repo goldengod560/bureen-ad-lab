@@ -14,6 +14,8 @@ export const DEFAULT_RULES = {
   slots: 2, testingCap: 60,
   stage2Min: 5, stage2Max: 7,
   raiseStep: 20,
+  budgetWait: 5, // days to wait after a Main budget change before the next one
+  mainAdWait: 5, // days to let Main settle after adding an ad
   weekendLock: true,
   benchTarget: 2,
   fatigueCpaUp: 25, fatigueRoasDown: 20, fatigueMinSpend: 50, fatigueCtrDown: 20,
