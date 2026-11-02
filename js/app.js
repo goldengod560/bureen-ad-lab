@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=126';
-import * as R from './rules.js?v=126';
-import { importHistory } from './importer.js?v=126';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=126';
+import { createBackend } from './data.js?v=127';
+import * as R from './rules.js?v=127';
+import { importHistory } from './importer.js?v=127';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=127';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1753,6 +1753,8 @@ const marksOn = (cal, d) => cal.filter((c) => d >= c.from && d <= c.to).map((c) 
 // Testing vs Main: how the ad did in its Stage 1 test next to how it's doing in Main, side by side on one scale.
 // Testing rows = its test ad set (or any campaign with "test" in the name); Main rows = everything else.
 function PhaseCompare({ ad, data, product }) {
+  const [charts, setCharts0] = useState(() => { try { return localStorage.getItem('adlab-tvm-charts') !== '0'; } catch (e) { return true; } });
+  const setCharts = (v) => { setCharts0(v); try { localStorage.setItem('adlab-tvm-charts', v ? '1' : '0'); } catch (e) {} };
   const rows = rowsForAd(ad, data.meta_days || []);
   const t = lastStage1(ad, data), r = t && runsFor(t, ad, data);
   let key = null;
@@ -1779,18 +1781,18 @@ function PhaseCompare({ ad, data, product }) {
     : mR >= tR * 0.9 ? { tone: 'good', text: `Holding up in Main: ${R.xroas(mR)} vs ${R.xroas(tR)} in testing.` }
     : mR >= tR * 0.7 ? { tone: mR >= (be || 0) ? 'live' : 'warn', text: `A bit weaker in Main: ${R.xroas(mR)} vs ${R.xroas(tR)} in testing (${Math.round((1 - mR / tR) * 100)}% lower)${be && mR < be ? ', and under break-even' : ''}.` }
     : { tone: 'bad', text: `Much weaker in Main: ${R.xroas(mR)} vs ${R.xroas(tR)} in testing (${Math.round((1 - mR / tR) * 100)}% lower)${be && mR < be ? ', under break-even' : ''}. Tested well but isn't carrying over.` };
-  return html`<div class="panel"><h2>Testing vs Main</h2>
+  return html`<div class="panel"><div class="row"><h2 style="margin:0">Testing vs Main</h2><span class="spacer"></span><button class="link small" onClick=${() => setCharts(!charts)}>${charts ? 'Hide charts' : 'Show charts'}</button></div>
     <div class=${'status small ' + verdict.tone}>${verdict.text}</div>
     <div class="grid2">
       <div class="stack" style="gap:6px"><div class="small"><b>In testing</b> <span class="muted">${tDays.length ? `${R.shortDate(tDays[0].d)} to ${R.shortDate(tDays[tDays.length - 1].d)} · ${tDays.length} days` : ''}</span></div>
         <div class="mp-tiles">${stat('ROAS', R.xroas(tR), cls(tR))}${stat('Spent', R.money0(T.spend))}${stat('Buys', T.purchases)}${stat('CPA', R.money(T.purchases ? T.spend / T.purchases : null))}</div>
         ${r && r.d7 && html`<div class="tiny muted">Day-7 result ${R.xroas(r.d7.roas)} on ${r.d7.purchases} buys${t.result && R.RESULTS[t.result] ? ` · filed as ${R.RESULTS[t.result].label}` : ''}</div>`}
-        ${mini(tDays, 0, null, 'ROAS each day in testing')}<div class="tiny muted">Each day in testing</div></div>
+        ${charts && html`${mini(tDays, 0, null, 'ROAS each day in testing')}<div class="tiny muted">Each day in testing</div>`}</div>
       <div class="stack" style="gap:6px"><div class="small"><b>In Main</b> <span class="muted">${mDays.length ? `since ${R.shortDate(byDay(mRows)[0].d)} · ${byDay(mRows).length} days` : 'no spend in your files yet'}</span></div>
         <div class="mp-tiles">${stat('ROAS', R.xroas(mR), cls(mR))}${stat('Spent', R.money0(M.spend))}${stat('Buys', M.purchases)}${stat('Last 7 days', R.xroas(m7.spend ? m7.revenue / m7.spend : null), cls(m7.spend ? m7.revenue / m7.spend : null))}</div>
-        ${mini(mDays, 0, null, 'ROAS in Main', mWeekly)}<div class="tiny muted">${mWeekly ? 'Each week in Main' : 'Each day in Main'}</div></div>
+        ${charts && html`${mini(mDays, 0, null, 'ROAS in Main', mWeekly)}<div class="tiny muted">${mWeekly ? 'Each week in Main' : 'Each day in Main'}</div>`}</div>
     </div>
-    <div class="tiny muted">Same scale on both, dashed line = break-even${be ? ` (${R.xroas(be)})` : ''}. Green above, red below, thin red line = no sales. Hover or tap a bar for its numbers.</div>
+    ${charts && html`<div class="tiny muted">Same scale on both, dashed line = break-even${be ? ` (${R.xroas(be)})` : ''}. Green above, red below, thin red line = no sales. Hover or tap a bar for its numbers.</div>`}
   </div>`;
 }
 // Small bar chart with a fixed info line above it (no floating box).
