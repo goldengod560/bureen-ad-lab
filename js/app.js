@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=130';
-import * as R from './rules.js?v=130';
-import { importHistory } from './importer.js?v=130';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=130';
+import { createBackend } from './data.js?v=131';
+import * as R from './rules.js?v=131';
+import { importHistory } from './importer.js?v=131';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=131';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2094,18 +2094,26 @@ function VerdictPanel({ ad, data, product }) {
 // Main plan: one card on the Board that reads Main as a whole and lists what to do, in order.
 // Suggestions only. Nothing changes in Meta or in the app until you act.
 const BF_DAY = '2026-11-25'; // Black Friday sale runs Nov 25 to the morning of Dec 1
+// Every row the Main campaign spent for this product (any ad, including ones since turned off), test rows left out.
+// One definition, so Main plan, day-by-day and the scale planner all show the same Main number.
+function mainCampaignRows(data, product) {
+  const tests = data.tests.filter((t) => t.stage === 1 && t.product_id === product.id && t.start_date);
+  const inTest = (ad, d) => tests.some((t) => t.ad_id === ad.id && d >= ((t.conditions || {}).spendFrom || t.start_date) && (t.status === 'active' || d <= R.addDays(t.start_date, (t.planned_days || 7) - 1)));
+  return data.ads.filter((a) => a.product_id === product.id).flatMap((ad) => rowsForAd(ad, data.meta_days).filter((r) => !(/test/i.test(r.campaign || '') || inTest(ad, r.day))));
+}
 function mainPlan(data, product) {
   const w = healthWindow(data); if (!w) return null;
   const econ = R.econOf(product), be = econ.opBE, rules = R.rulesOf(product);
   const main = data.ads.filter((a) => a.product_id === product.id && a.stage === 'main');
   const per = main.map((ad) => ({ ad, h: mainHealth(ad, data, product) })).filter((x) => x.h);
-  const tot = (k) => sumRows(per.flatMap(({ ad }) => rowsForAd(ad, data.meta_days).filter((r) => (k === 'cur' ? r.day >= w.a && r.day <= w.end : r.day >= w.pb && r.day <= w.pe))));
+  const mRows = mainCampaignRows(data, product);
+  const tot = (k) => sumRows(mRows.filter((r) => (k === 'cur' ? r.day >= w.a && r.day <= w.end : r.day >= w.pb && r.day <= w.pe)));
   const cur = tot('cur'), prev = tot('prev');
   const bandOf = (t) => (!be || !t.spend ? null : t.roas >= be * 1.05 ? 'above' : t.roas <= be * 0.95 ? 'below' : 'near');
   const nowB = bandOf(cur), prevB = bandOf(prev);
   // Calendar weeks (Mon–Sun), the way you think about weeks: this week so far and last week.
   const td = R.parseDay(R.today()), mon = R.addDays(R.today(), -((td.getDay() + 6) % 7));
-  const span = (a, b) => sumRows(per.flatMap(({ ad }) => rowsForAd(ad, data.meta_days).filter((r) => r.day >= a && r.day <= b)));
+  const span = (a, b) => sumRows(mRows.filter((r) => r.day >= a && r.day <= b));
   const thisWk = mon <= w.end ? { ...span(mon, w.end), from: mon, to: w.end } : null;
   const lastWk = { ...span(R.addDays(mon, -7), R.addDays(mon, -1)), from: R.addDays(mon, -7), to: R.addDays(mon, -1) };
   const thisB = thisWk && thisWk.spend >= 30 ? bandOf(thisWk) : null;
@@ -2125,8 +2133,7 @@ function mainPlan(data, product) {
   else if (nowB === 'near') budget = { call: 'Hold', tone: 'warn', why: 'Around break-even.' };
   else budget = { call: 'Leave it', tone: 'good', why: 'Making money this week.' };
   // Scale planner: can Main go up ~20% today? Every check has to pass.
-  const mainSpend = (d) => sumRows(per.flatMap(({ ad }) => rowsForAd(ad, data.meta_days).filter((r) => r.day === d)));
-  const l3 = sumRows([0, 1, 2].flatMap((k) => per.flatMap(({ ad }) => rowsForAd(ad, data.meta_days).filter((r) => r.day === R.addDays(w.end, -k)))));
+  const l3 = sumRows(mRows.filter((r) => r.day > R.addDays(w.end, -3) && r.day <= w.end));
   const dDay = (d) => String(d.day || d.created_at || '').slice(0, 10);
   const raises = data.decisions.filter((d) => d.product_id === product.id && d.kind === 'budget').map(dDay).filter(Boolean).sort();
   const lastRaise = raises[raises.length - 1], sinceRaise = lastRaise ? R.daysBetween(lastRaise, R.today()) : null;
@@ -2229,7 +2236,7 @@ function ProductDaily({ data, product }) {
       <div class="seg sm" role="group" aria-label="Range" style="grid-template-columns:repeat(2,auto)">${[['7', '7 days'], ['30', '30 days']].map(([k, l]) => html`<button class=${rng === k ? 'on' : ''} onClick=${() => setRng(k)}>${l}</button>`)}</div>
       <button class="link small" onClick=${() => setOpen(!open)}>${open ? 'Hide chart' : 'Show chart'}</button></div>
     <div class="mp-tiles">
-      <div class="mp-tile"><small>All · ${R.shortDate(from)} to ${R.shortDate(w.end)}</small><b class=${be && all.spend && all.revenue / all.spend < be ? 'bad' : 'good'}>${ro(all)}</b><span>${R.money0(all.spend)} spent · ${all.purchases} buys</span></div>
+      <div class="mp-tile"><small>Main + Testing · ${R.shortDate(from)} to ${R.shortDate(w.end)}</small><b class=${be && all.spend && all.revenue / all.spend < be ? 'bad' : 'good'}>${ro(all)}</b><span>${R.money0(all.spend)} spent · ${all.purchases} buys</span></div>
       <div class="mp-tile"><small>Main</small><b class=${be && M.spend && M.revenue / M.spend < be ? 'bad' : M.spend ? 'good' : ''}>${ro(M)}</b><span>${R.money0(M.spend)} · ${M.purchases} buys</span></div>
       <div class="mp-tile"><small>Testing</small><b class=${be && Tt.spend && Tt.revenue / Tt.spend < be ? 'bad' : Tt.spend ? 'good' : ''}>${ro(Tt)}</b><span>${R.money0(Tt.spend)} · ${Tt.purchases} buys</span></div>
       <div class="mp-tile"><small>Break-even</small><b>${R.xroas(be)}</b><span>Meta-reported sales</span></div>
