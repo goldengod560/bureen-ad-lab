@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=137';
-import * as R from './rules.js?v=137';
-import { importHistory } from './importer.js?v=137';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=137';
+import { createBackend } from './data.js?v=138';
+import * as R from './rules.js?v=138';
+import { importHistory } from './importer.js?v=138';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=138';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -3081,7 +3081,7 @@ const RULE_ROWS = [
   ['Budgets', [['stage1Budget', 'Stage 1 budget per ad set', '$/day'], ['boostedBudget', 'Boosted budget', '$/day'], ['boostAt', 'Boost when 30-day blended ROAS is at least', 'x']]],
   ['Test window', [['plannedDays', 'Test window', 'days'], ['checkins', 'Check-in days', 'day']]],
   ['Testing target (your rule, not break-even)', [['minPurchases', 'Minimum purchases', 'buys'], ['passARoas', 'Pass A: ROAS at least', 'x'], ['passACpa', 'Pass A: CPA at most', '$'], ['passBRoas', 'Pass B: ROAS at least', 'x'], ['passBCpa', 'Pass B: CPA at most', '$'], ['failRoas', 'Fail below ROAS', 'x'], ['strongPct', 'Strong pass: CPA at most', '% of line'], ['collapseDays', 'Back-half collapse window', 'days']]],
-  ['Early stop (Pause? alerts)', [['earlyDay', 'From day', 'day'], ['earlySpend', '0–1 sales: spend at least', '$'], ['earlyMaxPurchases', '0–1 sales: purchases at most', 'buys'], ['underSpend', 'Under the fail line: spend at least', '$']]],
+  ['Early stop (Pause? alerts)', [['earlyDay', 'After this many full days (alert shows the next day)', 'days'], ['earlySpend', '0–1 sales: spend at least', '$'], ['earlyMaxPurchases', '0–1 sales: purchases at most', 'buys'], ['underSpend', 'Under the fail line: spend at least', '$']]],
   ['Capacity & timing', [['slots', 'Test slots at once', 'slots'], ['testingCap', 'Testing cap, all products', '$/day'], ['stage2Min', 'Stage 2 minimum', 'days'], ['stage2Max', 'Stage 2 maximum', 'days'], ['raiseStep', 'Budget raise step', '%'], ['budgetWait', 'Wait after a Main budget change', 'days'], ['mainAdWait', 'Wait after adding an ad to Main', 'days'], ['benchTarget', 'Tested backups to keep on the Bench', 'ads']]],
 ];
 
