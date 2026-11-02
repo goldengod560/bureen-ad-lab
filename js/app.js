@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=125';
-import * as R from './rules.js?v=125';
-import { importHistory } from './importer.js?v=125';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=125';
+import { createBackend } from './data.js?v=126';
+import * as R from './rules.js?v=126';
+import { importHistory } from './importer.js?v=126';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=126';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1753,7 +1753,6 @@ const marksOn = (cal, d) => cal.filter((c) => d >= c.from && d <= c.to).map((c) 
 // Testing vs Main: how the ad did in its Stage 1 test next to how it's doing in Main, side by side on one scale.
 // Testing rows = its test ad set (or any campaign with "test" in the name); Main rows = everything else.
 function PhaseCompare({ ad, data, product }) {
-  const [boxT, WT] = useWidth(); const [boxM, WM] = useWidth();
   const rows = rowsForAd(ad, data.meta_days || []);
   const t = lastStage1(ad, data), r = t && runsFor(t, ad, data);
   let key = null;
@@ -1770,18 +1769,13 @@ function PhaseCompare({ ad, data, product }) {
   if (mDays.length > 21) { mWeekly = true; const wk = new Map(); for (const v of mDays) { const w = R.addDays(v.d, -((R.parseDay(v.d).getDay() + 6) % 7)); const g = wk.get(w) || { d: w, spend: 0, revenue: 0, purchases: 0 }; g.spend += v.spend; g.revenue += v.revenue; g.purchases += v.purchases; wk.set(w, g); } mDays = [...wk.values()].map((g) => ({ ...g, roas: g.revenue / g.spend })); }
   const top = Math.max(1, Math.min(Math.max(...[...tDays, ...mDays].map((v) => v.roas || 0)), be ? be * 2.5 : 8), be || 0) * 1.15; // same scale for both
   const tone = (v) => (be && v < be ? 'var(--fail)' : 'var(--pass)');
-  const mini = (list, W, ref, label) => { const H = 120, L = 34, Rt = 6, Tp = 8, B = 18, n = list.length || 1, step = (W - L - Rt) / n, x = (i) => L + step * (i + 0.5), bw = Math.max(3, Math.min(22, step * 0.6)), y = (v) => Tp + (H - Tp - B) * (1 - Math.min(v, top) / top), every = Math.max(1, Math.ceil(n / Math.max(2, Math.floor((W - L) / 52))));
-    return html`<div class="chart" ref=${ref}><svg width=${W} height=${H} style=${`height:${H}px`} role="img" aria-label=${label}>
-      ${[0, top / 1.15].map((v) => html`<line x1=${L} x2=${W - Rt} y1=${y(v)} y2=${y(v)} class="grid" /><text x=${L - 4} y=${y(v) + 4} class="ax" text-anchor="end">${v.toFixed(1)}x</text>`)}
-      ${be && html`<line x1=${L} x2=${W - Rt} y1=${y(be)} y2=${y(be)} class="ref" />`}
-      ${list.map((v, i) => (v.purchases > 0 ? html`<rect x=${x(i) - bw / 2} y=${y(v.roas)} width=${bw} height=${Math.max(2, y(0) - y(v.roas))} rx="2" fill=${tone(v.roas)} opacity="0.9"><title>${R.shortDate(v.d)}: ${R.xroas(v.roas)} on ${R.money0(v.spend)}</title></rect>` : html`<rect x=${x(i) - bw / 2} y=${y(0) - 3} width=${bw} height="3" fill="var(--fail)"><title>${R.shortDate(v.d)}: no sales on ${R.money0(v.spend)}</title></rect>`))}
-      ${list.map((v, i) => i % every === 0 && html`<text x=${x(i)} y=${H - 4} class="ax" text-anchor="middle">${R.shortDate(v.d)}</text>`)}
-    </svg></div>`; };
+  const mini = (list, W, ref, label, weekly) => html`<${MiniBars} list=${list} top=${top} be=${be} label=${label} weekly=${weekly} />`;
   const stat = (k, v, cls) => html`<div class="mp-tile"><small>${k}</small><b class=${cls || ''}>${v}</b></div>`;
   const cls = (ro) => (!be || ro == null ? '' : ro >= be ? 'good' : 'bad');
   const m7 = sumRows(mRows.filter((x) => { const w = healthWindow(data); return w && x.day >= w.a && x.day <= w.end; }));
   const tR = T.spend ? T.revenue / T.spend : null, mR = M.spend ? M.revenue / M.spend : null;
-  const verdict = !M.spend || M.spend < 50 ? { tone: 'live', text: `Too early to compare: ${R.money0(M.spend)} spent in Main so far.` }
+  const mRan = byDay(mRows).length;
+  const verdict = !M.spend || M.spend < 100 || mRan < 5 ? { tone: 'live', text: `Too early to compare: ${mRan} day${mRan === 1 ? '' : 's'} and ${R.money0(M.spend)} in Main so far. Give it at least 5 days and $100 (your Stage 2 window is 5–7 days).` }
     : mR >= tR * 0.9 ? { tone: 'good', text: `Holding up in Main: ${R.xroas(mR)} vs ${R.xroas(tR)} in testing.` }
     : mR >= tR * 0.7 ? { tone: mR >= (be || 0) ? 'live' : 'warn', text: `A bit weaker in Main: ${R.xroas(mR)} vs ${R.xroas(tR)} in testing (${Math.round((1 - mR / tR) * 100)}% lower)${be && mR < be ? ', and under break-even' : ''}.` }
     : { tone: 'bad', text: `Much weaker in Main: ${R.xroas(mR)} vs ${R.xroas(tR)} in testing (${Math.round((1 - mR / tR) * 100)}% lower)${be && mR < be ? ', under break-even' : ''}. Tested well but isn't carrying over.` };
@@ -1791,13 +1785,29 @@ function PhaseCompare({ ad, data, product }) {
       <div class="stack" style="gap:6px"><div class="small"><b>In testing</b> <span class="muted">${tDays.length ? `${R.shortDate(tDays[0].d)} to ${R.shortDate(tDays[tDays.length - 1].d)} · ${tDays.length} days` : ''}</span></div>
         <div class="mp-tiles">${stat('ROAS', R.xroas(tR), cls(tR))}${stat('Spent', R.money0(T.spend))}${stat('Buys', T.purchases)}${stat('CPA', R.money(T.purchases ? T.spend / T.purchases : null))}</div>
         ${r && r.d7 && html`<div class="tiny muted">Day-7 result ${R.xroas(r.d7.roas)} on ${r.d7.purchases} buys${t.result && R.RESULTS[t.result] ? ` · filed as ${R.RESULTS[t.result].label}` : ''}</div>`}
-        ${mini(tDays, WT, boxT, 'ROAS each day in testing')}<div class="tiny muted">Each day in testing</div></div>
+        ${mini(tDays, 0, null, 'ROAS each day in testing')}<div class="tiny muted">Each day in testing</div></div>
       <div class="stack" style="gap:6px"><div class="small"><b>In Main</b> <span class="muted">${mDays.length ? `since ${R.shortDate(byDay(mRows)[0].d)} · ${byDay(mRows).length} days` : 'no spend in your files yet'}</span></div>
         <div class="mp-tiles">${stat('ROAS', R.xroas(mR), cls(mR))}${stat('Spent', R.money0(M.spend))}${stat('Buys', M.purchases)}${stat('Last 7 days', R.xroas(m7.spend ? m7.revenue / m7.spend : null), cls(m7.spend ? m7.revenue / m7.spend : null))}</div>
-        ${mini(mDays, WM, boxM, 'ROAS in Main')}<div class="tiny muted">${mWeekly ? 'Each week in Main' : 'Each day in Main'}</div></div>
+        ${mini(mDays, 0, null, 'ROAS in Main', mWeekly)}<div class="tiny muted">${mWeekly ? 'Each week in Main' : 'Each day in Main'}</div></div>
     </div>
-    <div class="tiny muted">Same scale on both, dashed line = break-even${be ? ` (${R.xroas(be)})` : ''}. Green above, red below, thin red line = no sales. Hover a bar for its numbers.</div>
+    <div class="tiny muted">Same scale on both, dashed line = break-even${be ? ` (${R.xroas(be)})` : ''}. Green above, red below, thin red line = no sales. Hover or tap a bar for its numbers.</div>
   </div>`;
+}
+// Small bar chart with a fixed info line above it (no floating box).
+function MiniBars({ list, top, be, label, weekly }) {
+  const [box, W] = useWidth(); const [hi, setHi] = useState(null);
+  const H = 120, L = 34, Rt = 6, Tp = 8, B = 18, n = list.length || 1, step = (W - L - Rt) / n, x = (i) => L + step * (i + 0.5), bw = Math.max(3, Math.min(22, step * 0.6)), y = (v) => Tp + (H - Tp - B) * (1 - Math.min(v, top) / top), every = Math.max(1, Math.ceil(n / Math.max(2, Math.floor((W - L) / 52))));
+  const tone = (v) => (be && v < be ? 'var(--fail)' : 'var(--pass)');
+  const move = (e) => { const r = e.currentTarget.getBoundingClientRect(); const i = Math.floor((e.clientX - r.left - L) / step); setHi(i >= 0 && i < n ? i : null); };
+  const h = hi != null ? list[hi] : null;
+  return html`<div class="small" style="min-height:18px">${h ? html`<b>${weekly ? 'Week of ' : ''}${longDate(h.d)}</b> · ${R.money(h.spend)} spent · ${h.purchases} buy${h.purchases === 1 ? '' : 's'} · <b style=${'color:' + tone(h.roas || 0)}>${R.xroas(h.roas)}</b>` : html`<span class="muted tiny">Hover or tap a bar</span>`}</div>
+    <div class="chart" ref=${box}><svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${move} onPointerDown=${move} onPointerLeave=${() => setHi(null)} role="img" aria-label=${label}>
+      ${[0, top / 1.15].map((v) => html`<line x1=${L} x2=${W - Rt} y1=${y(v)} y2=${y(v)} class="grid" /><text x=${L - 4} y=${y(v) + 4} class="ax" text-anchor="end">${v.toFixed(1)}x</text>`)}
+      ${be && html`<line x1=${L} x2=${W - Rt} y1=${y(be)} y2=${y(be)} class="ref" />`}
+      ${list.map((v, i) => (v.purchases > 0 ? html`<rect x=${x(i) - bw / 2} y=${y(v.roas)} width=${bw} height=${Math.max(2, y(0) - y(v.roas))} rx="2" fill=${tone(v.roas)} opacity=${hi == null || hi === i ? 0.9 : 0.45} />` : html`<rect x=${x(i) - bw / 2} y=${y(0) - 3} width=${bw} height="3" fill="var(--fail)" />`))}
+      ${list.map((v, i) => i % every === 0 && html`<text x=${x(i)} y=${H - 4} class="ax" text-anchor="middle">${R.shortDate(v.d)}</text>`)}
+      ${hi != null && html`<line x1=${x(hi)} x2=${x(hi)} y1=${Tp} y2=${H - B} class="cross" />`}
+    </svg></div>`;
 }
 // Ad grade: all-time ROAS against the product's break-even, moved one step when the last 2 weeks are much better or worse.
 const GRADES = ['F', 'D', 'C', 'B−', 'B', 'B+', 'A−', 'A', 'A+'];
