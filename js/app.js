@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=131';
-import * as R from './rules.js?v=131';
-import { importHistory } from './importer.js?v=131';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=131';
+import { createBackend } from './data.js?v=132';
+import * as R from './rules.js?v=132';
+import { importHistory } from './importer.js?v=132';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=132';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1760,7 +1760,10 @@ function evText(e, data) {
 const evNote = (text, part, ads) => (part && part !== 'all' ? JSON.stringify({ text, part, ads: part === 'ads' ? ads : undefined }) : text);
 // Does this change touch that ad? (Product match is checked separately.)
 const evHits = (e, ad) => { const v = evInfo(e); return v.part !== 'ads' || v.ads.includes(ad.id); };
-function calendarOf(data, ad) { return [...SALE_CAL, ...(data.events || []).filter((e) => e.day && (!ad || ((!e.product_id || e.product_id === ad.product_id) && evHits(e, ad)))).map((e) => ({ from: String(e.day).slice(0, 10), to: String(e.day).slice(0, 10), name: evText(e, data), mine: true }))]; }
+function calendarOf(data, ad) { return [...SALE_CAL, ...(data.events || []).filter((e) => e.day && (!ad || ((!e.product_id || e.product_id === ad.product_id) && evHits(e, ad)))).map((e) => ({ from: String(e.day).slice(0, 10), to: String(e.day).slice(0, 10), name: evShort(e, data), detail: evText(e, data), mine: true }))]; }
+// Short label for charts: the type and which part, no note (the full note is in Learnings → History).
+function evShort(e, data) { const v = evInfo(e); return `${e.kind}${v.part === 'ads' ? ` (${v.ads.length} ad${v.ads.length === 1 ? '' : 's'})` : v.part !== 'all' ? ` (${PARTS[v.part].replace(' campaign', '')})` : ''}`; }
+const marksDetail = (cal, d) => cal.filter((c) => d >= c.from && d <= c.to).map((c) => c.detail || c.name).join('\n');
 const marksOn = (cal, d) => cal.filter((c) => d >= c.from && d <= c.to).map((c) => c.name);
 // Testing vs Main: how the ad did in its Stage 1 test next to how it's doing in Main, side by side on one scale.
 // Testing rows = its test ad set (or any campaign with "test" in the name); Main rows = everything else.
@@ -1913,7 +1916,7 @@ function TrendPanel({ ad, data, product }) {
   const pick = (e) => { const r = e.currentTarget.getBoundingClientRect(); const i = Math.floor((e.clientX - r.left - L) / step); setHi(i >= 0 && i < n ? i : null); };
   const h = hi != null ? items[hi] : null;
   // ----- info line (above the chart, never on top of it) -----
-  const info = h ? html`<b>${h.title}</b> · ${h.spend > 0 ? html`${R.money(h.spend)} spent · ${h.purchases} buy${h.purchases === 1 ? '' : 's'} · <b style=${'color:' + tone(h.roas || 0)}>${R.xroas(h.roas)}</b>` : '$0 spent (not running)'}${kind === 'line' ? html` · made so far <b>${(h.cum < 0 ? '−' : '') + R.money0(Math.abs(h.cum))}</b>` : ''}${h.marks.length ? html` · <span style="color:var(--mid)">${h.marks.join(', ')}</span>` : ''}`
+  const info = h ? html`<b>${h.title}</b> · ${h.spend > 0 ? html`${R.money(h.spend)} spent · ${h.purchases} buy${h.purchases === 1 ? '' : 's'} · <b style=${'color:' + tone(h.roas || 0)}>${R.xroas(h.roas)}</b>` : '$0 spent (not running)'}${kind === 'line' ? html` · made so far <b>${(h.cum < 0 ? '−' : '') + R.money0(Math.abs(h.cum))}</b>` : ''}${h.marks.length ? html` · <span style="color:var(--mid);cursor:help" title=${marksDetail(cal, h.key)}>${h.marks.join(' · ')} ⓘ</span>` : ''}`
     : tab === 'all' ? html`Lifetime ${R.xroas(life.roas)} on ${R.money0(life.spend)} · ${life.purchases} buys${be ? ` · break-even ${R.xroas(be)}` : ''}`
     : tab === 'weeks' ? html`One bar per week (Mon–Sun). Green above break-even${be ? ` (${R.xroas(be)})` : ''}, red below.`
     : html`One bar per day, last ${n} days. Green above break-even, red below, thin red line = no sales.`;
