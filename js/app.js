@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=133';
-import * as R from './rules.js?v=133';
-import { importHistory } from './importer.js?v=133';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=133';
+import { createBackend } from './data.js?v=134';
+import * as R from './rules.js?v=134';
+import { importHistory } from './importer.js?v=134';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=134';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2766,12 +2766,23 @@ function monthReport(data, dm, ym) {
   const tests = data.tests.filter((t) => t.stage === 1 && t.start_date >= a && t.start_date <= b);
   const passed = tests.filter((t) => ['pass', 'strong_pass'].includes(t.result)).length, failed = tests.filter((t) => t.result === 'fail').length;
   const dIn = (d) => { const x = String(d.day || d.created_at || '').slice(0, 10); return x >= a && x <= b; };
-  const changes = [
-    ...data.events.filter(dIn).map((e) => `${R.shortDate(e.day)} ${evText(e, data)}`),
-    ...data.decisions.filter((d) => dIn(d) && d.kind === 'budget').map((d) => `${R.shortDate(String(d.day || d.created_at).slice(0, 10))} ${d.choice}`),
-    ...data.decisions.filter((d) => dIn(d) && d.kind === 'move' && /Main/.test(d.choice || '') && !/Turned off/.test(d.choice || '')).map((d) => { const ad = data.ads.find((x) => x.id === d.ad_id); return `${R.shortDate(String(d.day || d.created_at).slice(0, 10))} ${ad ? displayName(ad) : 'An ad'} into Main`; }),
-    ...data.decisions.filter((d) => dIn(d) && d.kind === 'kill' && /Main/.test(d.choice || '')).map((d) => { const ad = data.ads.find((x) => x.id === d.ad_id); return `${R.shortDate(String(d.day || d.created_at).slice(0, 10))} ${ad ? displayName(ad) : 'An ad'} out of Main`; }),
-  ];
+  // What changed, summarized: big shifts the app can see in your numbers first, then short labels for what you logged.
+  const changes = [];
+  const pa = pym + '-01', pb = monthEnd(pym);
+  const spendBy = (from, to) => { const m = {}; let tot = 0; for (const p of data.products) { const v = sumRows(data.ads.filter((x) => x.product_id === p.id).flatMap((x) => rowsForAd(x, data.meta_days).filter((r) => r.day >= from && r.day <= to))).spend; m[p.id] = v; tot += v; } return { m, tot }; };
+  const now = spendBy(a, b), was = spendBy(pa, pb);
+  if (now.tot && was.tot) { const sh = data.products.map((p) => ({ p, s1: now.m[p.id] / now.tot * 100, s0: was.m[p.id] / was.tot * 100 })).filter((x) => Math.abs(x.s1 - x.s0) >= 10); const ups = sh.filter((x) => x.s1 > x.s0); for (const x of ups.length ? ups : sh) changes.push(`${x.p.name} ${x.s1 > x.s0 ? 'push' : 'pulled back'}: ${Math.round(x.s0)}% → ${Math.round(x.s1)}% of ad spend`); }
+  const testsPrev = data.tests.filter((t) => t.stage === 1 && t.start_date >= pa && t.start_date <= pb && !isDupTest(t)).length;
+  const ruleCh = data.learnings.filter((l) => l.kind === 'rule_change' && dIn(l) && !/Store economics/i.test(l.text || '')).map((l) => String(l.text || '').replace(/^Rules changed:\s*/, ''));
+  if (tests.length || ruleCh.length) changes.push(`Testing: ${tests.length} test${tests.length === 1 ? '' : 's'} launched${pa ? ` (${testsPrev} the month before)` : ''}${ruleCh.length ? ' · ' + ruleCh.slice(0, 2).join(' · ') : ''}`);
+  const ins = data.decisions.filter((d) => dIn(d) && d.kind === 'move' && /Main/.test(d.choice || '') && !/Turned off/.test(d.choice || '')).map((d) => data.ads.find((x) => x.id === d.ad_id)).filter(Boolean);
+  const outs = data.decisions.filter((d) => dIn(d) && d.kind === 'kill' && /Main/.test(d.choice || '')).map((d) => data.ads.find((x) => x.id === d.ad_id)).filter(Boolean);
+  if (ins.length || outs.length) changes.push(`Main: ${[ins.length ? `in ${ins.map(hookOf).join(', ')}` : '', outs.length ? `out ${outs.map(hookOf).join(', ')}` : ''].filter(Boolean).join(' · ')}`);
+  const budg = data.decisions.filter((d) => dIn(d) && d.kind === 'budget').map((d) => String(d.choice || '').replace(/^Main budget /, ''));
+  if (budg.length) changes.push(`Main budget: ${budg.join(', ')}`);
+  const evs = data.events.filter(dIn), order = (k) => (/Meta changed/.test(k) ? 2 : /Other/.test(k) ? 1 : 0), byKind = new Map();
+  for (const e of evs) { const g = byKind.get(e.kind) || []; g.push(e); byKind.set(e.kind, g); }
+  for (const [k, list] of [...byKind.entries()].sort((x, y) => order(x[0]) - order(y[0]))) changes.push(`${k}${list.length > 1 ? ` ×${list.length}` : ''} (${[...new Set(list.map((e) => R.shortDate(e.day)))].join(', ')})`);
   // Angles with real spend this month
   const ang = {}; for (const x of ads) if (x.angle) { const g = ang[x.angle] || (ang[x.angle] = { spend: 0, rev: 0 }); g.spend += x.spend; g.rev += x.roas * x.spend; }
   const angles = Object.entries(ang).filter(([, g]) => g.spend >= 100).map(([k, g]) => ({ k, roas: g.rev / g.spend, spend: g.spend })).sort((x, y) => y.roas - x.roas);
@@ -2818,7 +2829,7 @@ function ReportCard({ data, dm, months, before }) {
       <div class="mp-tile"><small>Worst ad</small>${r.worst ? html`<b class="bad">${R.xroas(r.worst.roas)}</b><span>${r.worst.name.slice(0, 40)}</span><span>${R.money0(r.worst.spend)} spent · ${r.worst.buys} buy${r.worst.buys === 1 ? '' : 's'}</span>` : html`<span>Only one ad with $50+ spend</span>`}</div>
     </div>
     <div class="small"><b>Tests:</b> ${r.tests ? `${r.tests} launched · ${r.passed} passed · ${r.failed} failed` : 'none launched'}</div>
-    <div class="small"><b>What changed:</b> ${r.changes.length ? r.changes.slice(0, 6).join(' · ') + (r.changes.length > 6 ? ` · +${r.changes.length - 6} more` : '') : 'nothing logged'}</div>
+    <div class="small"><b>What changed</b>${r.changes.length ? html`<ul style="margin:2px 0 0;padding-left:18px">${r.changes.slice(0, 6).map((c) => html`<li>${c}</li>`)}</ul>` : ' · nothing logged'}<div class="tiny muted">Full notes are in Learnings → History.</div></div>
     ${r.acts.length > 0 && html`<div class="status live small"><b>What to do next</b><ol style="margin:4px 0 0;padding-left:18px">${r.acts.map((x) => html`<li style="margin:2px 0">${x}</li>`)}</ol></div>`}`}
   </section>`;
 }
