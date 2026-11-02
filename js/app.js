@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=135';
-import * as R from './rules.js?v=135';
-import { importHistory } from './importer.js?v=135';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=135';
+import { createBackend } from './data.js?v=136';
+import * as R from './rules.js?v=136';
+import { importHistory } from './importer.js?v=136';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=136';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2819,13 +2819,14 @@ function ReportCard({ data, dm, months, before }) {
   const g = g0 || { lo: STAGES_GOAL[0].profit[0], hi: STAGES_GOAL[0].profit[1], pre: true };
   const name = (k) => `${MON_LONG[+k.slice(5) - 1]} ${k.slice(0, 4)}`;
   const flip = () => { setOpen(!open); try { localStorage.setItem('adlab-report', open ? '0' : '1'); } catch (e) {} };
-  const D = (now, prev, fmt, goodUp = true) => (prev ? html` <span class=${'tiny ' + ((now >= prev) === goodUp ? 'good' : 'bad')}>${now >= prev ? '↑' : '↓'} from ${fmt(prev)}</span>` : '');
+  const pm = MON_LONG[+monthKey(R.addDays(ym + '-01', -1)).slice(5) - 1].slice(0, 3);
+  const D = (now, prev, fmt, goodUp = true) => { if (!prev) return ''; const pct = Math.round(Math.abs(now / prev - 1) * 100); return html` <span class=${(now >= prev) === goodUp ? 'good' : 'bad'}>${now >= prev ? 'up' : 'down'} ${pct}% vs ${pm} (${fmt(prev)})</span>`; };
   const grade = !g0 || g0.actual == null ? null : g0.status;
   return html`<section class="panel"><div class="row" style="gap:8px;flex-wrap:wrap"><h2 style="margin:0">Report card</h2><select value=${ym} onChange=${(e) => setSel(e.target.value)}>${opts.slice().reverse().map((k) => html`<option value=${k}>${name(k)}</option>`)}</select><span class="spacer"></span><button class="link small" onClick=${flip}>${open ? 'Hide' : 'Show'}</button></div>
     ${!open ? html`<div class="small muted">${name(ym)} at a glance: profit, best and worst ad, what changed, one lesson.</div>` : html`
     <div class="mp-tiles">
       <div class="mp-tile"><small class="row" style="gap:6px">Profit${g && r.s0.days ? html`<span class=${'gbadge t-' + gradeTone(monthGrade(r.s0.profit, g.lo, g.hi))} style="position:static;height:20px">${monthGrade(r.s0.profit, g.lo, g.hi)}</span>` : ''}</small><b class=${grade === 'hit' || grade === 'crushed' ? 'good' : grade === 'missed' ? 'bad' : ''}>${r.s0.days ? R.money0(r.s0.profit) : '—'}</b><span>${!g.pre ? `Goal ${R.money0(g.lo)}–${R.money0(g.hi)}${grade ? ' · ' + ({ hit: 'Hit', crushed: 'Crushed it', close: 'Close', missed: 'Missed' }[grade] || '') : ''}` : `Before the plan · graded vs the Rebuild goal (${R.money0(g.lo)}–${R.money0(g.hi)})`}${r.s0.days && r.p0.days ? html` · ${D(r.s0.profit, r.p0.profit, R.money0)}` : ''}</span>${r.s0.days && r.s0.days < R.daysBetween(ym + '-01', monthEnd(ym)) + 1 ? html`<span>Numbers for ${r.s0.days} days only</span>` : ''}</div>
-      <div class="mp-tile"><small>Sales · ads</small><b>${r.s0.days ? R.money0(r.s0.rev) : '—'}</b><span>${r.s0.days ? html`Ads ${R.money0(r.s0.spend)} · ${r.s0.spend ? R.xroas(r.s0.rev / r.s0.spend) : '—'} blended${D(r.s0.spend ? r.s0.rev / r.s0.spend : 0, r.p0.spend ? r.p0.rev / r.p0.spend : 0, (v) => R.xroas(v))}` : r.meta.spend ? `Meta: ${R.money0(r.meta.spend)} spent, ${R.xroas(r.meta.revenue / r.meta.spend)}` : 'No numbers'}</span><span>${r.s0.orders ? `${Math.round(r.s0.orders)} orders · ${R.money(r.s0.rev / r.s0.orders)} average` : ''}</span></div>
+      <div class="mp-tile"><small>Sales · ads</small><b>${r.s0.days ? R.money0(r.s0.rev) : '—'}</b><span>${r.s0.days ? html`Ads ${R.money0(r.s0.spend)} · ${r.s0.spend ? R.xroas(r.s0.rev / r.s0.spend) : '—'} blended ·${D(r.s0.spend ? r.s0.rev / r.s0.spend : 0, r.p0.spend ? r.p0.rev / r.p0.spend : 0, (v) => R.xroas(v))}` : r.meta.spend ? `Meta: ${R.money0(r.meta.spend)} spent, ${R.xroas(r.meta.revenue / r.meta.spend)}` : 'No numbers'}</span><span>${r.s0.orders ? `${Math.round(r.s0.orders)} orders · ${R.money(r.s0.rev / r.s0.orders)} average` : ''}</span></div>
       <div class="mp-tile"><small>Best ad</small>${r.best ? html`<b class="good">${R.xroas(r.best.roas)}</b><span>${r.best.name.slice(0, 40)}</span><span>${R.money0(r.best.spend)} spent · ${r.best.buys} buy${r.best.buys === 1 ? '' : 's'}</span>` : html`<span>Not enough spend</span>`}</div>
       <div class="mp-tile"><small>Worst ad</small>${r.worst ? html`<b class="bad">${R.xroas(r.worst.roas)}</b><span>${r.worst.name.slice(0, 40)}</span><span>${R.money0(r.worst.spend)} spent · ${r.worst.buys} buy${r.worst.buys === 1 ? '' : 's'}</span>` : html`<span>Only one ad with $50+ spend</span>`}</div>
     </div>
