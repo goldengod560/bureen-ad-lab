@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=134';
-import * as R from './rules.js?v=134';
-import { importHistory } from './importer.js?v=134';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=134';
+import { createBackend } from './data.js?v=135';
+import * as R from './rules.js?v=135';
+import { importHistory } from './importer.js?v=135';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=135';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2773,7 +2773,8 @@ function monthReport(data, dm, ym) {
   const now = spendBy(a, b), was = spendBy(pa, pb);
   if (now.tot && was.tot) { const sh = data.products.map((p) => ({ p, s1: now.m[p.id] / now.tot * 100, s0: was.m[p.id] / was.tot * 100 })).filter((x) => Math.abs(x.s1 - x.s0) >= 10); const ups = sh.filter((x) => x.s1 > x.s0); for (const x of ups.length ? ups : sh) changes.push(`${x.p.name} ${x.s1 > x.s0 ? 'push' : 'pulled back'}: ${Math.round(x.s0)}% → ${Math.round(x.s1)}% of ad spend`); }
   const testsPrev = data.tests.filter((t) => t.stage === 1 && t.start_date >= pa && t.start_date <= pb && !isDupTest(t)).length;
-  const ruleCh = data.learnings.filter((l) => l.kind === 'rule_change' && dIn(l) && !/Store economics/i.test(l.text || '')).map((l) => String(l.text || '').replace(/^Rules changed:\s*/, ''));
+  const ruleCh = data.learnings.filter((l) => l.kind === 'rule_change' && dIn(l)).flatMap((l) => String(l.text || '').replace(/^Rules changed:\s*/, '').split(/;\s*/))
+    .filter((x) => x && !/undefined|economics|extraAngles|extraConcepts|mainBudget/i.test(x)).map((x) => x.replace(/^(\w+):/, (m, k) => ruleLabel(k) + ':'));
   if (tests.length || ruleCh.length) changes.push(`Testing: ${tests.length} test${tests.length === 1 ? '' : 's'} launched${pa ? ` (${testsPrev} the month before)` : ''}${ruleCh.length ? ' · ' + ruleCh.slice(0, 2).join(' · ') : ''}`);
   const ins = data.decisions.filter((d) => dIn(d) && d.kind === 'move' && /Main/.test(d.choice || '') && !/Turned off/.test(d.choice || '')).map((d) => data.ads.find((x) => x.id === d.ad_id)).filter(Boolean);
   const outs = data.decisions.filter((d) => dIn(d) && d.kind === 'kill' && /Main/.test(d.choice || '')).map((d) => data.ads.find((x) => x.id === d.ad_id)).filter(Boolean);
@@ -3072,6 +3073,9 @@ function StockForm(ctx) {
 }
 
 // ---------- rules ----------
+// Internal settings that aren't rules you'd want in a change log.
+const RULE_SKIP = ['extraAngles', 'extraConcepts', 'mainBudget', 'mainBudgetSince'];
+const ruleLabel = (k) => { for (const [sec, rows] of RULE_ROWS) for (const r of rows) if (r[0] === k) return /^Early stop/.test(sec) ? 'Pause? alert ' + r[1].toLowerCase() : r[1]; return k; };
 const RULE_ROWS = [
   ['Budgets', [['stage1Budget', 'Stage 1 budget per ad set', '$/day'], ['boostedBudget', 'Boosted budget', '$/day'], ['boostAt', 'Boost when 30-day blended ROAS is at least', 'x']]],
   ['Test window', [['plannedDays', 'Test window', 'days'], ['checkins', 'Check-in days', 'day']]],
@@ -3106,7 +3110,7 @@ function Rules(ctx) {
     nr.extraAngles = (product.rules || {}).extraAngles || [];
     nr.extraConcepts = (product.rules || {}).extraConcepts || [];
     const ne = peRaw;
-    const changes = Object.keys(nr).filter((k) => String(nr[k]) !== String(old[k])).map((k) => `${k}: ${old[k]} → ${nr[k]}`);
+    const changes = Object.keys(nr).filter((k) => !RULE_SKIP.includes(k) && String(nr[k] ?? '') !== String(old[k] ?? '') && !(Array.isArray(nr[k]) && !nr[k].length && old[k] == null)).map((k) => `${ruleLabel(k)}: ${old[k] ?? '—'} → ${nr[k]}`);
     const oe = R.econOf(product), os = R.storeEcon();
     const ob1 = R.beOrder(oe, 1);
     if (String(oe.price) !== String(pv.price) || String(oe.packCost) !== String(pv.packCost) || R.SHARED_COSTS.some(([k]) => String(oe.own[k]) !== String(pv.own[k])) || String(oe.ownAov) !== String(pv.ownAov) || String(oe.opBEOwn) !== String(pv.opBEOwn) || String(oe.shipCharge) !== String(pv.shipCharge))
