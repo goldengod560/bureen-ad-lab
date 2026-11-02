@@ -10,8 +10,8 @@ export const DEFAULT_RULES = {
   failRoas: 2.0,
   strongPct: 80,
   collapseDays: 3,
-  earlyDay: 4, earlySpend: 60, earlyMaxPurchases: 1, underSpend: 85,
-  slots: 2, testingCap: 60,
+  earlyDay: 3, earlySpend: 60, earlyMaxPurchases: 1, underSpend: 85,
+  slots: 3, testingCap: 60,
   stage2Min: 5, stage2Max: 7,
   raiseStep: 20,
   budgetWait: 5, // days to wait after a Main budget change before the next one
