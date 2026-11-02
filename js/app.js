@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=132';
-import * as R from './rules.js?v=132';
-import { importHistory } from './importer.js?v=132';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=132';
+import { createBackend } from './data.js?v=133';
+import * as R from './rules.js?v=133';
+import { importHistory } from './importer.js?v=133';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=133';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1818,7 +1818,7 @@ function MiniBars({ list, top, be, label, weekly }) {
   const move = (e) => { const r = e.currentTarget.getBoundingClientRect(); const i = Math.floor((e.clientX - r.left - L) / step); setHi(i >= 0 && i < n ? i : null); };
   const h = hi != null ? list[hi] : null;
   return html`<div class="small" style="min-height:18px">${h ? html`<b>${weekly ? 'Week of ' : ''}${longDate(h.d)}</b> · ${R.money(h.spend)} spent · ${h.purchases} buy${h.purchases === 1 ? '' : 's'} · <b style=${'color:' + tone(h.roas || 0)}>${R.xroas(h.roas)}</b>` : html`<span class="muted tiny">Hover or tap a bar</span>`}</div>
-    <div class="chart" ref=${box}><svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${move} onPointerDown=${move} onPointerLeave=${() => setHi(null)} role="img" aria-label=${label}>
+    <div class="chart" ref=${box}><svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${move} onPointerDown=${move} role="img" aria-label=${label}>
       ${[0, top / 1.15].map((v) => html`<line x1=${L} x2=${W - Rt} y1=${y(v)} y2=${y(v)} class="grid" /><text x=${L - 4} y=${y(v) + 4} class="ax" text-anchor="end">${v.toFixed(1)}x</text>`)}
       ${be && html`<line x1=${L} x2=${W - Rt} y1=${y(be)} y2=${y(be)} class="ref" />`}
       ${list.map((v, i) => (v.purchases > 0 ? html`<rect x=${x(i) - bw / 2} y=${y(v.roas)} width=${bw} height=${Math.max(2, y(0) - y(v.roas))} rx="2" fill=${tone(v.roas)} opacity=${hi == null || hi === i ? 0.9 : 0.45} />` : html`<rect x=${x(i) - bw / 2} y=${y(0) - 3} width=${bw} height="3" fill="var(--fail)" />`))}
@@ -1851,7 +1851,8 @@ function gradeAdvice(gr, ad) {
   return top || mid ? 'Worked before. Worth a re-test with a fresh version.' : "Don't bring it back as it is.";
 }
 function TrendPanel({ ad, data, product }) {
-  const [hi, setHi] = useState(null); const [table, setTable] = useState(false);
+  const [hi, setHi0] = useState(null); const [table, setTable] = useState(false); const [noteOpen, setNoteOpen] = useState(false);
+  const setHi = (i) => { setHi0(i); if (i !== hi) setNoteOpen(false); };
   const [tab, setTab0] = useState(() => { try { return localStorage.getItem('adlab-trend2') || 'weeks'; } catch (e) { return 'weeks'; } });
   const setTab = (k) => { setTab0(k); setHi(null); try { localStorage.setItem('adlab-trend2', k); } catch (e) {} };
   const [box, W] = useWidth(); const [box2, W2] = useWidth();
@@ -1916,7 +1917,7 @@ function TrendPanel({ ad, data, product }) {
   const pick = (e) => { const r = e.currentTarget.getBoundingClientRect(); const i = Math.floor((e.clientX - r.left - L) / step); setHi(i >= 0 && i < n ? i : null); };
   const h = hi != null ? items[hi] : null;
   // ----- info line (above the chart, never on top of it) -----
-  const info = h ? html`<b>${h.title}</b> · ${h.spend > 0 ? html`${R.money(h.spend)} spent · ${h.purchases} buy${h.purchases === 1 ? '' : 's'} · <b style=${'color:' + tone(h.roas || 0)}>${R.xroas(h.roas)}</b>` : '$0 spent (not running)'}${kind === 'line' ? html` · made so far <b>${(h.cum < 0 ? '−' : '') + R.money0(Math.abs(h.cum))}</b>` : ''}${h.marks.length ? html` · <span style="color:var(--mid);cursor:help" title=${marksDetail(cal, h.key)}>${h.marks.join(' · ')} ⓘ</span>` : ''}`
+  const info = h ? html`<b>${h.title}</b> · ${h.spend > 0 ? html`${R.money(h.spend)} spent · ${h.purchases} buy${h.purchases === 1 ? '' : 's'} · <b style=${'color:' + tone(h.roas || 0)}>${R.xroas(h.roas)}</b>` : '$0 spent (not running)'}${kind === 'line' ? html` · made so far <b>${(h.cum < 0 ? '−' : '') + R.money0(Math.abs(h.cum))}</b>` : ''}${h.marks.length ? html` · <span style="color:var(--mid);cursor:pointer" title=${marksDetail(cal, h.key)} onClick=${() => setNoteOpen(!noteOpen)}>${h.marks.join(' · ')} <u>ⓘ</u></span>${noteOpen ? html`<div class="tiny" style="white-space:pre-wrap;color:var(--soft);margin-top:4px">${marksDetail(cal, h.key)}</div>` : ''}` : ''}`
     : tab === 'all' ? html`Lifetime ${R.xroas(life.roas)} on ${R.money0(life.spend)} · ${life.purchases} buys${be ? ` · break-even ${R.xroas(be)}` : ''}`
     : tab === 'weeks' ? html`One bar per week (Mon–Sun). Green above break-even${be ? ` (${R.xroas(be)})` : ''}, red below.`
     : html`One bar per day, last ${n} days. Green above break-even, red below, thin red line = no sales.`;
@@ -1928,7 +1929,7 @@ function TrendPanel({ ad, data, product }) {
     ${tab === 'all' && html`<div class="row" style="gap:10px;align-items:center;flex-wrap:wrap"><span class="small muted">Trend</span><span class=${'chip t-' + wTrend.tone}>${wTrend.label}</span><span class="tiny muted">${wTrend.why}</span></div>`}
     <div class="small" style="min-height:20px">${info}</div>
     <div class="chart" ref=${box} style=${tab === 'all' ? 'display:none' : ''}>
-      <svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${pick} onPointerDown=${pick} onPointerLeave=${() => setHi(null)} role="img" aria-label=${tab === 'all' ? 'Profit so far' : 'ROAS and spend'}>
+      <svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${pick} onPointerDown=${pick} role="img" aria-label=${tab === 'all' ? 'Profit so far' : 'ROAS and spend'}>
         ${items.map((v, i) => v.marks.length > 0 && html`<rect x=${x(i) - step / 2} y=${T1} width=${step} height=${H - B - T1} fill="var(--mid)" opacity=${tab === 'weeks' ? 0.05 : 0.10} />`)}
         ${ticks.map(([v, t]) => html`<line x1=${L} x2=${W - Rt} y1=${yV(v)} y2=${yV(v)} class=${v === 0 && kind === 'line' ? 'ref' : 'grid'} /><text x=${L - 6} y=${yV(v) + 4} class="ax" text-anchor="end">${t}</text>`)}
         ${kind === 'bars' && be && html`<line x1=${L} x2=${W - Rt} y1=${yV(be)} y2=${yV(be)} class="ref" /><text x=${W - Rt} y=${yV(be) - 4} class="ax" text-anchor="end">break-even ${R.xroas(be)}</text>`}
@@ -1962,7 +1963,7 @@ function TrendPanel({ ad, data, product }) {
       <div class="mp-tile"><small>Best week</small><b class=${bestW && be && bestW.roas < be ? 'bad' : 'good'}>${bestW ? R.xroas(bestW.roas) : '—'}</b><span>${bestW ? 'week of ' + R.shortDate(bestW.w) : 'needs $20+ in a week'}</span></div>
       <div class="mp-tile"><small>Worst week</small><b class=${worstW && be && worstW.roas >= be ? 'good' : 'bad'}>${worstW && weeksAll.length > 1 ? R.xroas(worstW.roas) : '—'}</b><span>${worstW && weeksAll.length > 1 ? 'week of ' + R.shortDate(worstW.w) : ''}</span></div>
     </div>`}
-    <div class="tiny muted">${tab === 'all' ? 'Grade: all-time ROAS against break-even. Trend and line: each Mon–Sun week with $20+ spend (dates are the Mondays).' : 'Tap a bar for its numbers.'}${tab !== 'all' && items.some((v) => v.marks.length) ? ' Shaded: holidays, sales or changes you logged.' : ''}</div>
+    <div class="tiny muted">${tab === 'all' ? 'Grade: all-time ROAS against break-even. Trend and line: each Mon–Sun week with $20+ spend (dates are the Mondays).' : 'Tap a bar for its numbers; they stay up so you can tap ⓘ for a logged change.'}${tab !== 'all' && items.some((v) => v.marks.length) ? ' Shaded: holidays, sales or changes you logged.' : ''}</div>
     ${tab === 'days' && html`<button class="link small" style="align-self:flex-start" onClick=${() => setTable(!table)}>${table ? 'Hide days' : 'Show each day'}</button>
     ${table && html`<div class="tscroll"><table class="t"><thead><tr><th>Day</th><th>Spend</th><th>Buys</th><th>Value</th><th>ROAS</th></tr></thead><tbody>
       ${items.slice().reverse().map((v) => html`<tr><td>${v.title}</td><td>${v.spend > 0 ? R.money(v.spend) : '—'}</td><td>${v.spend > 0 ? v.purchases : '—'}</td><td>${v.spend > 0 ? R.money(v.revenue) : '—'}</td><td>${v.spend > 0 ? R.xroas(v.roas) : '—'}</td></tr>`)}
@@ -2245,7 +2246,7 @@ function ProductDaily({ data, product }) {
       <div class="mp-tile"><small>Break-even</small><b>${R.xroas(be)}</b><span>Meta-reported sales</span></div>
     </div>
     ${open && html`<div class="small" style="min-height:20px">${info}</div>`}
-    <div class="chart" ref=${box} style=${open ? '' : 'display:none'}><svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${move} onPointerDown=${move} onPointerLeave=${() => setHi(null)} role="img" aria-label="ROAS and spend each day">
+    <div class="chart" ref=${box} style=${open ? '' : 'display:none'}><svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${move} onPointerDown=${move} role="img" aria-label="ROAS and spend each day">
       <text x=${L} y=${T1 - 2} class="ax">ROAS</text>
       ${[0, rMax / 1.15].map((v) => html`<line x1=${L} x2=${W - Rt} y1=${yR(v)} y2=${yR(v)} class="grid" /><text x=${L - 6} y=${yR(v) + 4} class="ax" text-anchor="end">${v.toFixed(1)}x</text>`)}
       ${be && html`<line x1=${L} x2=${W - Rt} y1=${yR(be)} y2=${yR(be)} class="ref" /><text x=${L + 4} y=${yR(be) + 12} class="ax">break-even ${R.xroas(be)}</text>`}
