@@ -1,5 +1,5 @@
 // Data layer. Talks to Supabase, or to an in-browser mock when ?mock=1 (for testing without an account).
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js?v=122';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js?v=123';
 
 const TABLES = ['products', 'ads', 'tests', 'checkpoints', 'events', 'decisions', 'learnings', 'meta_days', 'shop_days'];
 const UPSERT_KEYS = { meta_days: 'ad_name,adset,campaign,day', shop_days: 'day' };
@@ -12,6 +12,11 @@ function supabaseBackend() {
   const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
   const urlCache = new Map();
   const check = ({ data, error }) => { if (error) throw new Error(error.message || String(error)); return data; };
+  // Network hiccups ("Failed to fetch", timeouts, 5xx) get retried a few times before giving up.
+  const flaky = (e) => /fetch|network|timeout|timed out|load failed|50\d|52\d|ECONN|aborted/i.test(String((e && e.message) || e));
+  const retry = async (fn, tries = 4) => { for (let i = 0; ; i++) { try { return await fn(); } catch (e) { if (i >= tries - 1 || !flaky(e)) throw e; await new Promise((r) => setTimeout(r, 500 * 2 ** i)); } } };
+  // Ads Manager rows are the big table. Keep them between reloads; fetch again only after a file upload changes them.
+  let metaCache = null, metaDirty = true, cleaned = false;
   return {
     configured: true,
     async session() { const { data } = await client.auth.getSession(); return data.session; },
@@ -23,9 +28,21 @@ function supabaseBackend() {
       // Supabase returns at most 1000 rows per request, so page through big tables.
       const OPTIONAL = ['meta_days', 'shop_days'];
       const missing = [];
-      // Clear out empty Meta rows in the background; loading doesn't wait for it.
-      client.from('meta_days').delete().eq('spend', 0).eq('purchases', 0).or('impressions.is.null,impressions.eq.0').then(() => {}, () => {});
+      // Clear out empty Meta rows in the background, once per visit; loading doesn't wait for it.
+      if (!cleaned) { cleaned = true; client.from('meta_days').delete().eq('spend', 0).eq('purchases', 0).or('impressions.is.null,impressions.eq.0').then(() => {}, () => {}); }
       await Promise.all(TABLES.map(async (t) => {
+        if (t === 'meta_days' && !metaDirty && metaCache) { out[t] = metaCache; return; }
+        if (t === 'meta_days') {
+          // Count first, then fetch pages 6 at a time instead of one after another.
+          const base = () => client.from('meta_days').select('*').or('spend.gt.0,purchases.gt.0,impressions.gt.0');
+          const head = await retry(() => client.from('meta_days').select('id', { count: 'exact', head: true }).or('spend.gt.0,purchases.gt.0,impressions.gt.0'));
+          if (head.error) { missing.push(t); out[t] = []; return; }
+          const pages = Math.ceil((head.count || 0) / 1000), got = new Array(pages); let next = 0;
+          const worker = async () => { while (next < pages) { const i = next++; got[i] = check(await retry(async () => { const r = await base().order('created_at', { ascending: true }).order('id', { ascending: true }).range(i * 1000, i * 1000 + 999); if (r.error) throw new Error(r.error.message); return r; })); } };
+          await Promise.all(Array.from({ length: Math.min(6, pages) }, worker));
+          const seen = new Set(); out[t] = got.flat().filter((r) => r && !seen.has(r.id) && seen.add(r.id));
+          metaCache = out[t]; metaDirty = false; return;
+        }
         const rows = [];
         for (let from = 0; ; from += 1000) {
           if (OPTIONAL.includes(t)) {
@@ -37,7 +54,7 @@ function supabaseBackend() {
             if (r.error) { missing.push(t); break; }
             rows.push(...r.data); if (r.data.length < 1000) break; continue;
           }
-          const page = check(await client.from(T(t)).select('*').order('created_at', { ascending: true }).order(t === 'shop_days' ? 'day' : 'id', { ascending: true }).range(from, from + 999));
+          const page = check(await retry(() => client.from(T(t)).select('*').order('created_at', { ascending: true }).order(t === 'shop_days' ? 'day' : 'id', { ascending: true }).range(from, from + 999)));
           rows.push(...page); if (page.length < 1000) break;
         }
         out[t] = rows;
@@ -54,11 +71,12 @@ function supabaseBackend() {
       // 1000 rows per request, 3 requests at a time.
       const chunks = []; for (let i = 0; i < rows.length; i += 1000) chunks.push(rows.slice(i, i + 1000));
       let done = 0, next = 0;
-      const worker = async () => { while (next < chunks.length) { const c = chunks[next++]; check(await client.from(T(t)).upsert(c, { onConflict: UPSERT_KEYS[t] })); done += c.length; onProgress && onProgress(done, rows.length); } };
+      if (t === 'meta_days') metaDirty = true;
+      const worker = async () => { while (next < chunks.length) { const c = chunks[next++]; await retry(async () => check(await client.from(T(t)).upsert(c, { onConflict: UPSERT_KEYS[t] }))); done += c.length; onProgress && onProgress(done, rows.length); } };
       await Promise.all([worker(), worker(), worker()]);
     },
     // Remove saved rows where the ad didn't run (older imports kept them). Keeps loading fast.
-    async cleanMetaDays() { check(await client.from('meta_days').delete().eq('spend', 0).eq('purchases', 0).or('impressions.is.null,impressions.eq.0')); },
+    async cleanMetaDays() { metaDirty = true; check(await client.from('meta_days').delete().eq('spend', 0).eq('purchases', 0).or('impressions.is.null,impressions.eq.0')); },
     async saveStore(store) { check(await client.auth.updateUser({ data: { store_econ: store } })); },
     async syncShopify(days) {
       const { data, error } = await client.functions.invoke('shopify-sync', { body: days ? { days } : {} });

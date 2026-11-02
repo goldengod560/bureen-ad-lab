@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=122';
-import * as R from './rules.js?v=122';
-import { importHistory } from './importer.js?v=122';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=122';
+import { createBackend } from './data.js?v=123';
+import * as R from './rules.js?v=123';
+import { importHistory } from './importer.js?v=123';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=123';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1507,7 +1507,8 @@ function Today(ctx) {
     for (const ad of data.ads.filter((x) => x.product_id === p.id && x.stage === 'main')) {
       const h = mainHealth(ad, data, p);
       const fc = fatigueForecast(ad, data, p);
-      if (fc && fc.state === 'soon') { const bench = data.ads.filter((x) => x.product_id === p.id && x.stage === 'bench').length; items.push({ kind: 'heads', tone: 'amber', title: `${displayName(ad)}: about ${fc.lo}–${fc.hi} good days left`, sub: `${bench ? `${bench} backup${bench === 1 ? '' : 's'} on the Bench.` : 'No backup on the Bench: test a replacement now.'} Forecast from its falling 7-day ROAS; a guide, not a promise.`, tag: 'FORECAST', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) }); }
+      if (fc && fc.state === 'at') items.push({ kind: 'heads', tone: 'amber', title: `${displayName(ad)}: at break-even and falling`, sub: fc.text, tag: 'FORECAST', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) });
+      if (fc && fc.state === 'soon') { const bench = data.ads.filter((x) => x.product_id === p.id && x.stage === 'bench').length; items.push({ kind: 'heads', tone: 'amber', title: `${displayName(ad)}: about ${fc.lo}–${fc.hi} days until it drops under break-even`, sub: `${bench ? `${bench} backup${bench === 1 ? '' : 's'} on the Bench.` : 'No backup on the Bench: test a replacement now.'} Forecast from its falling 7-day ROAS; a guide, not a promise.`, tag: 'FORECAST', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) }); }
       if (h && h.creative === 'fatigue' && !(ad.tags || {}).fatiguing) items.push({ kind: 'heads', tone: 'amber', title: `${displayName(ad)}: possible fatigue`, sub: healthText(h).c, tag: 'CHECK', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) });
     }
   }
@@ -1943,11 +1944,12 @@ function fatigueForecast(ad, data, product) {
   const slope = pts.reduce((t, p) => t + (p[0] - mx) * (p[1] - my), 0) / (pts.reduce((t, p) => t + (p[0] - mx) ** 2, 0) || 1);
   const cur = pts[n - 1][1], rough = buys < 8 ? ' Rough: few purchases.' : '';
   if (cur < be * 0.95) return { state: 'below', cur, slope, text: `Under break-even now (${R.xroas(cur)} vs ${R.xroas(be)}).` };
+  if (cur < be * 1.03 && slope < -0.01) return { state: 'at', cur, slope, text: `At break-even and falling: its last 7 days are ${R.xroas(cur)} vs ${R.xroas(be)}. Have its replacement ready.` };
   if (slope >= -0.01) return { state: 'steady', cur, slope, text: `Holding steady at ${R.xroas(cur)}${slope > 0.01 ? ' and improving' : ''}. No end in sight yet.${rough}` };
   const days = (cur - be) / -slope;
   if (days > 30) return { state: 'steady', cur, slope, days, text: `Slowly easing (${R.xroas(cur)}), 30+ good days left at this pace.${rough}` };
   const lo = Math.max(1, Math.round(days * 0.7)), hi = Math.max(lo + 1, Math.round(days * 1.3));
-  return { state: days <= 7 ? 'soon' : 'fading', cur, slope, days, lo, hi, text: `About ${lo}–${hi} good days left: its 7-day ROAS (${R.xroas(cur)}) is falling ~${Math.abs(slope).toFixed(2)}x a day toward break-even (${R.xroas(be)}).${rough}` };
+  return { state: days <= 7 ? 'soon' : 'fading', cur, slope, days, lo, hi, text: `About ${lo}–${hi} days until it drops under break-even: its last 7 days are ${R.xroas(cur)} and falling ~${Math.abs(slope).toFixed(2)}x a day toward ${R.xroas(be)}.${rough}` };
 }
 const CREATIVE = { healthy: ['Healthy', 'pass'], cooling: ['Cooling off', 'muted'], fatigue: ['Possible fatigue', 'mid'], none: ['Not enough data', 'muted'] };
 const MONEY = { above: ['Above break-even', 'pass'], near: ['Near break-even', 'mid'], below: ['Below break-even', 'fail'], uncertain: ['Economics uncertain', 'muted'] };
@@ -2179,7 +2181,7 @@ function MainPlan({ data, product, setModal, reload, say }) {
     <div class="mp-tiles">
       <div class="mp-tile"><small>Main · last 7 days</small><b class=${p.nowB === 'above' ? 'good' : p.nowB === 'below' ? 'bad' : ''}>${R.xroas(p.cur.roas)}</b><span>${R.shortDate(p.w.a)} to ${R.shortDate(p.w.end)} · break-even ${R.xroas(p.be)}</span>
         <span>${p.thisWk && p.thisWk.spend ? html`This week so far <b class=${p.thisB === 'below' ? 'bad' : p.thisB ? 'good' : ''}>${R.xroas(p.thisWk.roas)}</b> · ` : ''}Last week (Mon–Sun) ${R.xroas(p.lastWk.roas)}${p.lastWk.to > p.w.end ? ` (files through ${R.shortDate(p.w.end)})` : ''}</span></div>
-      <div class="mp-tile"><small>Main ads</small>${p.ads.length ? p.ads.map((x) => html`<button class="link mp-ad" onClick=${() => open(x.ad)}><i class=${'dot ' + (x.band === 'above' ? 'good' : x.band === 'below' ? 'bad' : 'warn')}></i>${displayName(x.ad).replace(/^(IMG|VID|Image|Video)\s*[|–-]\s*/i, '').slice(0, 26)} <b>${R.xroas(x.roas)}</b></button>${(() => { const f = fatigueForecast(x.ad, data, product); return f && (f.state === 'soon' || f.state === 'fading') ? html`<span class="tiny" style=${'margin:-2px 0 2px 14px;white-space:normal;color:var(--' + (f.state === 'soon' ? 'fail' : 'mid') + ')'}>~${f.lo}–${f.hi} good days left</span>` : ''; })()}`) : html`<span>No spend this week</span>`}${p.market && html`<span>All fell together → likely Meta</span>`}</div>
+      <div class="mp-tile"><small>Main ads</small>${p.ads.length ? p.ads.map((x) => html`<button class="link mp-ad" onClick=${() => open(x.ad)}><i class=${'dot ' + (x.band === 'above' ? 'good' : x.band === 'below' ? 'bad' : 'warn')}></i>${displayName(x.ad).replace(/^(IMG|VID|Image|Video)\s*[|–-]\s*/i, '').slice(0, 26)} <b>${R.xroas(x.roas)}</b></button>${(() => { const f = fatigueForecast(x.ad, data, product); return f && (f.state === 'soon' || f.state === 'fading' || f.state === 'at') ? html`<span class="tiny" style=${'margin:-2px 0 2px 14px;white-space:normal;color:var(--' + (f.state === 'fading' ? 'mid' : 'fail') + ')'}>${f.state === 'at' ? 'at break-even, falling' : `~${f.lo}–${f.hi} days until under break-even`}</span>` : ''; })()}`) : html`<span>No spend this week</span>`}${p.market && html`<span>All fell together → likely Meta</span>`}</div>
       <div class="mp-tile"><small>Backup ready</small>${p.best ? html`<button class="link mp-ad" onClick=${() => open(p.best.a)}>${displayName(p.best.a).replace(/^(IMG|VID|Image|Video)\s*[|–-]\s*/i, '').replace(/\s*\|\s*\d{1,2}-\d{1,2}$/, '').slice(0, 26)} <b>${R.xroas(p.best.r && p.best.r.full.roas)}</b></button><span>${p.swapNow ? 'Swap it in now' : 'Swap only if next week is also bad'}</span>` : html`<b class="bad">None</b><span>Bench is empty</span>`}</div>
       <div class="mp-tile"><small>Testing</small><b>${p.used}/${p.slots}</b><span>${p.free ? `${p.free} free · Up Next ${p.next}${p.free > p.next ? ` · make ${p.free - p.next}` : ''}` : `in use${p.usedBy.length ? ': ' + p.usedBy.join(', ') : ''}`}${p.daysLeft >= 0 ? ` · Black Friday batch by ${R.shortDate(p.lastLaunch)}` : ''}</span></div>
     </div>
@@ -2199,7 +2201,7 @@ function HealthPanel({ ad, data, product }) {
     <div class="stack" style="gap:6px">
       <div class="small"><span class=${'chip t-' + CREATIVE[h.creative][1]}>Creative: ${CREATIVE[h.creative][0]}</span> ${t.c}</div>
       <div class="small"><span class=${'chip t-' + MONEY[h.money][1]}>${MONEY[h.money][0]}</span> ${t.m}</div>
-      ${ad.stage === 'main' && (() => { const f = fatigueForecast(ad, data, product); return f && html`<div class="small"><span class=${'chip t-' + (f.state === 'soon' || f.state === 'below' ? 'fail' : f.state === 'fading' ? 'mid' : f.state === 'steady' ? 'pass' : 'muted')}>Forecast</span> ${f.text}</div>`; })()}</div>`}
+      ${ad.stage === 'main' && (() => { const f = fatigueForecast(ad, data, product); return f && html`<div class="small"><span class=${'chip t-' + (f.state === 'soon' || f.state === 'below' || f.state === 'at' ? 'fail' : f.state === 'fading' ? 'mid' : f.state === 'steady' ? 'pass' : 'muted')}>Forecast</span> ${f.text}</div>`; })()}</div>`}
     ${fq.length > 0 && html`<div class="small"><b>Real frequency</b> <span class="muted">(from your whole-period exports)</span>
       ${fq.map(([n, l]) => html`<div class="tiny">${n}-day ${R.shortDate(l[0].from)} to ${R.shortDate(l[0].to)}: <b>${l[0].frequency.toFixed(2)}</b>${l[1] ? ` · previous ${n}-day (${R.shortDate(l[1].from)} to ${R.shortDate(l[1].to)}): ${l[1].frequency.toFixed(2)}` : ''}</div>`)}
       <div class="tiny muted">Context only. Frequency never decides fatigue on its own.</div></div>`}
