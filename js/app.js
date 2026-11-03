@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=140';
-import * as R from './rules.js?v=140';
-import { importHistory } from './importer.js?v=140';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=140';
+import { createBackend } from './data.js?v=141';
+import * as R from './rules.js?v=141';
+import { importHistory } from './importer.js?v=141';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=141';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2415,7 +2415,9 @@ function periodTotals(data, start, end, econ) {
   // Store-wide: product cost from the store's cost % (or Crew's ratio until it's entered), plus per-order costs.
   const st = R.storeEcon(), sb = R.storeBE(econ);
   const perOrder = (R.num(st.ship) || 0) + (R.num(st.pack) || 0) + (R.num(st.feeFixed) || 0) + (R.num(st.other) || 0);
-  const profit = shopB.length && !sb.missing ? revB * (1 - sb.pct / 100 - (R.num(st.feePct) || 0) / 100) - ordB * perOrder - mBoth.spend : null;
+  // Apps and subscriptions: the monthly total, spread over the days counted.
+  const appsCost = (R.num(st.fixedMonthly) || 0) * new Set(shopB.map((d) => d.day)).size / 30.4;
+  const profit = shopB.length && !sb.missing ? revB * (1 - sb.pct / 100 - (R.num(st.feePct) || 0) / 100) - ordB * perOrder - mBoth.spend - appsCost : null;
   const shopDays = shopSet.size, days = R.daysBetween(start, end) + 1;
   const shopFrom = shop.length ? shop.reduce((a, d) => (d.day < a ? d.day : a), shop[0].day) : null;
   return { revenue, orders, units, spend: m.spend, metaRev: m.revenue, metaBuys: m.purchases, mer: mBoth.spend && shopB.length ? revB / mBoth.spend : null, roas: m.roas,
@@ -2467,7 +2469,7 @@ function Stats(ctx) {
       <div class="tile"><div class="k">Revenue</div><div class="v">${cur.hasShop ? R.money0(cur.revenue) : '—'}</div><div class="s">${cur.partial ? html`<span class="warnt">Shopify only has ${cur.shopDays} of these ${cur.days} days (from ${R.shortDate(cur.shopFrom)})</span>` : html`<${Delta} now=${cur.revenue} prev=${prev.partial || !prev.hasShop ? null : prev.revenue} /> vs prior ${n} days`}</div></div>
       <div class="tile"><div class="k">Ad spend</div><div class="v">${cur.hasMeta ? R.money0(cur.spend) : '—'}</div><div class="s"><${Delta} now=${cur.spend} prev=${prev.spend} good="flat" /> Meta</div></div>
       <div class=${'tile ' + (cur.mer != null && cur.mer < (bev.roas || 0) ? 'warn' : '')}><div class="k">MER (blended ROAS)</div><div class="v">${R.xroas(cur.mer)}</div><div class="s">Store break-even ${R.xroas(bev.roas)}${bev.estimated ? ' (est.)' : ''} · <${Delta} now=${cur.mer} prev=${prev.mer} /></div></div>
-      <div class="tile"><div class="k">Profit (est.)</div><div class="v">${cur.profit == null ? '—' : R.money0(cur.profit)}</div><div class="s">After product, postage, fees and ads${cur.partial ? ` · ${cur.shopDays} days with Shopify data` : ''}${bev.estimated ? ' · uses Crew\'s cost ratio' : ''}</div></div>
+      <div class="tile"><div class="k">Profit (est.)</div><div class="v">${cur.profit == null ? '—' : R.money0(cur.profit)}</div><div class="s">After product, postage, fees, ads and apps${cur.partial ? ` · ${cur.shopDays} days with Shopify data` : ''}${bev.estimated ? ' · uses Crew\'s cost ratio' : ''}</div></div>
       <div class="tile"><div class="k">Orders · AOV</div><div class="v">${cur.hasShop ? cur.orders : '—'} <small>· ${R.money(cur.aov)}</small></div><div class="s"><${Delta} now=${cur.orders} prev=${prev.orders} /> orders</div></div>
       <div class="tile"><div class="k">Meta ROAS · CPA</div><div class="v">${R.xroas(cur.roas)} <small>· ${R.money(cur.cpa)}</small></div><div class="s">${Math.round(cur.metaBuys)} Meta-reported buys</div></div>
     </section>
