@@ -34,16 +34,20 @@ async function gql(shop: string, token: string, query: string, variables: Record
   return j.data;
 }
 
+// Counted the way Shopify's Analytics page counts:
+// a sale lands on the day the order was placed (processedAt), cancelled orders included;
+// a refund or cancellation lands on the day it happened (not the order's day).
 const ORDERS = `query($q: String!, $after: String) {
-  orders(first: 250, after: $after, query: $q, sortKey: CREATED_AT) {
+  orders(first: 100, after: $after, query: $q, sortKey: UPDATED_AT) {
     pageInfo { hasNextPage endCursor }
     nodes {
-      createdAt test cancelledAt
+      processedAt test cancelledAt
       totalPriceSet { shopMoney { amount } }
-      totalRefundedSet { shopMoney { amount } }
       totalDiscountsSet { shopMoney { amount } }
       totalTaxSet { shopMoney { amount } }
+      totalRefundedSet { shopMoney { amount } }
       currentSubtotalLineItemsQuantity
+      refunds(first: 10) { createdAt totalRefundedSet { shopMoney { amount } } }
     }
   }
 }`;
@@ -64,38 +68,45 @@ Deno.serve(async (req) => {
     const token = await shopToken(shop);
     const tz = (await gql(shop, token, '{ shop { ianaTimezone } }', {})).shop.ianaTimezone || 'America/Chicago';
 
-    // Re-pull the last few days every time (refunds land late); first run goes back as far as Shopify allows (about 60 days).
+    // Re-pull the last few days every time; the Sync button and the first run go back as far as Shopify allows (about 60 days).
     const { data: last } = await sb.from('shop_days').select('day').order('day', { ascending: false }).limit(1);
-    const days = Math.min(Number(body.days) || (last && last.length ? 4 : 60), 60);
+    const days = Math.min(Number(body.days) || (last && last.length ? 4 : 58), 58);
     const since = new Date(Date.now() - days * 864e5).toISOString();
 
     const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' });
-    const agg = new Map<string, { day: string; orders: number; gross: number; refunds: number; discounts: number; tax: number; units: number }>();
+    const firstDay = fmt.format(new Date(since));
+    // Ask Shopify from a day and a half earlier so the first day is whole (only days from firstDay on are written).
+    const qSince = new Date(new Date(since).getTime() - 1.5 * 864e5).toISOString();
+    const blank = (day: string) => ({ day, orders: 0, gross: 0, refunds: 0, discounts: 0, tax: 0, units: 0 });
+    const agg = new Map<string, ReturnType<typeof blank>>();
+    const at = (iso: string) => { const day = fmt.format(new Date(iso)); if (day < firstDay) return null; if (!agg.has(day)) agg.set(day, blank(day)); return agg.get(day)!; };
+    const num = (m: { shopMoney?: { amount?: string } } | null | undefined) => Number(m?.shopMoney?.amount) || 0;
     let after: string | null = null, n = 0;
     do {
-      const d = await gql(shop, token, ORDERS, { q: `created_at:>='${since}'`, after });
+      // Orders placed in the window, plus older orders refunded or cancelled in it.
+      const d = await gql(shop, token, ORDERS, { q: `updated_at:>='${qSince}' OR processed_at:>='${qSince}'`, after });
       for (const o of d.orders.nodes) {
-        if (o.test || o.cancelledAt) continue;
-        const day = fmt.format(new Date(o.createdAt));
-        const a = agg.get(day) ?? { day, orders: 0, gross: 0, refunds: 0, discounts: 0, tax: 0, units: 0 };
-        a.orders += 1;
-        a.gross += Number(o.totalPriceSet.shopMoney.amount) || 0;
-        a.refunds += Number(o.totalRefundedSet.shopMoney.amount) || 0;
-        a.discounts += Number(o.totalDiscountsSet.shopMoney.amount) || 0;
-        a.tax += Number(o.totalTaxSet?.shopMoney?.amount) || 0;
-        a.units += Number(o.currentSubtotalLineItemsQuantity) || 0;
-        agg.set(day, a); n++;
+        if (o.test) continue;
+        const total = num(o.totalPriceSet), tax = num(o.totalTaxSet), taxShare = total > 0 ? tax / total : 0;
+        const sale = at(o.processedAt);
+        if (sale) { sale.orders += 1; sale.gross += total; sale.discounts += num(o.totalDiscountsSet); sale.tax += tax; sale.units += Number(o.currentSubtotalLineItemsQuantity) || 0; n++; }
+        let refunded = 0;
+        for (const r of o.refunds ?? []) {
+          const amt = num(r.totalRefundedSet); refunded += amt;
+          const day = at(r.createdAt); if (day) { day.refunds += amt; day.tax -= amt * taxShare; }
+        }
+        // A cancelled order that wasn't refunded in full: Shopify reverses the rest on the cancel day.
+        if (o.cancelledAt && total - refunded > 0.005) { const day = at(o.cancelledAt); if (day) { day.refunds += total - refunded; day.tax -= (total - refunded) * taxShare; } }
       }
       after = d.orders.pageInfo.hasNextPage ? d.orders.pageInfo.endCursor : null;
     } while (after);
 
     // Days with no orders still count as 0.
-    const firstDay = fmt.format(new Date(since));
+    const r2 = (v: number) => Math.round(v * 100) / 100;
     const rows = [];
     for (let t = new Date(firstDay + 'T12:00:00Z'); fmt.format(t) <= fmt.format(new Date()); t = new Date(t.getTime() + 864e5)) {
-      const day = fmt.format(t);
-      const a = agg.get(day) ?? { day, orders: 0, gross: 0, refunds: 0, discounts: 0, tax: 0, units: 0 };
-      rows.push({ ...a, gross: Math.round(a.gross * 100) / 100, refunds: Math.round(a.refunds * 100) / 100, discounts: Math.round(a.discounts * 100) / 100, tax: Math.round(a.tax * 100) / 100, synced_at: new Date().toISOString() });
+      const a = agg.get(fmt.format(t)) ?? blank(fmt.format(t));
+      rows.push({ ...a, gross: r2(a.gross), refunds: r2(a.refunds), discounts: r2(a.discounts), tax: r2(a.tax), synced_at: new Date().toISOString() });
     }
     const { error } = await sb.from('shop_days').upsert(rows, { onConflict: 'day' });
     if (error) throw new Error(error.message);

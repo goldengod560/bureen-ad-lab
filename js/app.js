@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=143';
-import * as R from './rules.js?v=143';
-import { importHistory } from './importer.js?v=143';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=143';
+import { createBackend } from './data.js?v=144';
+import * as R from './rules.js?v=144';
+import { importHistory } from './importer.js?v=144';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=144';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2353,7 +2353,7 @@ function ShopSync({ data, reload, say }) {
   const last = data.shop_days.reduce((m, r) => (String(r.synced_at) > m ? String(r.synced_at) : m), '');
   const go = async () => {
     setSt({ msg: 'Pulling orders from Shopify…' });
-    try { const r = await be.syncShopify(); await reload(); setSt({ ok: true, msg: `Synced ${r.orders} orders over ${r.days} days.` }); say('Shopify synced'); }
+    try { const r = await be.syncShopify(58); await reload(); setSt({ ok: true, msg: `Synced ${r.orders} orders over ${r.days} days.` }); say('Shopify synced'); }
     catch (e) { setSt({ err: true, msg: e.message }); }
   };
   return html`<div class="drop compact">
