@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=141';
-import * as R from './rules.js?v=141';
-import { importHistory } from './importer.js?v=141';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=141';
+import { createBackend } from './data.js?v=142';
+import * as R from './rules.js?v=142';
+import { importHistory } from './importer.js?v=142';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=142';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2461,7 +2461,7 @@ function Stats(ctx) {
   const shown = all ? adRows : adRows.slice(0, 10);
   const noData = !data.shop_days.length && !data.meta_days.length;
   return html`
-    <div class="row"><h1 style="font-size:30px">Stats</h1><span class="spacer"></span>
+    <div class="row"><h1 style="font-size:30px">Stats</h1><span class="small muted">${(() => { const f = (d) => MON_LONG[+d.slice(5, 7) - 1].slice(0, 3) + ' ' + +d.slice(8); return `${f(start)} to ${f(end)} (${n} days, today included)`; })()}</span><span class="spacer"></span>
       <div class="seg wide" role="group" aria-label="Date range">${RANGES.map(([k, l]) => html`<button class=${rk === k ? 'on' : ''} onClick=${() => setRk(k)}>${l}</button>`)}</div></div>
     <div class="grid2"><${ShopSync} ...${ctx} /><${MetaDrop} ...${ctx} /></div>
     ${noData ? html`<div class="empty">No numbers yet. Connect Shopify and add your first Ads Manager file to see stats.</div>` : html`
