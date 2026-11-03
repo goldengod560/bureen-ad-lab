@@ -405,3 +405,4 @@ table.stats tr.click{cursor:pointer} table.stats tr.click:hover td{background:va
 span.good,b.good,td.good{color:var(--pass)} span.bad,b.bad,td.bad{color:var(--fail)}
 .grid2>*{min-width:0}
 .chart{min-width:0;overflow-x:clip}
+.tile .s .warnt{color:var(--warn,#FFB547)}
