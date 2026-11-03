@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=142';
-import * as R from './rules.js?v=142';
-import { importHistory } from './importer.js?v=142';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=142';
+import { createBackend } from './data.js?v=143';
+import * as R from './rules.js?v=143';
+import { importHistory } from './importer.js?v=143';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=143';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2391,11 +2391,16 @@ function LineChart({ labels, series, fmt, refLine, height = 190, cap, marks }) {
   </div>`;
 }
 
-const RANGES = [['7', 'Last 7 days'], ['14', '14 days'], ['30', '30 days'], ['90', '90 days'], ['mtd', 'This month']];
-function rangeDays(key) {
-  const end = R.today();
-  if (key === 'mtd') { const start = end.slice(0, 8) + '01'; return { start, end, n: R.daysBetween(start, end) + 1 }; }
-  const n = +key; return { start: R.addDays(end, -(n - 1)), end, n };
+const RANGES = [['today', 'Today'], ['yday', 'Yesterday'], ['7', '7 days'], ['30', '30 days'], ['90', '90 days'], ['mtd', 'This month'], ['lm', 'Last month'], ['custom', 'Custom']];
+// Every range runs from start to end, both days included.
+function rangeDays(key, custom) {
+  const end = R.today(), mk = (start, e = end) => ({ start, end: e, n: R.daysBetween(start, e) + 1 });
+  if (key === 'today') return mk(end);
+  if (key === 'yday') { const y = R.addDays(end, -1); return mk(y, y); }
+  if (key === 'mtd') return mk(end.slice(0, 8) + '01');
+  if (key === 'lm') { const last = R.addDays(end.slice(0, 8) + '01', -1); return mk(last.slice(0, 8) + '01', last); }
+  if (key === 'custom' && custom && custom.from && custom.to) { const a = custom.from <= custom.to ? custom.from : custom.to, b = custom.from <= custom.to ? custom.to : custom.from; return mk(a, b > end ? end : b); }
+  const n = +key || 7; return mk(R.addDays(end, -(n - 1)));
 }
 function periodTotals(data, start, end, econ) {
   const shop = data.shop_days.filter((d) => d.day >= start && d.day <= end);
@@ -2437,9 +2442,11 @@ function Stats(ctx) {
   const [tab, setTab] = useState('ads');
   const [all, setAll] = useState(false);
   useEffect(() => { try { localStorage.setItem('adlab-range', rk); } catch (e) {} }, [rk]);
+  const [cr, setCr] = useState(() => { try { return JSON.parse(localStorage.getItem('adlab-range-custom')) || { from: R.addDays(R.today(), -29), to: R.today() }; } catch (e) { return { from: R.addDays(R.today(), -29), to: R.today() }; } });
+  useEffect(() => { try { localStorage.setItem('adlab-range-custom', JSON.stringify(cr)); } catch (e) {} }, [cr]);
   const crewE = R.econOf(data.products.find((p) => p.kind === 'crew'));
   const econ = crewE, bev = R.storeBE(crewE);
-  const { start, end, n } = rangeDays(rk);
+  const { start, end, n } = rangeDays(rk, cr);
   const pStart = R.addDays(start, -n), pEnd = R.addDays(start, -1);
   const cur = periodTotals(data, start, end, econ), prev = periodTotals(data, pStart, pEnd, econ);
   const labels = Array.from({ length: n }, (_, i) => R.addDays(start, i));
@@ -2461,12 +2468,13 @@ function Stats(ctx) {
   const shown = all ? adRows : adRows.slice(0, 10);
   const noData = !data.shop_days.length && !data.meta_days.length;
   return html`
-    <div class="row"><h1 style="font-size:30px">Stats</h1><span class="small muted">${(() => { const f = (d) => MON_LONG[+d.slice(5, 7) - 1].slice(0, 3) + ' ' + +d.slice(8); return `${f(start)} to ${f(end)} (${n} days, today included)`; })()}</span><span class="spacer"></span>
+    <div class="row"><h1 style="font-size:30px">Stats</h1><span class="small muted">${(() => { const f = (d) => MON_LONG[+d.slice(5, 7) - 1].slice(0, 3) + ' ' + +d.slice(8); return start === end ? `${f(start)}${end === R.today() ? ' (today)' : ''}` : `${f(start)} to ${f(end)} (${n} days${end === R.today() ? ', today included' : ''})`; })()}</span><span class="spacer"></span>
       <div class="seg wide" role="group" aria-label="Date range">${RANGES.map(([k, l]) => html`<button class=${rk === k ? 'on' : ''} onClick=${() => setRk(k)}>${l}</button>`)}</div></div>
+    ${rk === 'custom' && html`<div class="row" style="gap:8px;flex-wrap:wrap;align-items:center"><span class="small muted">From</span><input type="date" class="inp" style="max-width:170px" max=${R.today()} value=${cr.from} onInput=${(e) => e.target.value && setCr({ ...cr, from: e.target.value })} /><span class="small muted">to</span><input type="date" class="inp" style="max-width:170px" max=${R.today()} value=${cr.to} onInput=${(e) => e.target.value && setCr({ ...cr, to: e.target.value })} /><span class="tiny muted">Both days included. Compared with the same number of days right before.</span></div>`}
     <div class="grid2"><${ShopSync} ...${ctx} /><${MetaDrop} ...${ctx} /></div>
     ${noData ? html`<div class="empty">No numbers yet. Connect Shopify and add your first Ads Manager file to see stats.</div>` : html`
     <section class="tiles k6">
-      <div class="tile"><div class="k">Revenue</div><div class="v">${cur.hasShop ? R.money0(cur.revenue) : '—'}</div><div class="s">${cur.partial ? html`<span class="warnt">Shopify only has ${cur.shopDays} of these ${cur.days} days (from ${R.shortDate(cur.shopFrom)})</span>` : html`<${Delta} now=${cur.revenue} prev=${prev.partial || !prev.hasShop ? null : prev.revenue} /> vs prior ${n} days`}</div></div>
+      <div class="tile"><div class="k" title="Shopify's Total sales minus taxes: product sales after discounts and refunds, plus shipping charges and return fees.">Sales (no tax)</div><div class="v">${cur.hasShop ? R.money0(cur.revenue) : '—'}</div><div class="s">${cur.partial ? html`<span class="warnt">Shopify only has ${cur.shopDays} of these ${cur.days} days (from ${R.shortDate(cur.shopFrom)})</span>` : html`<${Delta} now=${cur.revenue} prev=${prev.partial || !prev.hasShop ? null : prev.revenue} /> vs prior ${n} days`}</div></div>
       <div class="tile"><div class="k">Ad spend</div><div class="v">${cur.hasMeta ? R.money0(cur.spend) : '—'}</div><div class="s"><${Delta} now=${cur.spend} prev=${prev.spend} good="flat" /> Meta</div></div>
       <div class=${'tile ' + (cur.mer != null && cur.mer < (bev.roas || 0) ? 'warn' : '')}><div class="k">MER (blended ROAS)</div><div class="v">${R.xroas(cur.mer)}</div><div class="s">Store break-even ${R.xroas(bev.roas)}${bev.estimated ? ' (est.)' : ''} · <${Delta} now=${cur.mer} prev=${prev.mer} /></div></div>
       <div class="tile"><div class="k">Profit (est.)</div><div class="v">${cur.profit == null ? '—' : R.money0(cur.profit)}</div><div class="s">After product, postage, fees, ads and apps${cur.partial ? ` · ${cur.shopDays} days with Shopify data` : ''}${bev.estimated ? ' · uses Crew\'s cost ratio' : ''}</div></div>
@@ -2474,7 +2482,7 @@ function Stats(ctx) {
       <div class="tile"><div class="k">Meta ROAS · CPA</div><div class="v">${R.xroas(cur.roas)} <small>· ${R.money(cur.cpa)}</small></div><div class="s">${Math.round(cur.metaBuys)} Meta-reported buys</div></div>
     </section>
     <div class="grid2">
-      <section class="panel"><h2>Revenue and ad spend</h2><${LineChart} labels=${labels} marks=${labels.map((d) => marksOn(calendarOf(data), d))} fmt=${(v, ax) => (ax ? '$' + Math.round(v) : R.money0(v))} series=${[{ name: 'Revenue (Shopify)', color: '#3D8BFF', values: revS }, { name: 'Ad spend (Meta)', color: '#C2669E', values: spS }]} /></section>
+      <section class="panel"><h2>Sales and ad spend</h2><${LineChart} labels=${labels} marks=${labels.map((d) => marksOn(calendarOf(data), d))} fmt=${(v, ax) => (ax ? '$' + Math.round(v) : R.money0(v))} series=${[{ name: 'Sales, no tax (Shopify)', color: '#3D8BFF', values: revS }, { name: 'Ad spend (Meta)', color: '#C2669E', values: spS }]} /></section>
       <section class="panel"><h2>MER by day</h2><${LineChart} labels=${labels} marks=${labels.map((d) => marksOn(calendarOf(data), d))} fmt=${(v) => v.toFixed(2) + 'x'} refLine=${bev.roas ? { value: bev.roas, label: 'Store break-even ' + R.xroas(bev.roas) + (bev.estimated ? ' (est.)' : '') } : null} series=${[{ name: 'MER', color: '#3D8BFF', values: merS }]} /></section>
     </div>
     <section class="panel">
