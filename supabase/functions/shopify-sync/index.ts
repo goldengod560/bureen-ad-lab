@@ -42,6 +42,7 @@ const ORDERS = `query($q: String!, $after: String) {
       totalPriceSet { shopMoney { amount } }
       totalRefundedSet { shopMoney { amount } }
       totalDiscountsSet { shopMoney { amount } }
+      totalTaxSet { shopMoney { amount } }
       currentSubtotalLineItemsQuantity
     }
   }
@@ -69,18 +70,19 @@ Deno.serve(async (req) => {
     const since = new Date(Date.now() - days * 864e5).toISOString();
 
     const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' });
-    const agg = new Map<string, { day: string; orders: number; gross: number; refunds: number; discounts: number; units: number }>();
+    const agg = new Map<string, { day: string; orders: number; gross: number; refunds: number; discounts: number; tax: number; units: number }>();
     let after: string | null = null, n = 0;
     do {
       const d = await gql(shop, token, ORDERS, { q: `created_at:>='${since}'`, after });
       for (const o of d.orders.nodes) {
         if (o.test || o.cancelledAt) continue;
         const day = fmt.format(new Date(o.createdAt));
-        const a = agg.get(day) ?? { day, orders: 0, gross: 0, refunds: 0, discounts: 0, units: 0 };
+        const a = agg.get(day) ?? { day, orders: 0, gross: 0, refunds: 0, discounts: 0, tax: 0, units: 0 };
         a.orders += 1;
         a.gross += Number(o.totalPriceSet.shopMoney.amount) || 0;
         a.refunds += Number(o.totalRefundedSet.shopMoney.amount) || 0;
         a.discounts += Number(o.totalDiscountsSet.shopMoney.amount) || 0;
+        a.tax += Number(o.totalTaxSet?.shopMoney?.amount) || 0;
         a.units += Number(o.currentSubtotalLineItemsQuantity) || 0;
         agg.set(day, a); n++;
       }
@@ -92,8 +94,8 @@ Deno.serve(async (req) => {
     const rows = [];
     for (let t = new Date(firstDay + 'T12:00:00Z'); fmt.format(t) <= fmt.format(new Date()); t = new Date(t.getTime() + 864e5)) {
       const day = fmt.format(t);
-      const a = agg.get(day) ?? { day, orders: 0, gross: 0, refunds: 0, discounts: 0, units: 0 };
-      rows.push({ ...a, gross: Math.round(a.gross * 100) / 100, refunds: Math.round(a.refunds * 100) / 100, discounts: Math.round(a.discounts * 100) / 100, synced_at: new Date().toISOString() });
+      const a = agg.get(day) ?? { day, orders: 0, gross: 0, refunds: 0, discounts: 0, tax: 0, units: 0 };
+      rows.push({ ...a, gross: Math.round(a.gross * 100) / 100, refunds: Math.round(a.refunds * 100) / 100, discounts: Math.round(a.discounts * 100) / 100, tax: Math.round(a.tax * 100) / 100, synced_at: new Date().toISOString() });
     }
     const { error } = await sb.from('shop_days').upsert(rows, { onConflict: 'day' });
     if (error) throw new Error(error.message);

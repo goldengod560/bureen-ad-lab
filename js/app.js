@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=138';
-import * as R from './rules.js?v=138';
-import { importHistory } from './importer.js?v=138';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=138';
+import { createBackend } from './data.js?v=139';
+import * as R from './rules.js?v=139';
+import { importHistory } from './importer.js?v=139';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=139';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2400,7 +2400,8 @@ function rangeDays(key) {
 function periodTotals(data, start, end, econ) {
   const shop = data.shop_days.filter((d) => d.day >= start && d.day <= end);
   const meta = data.meta_days.filter((d) => d.day >= start && d.day <= end);
-  const revenue = shop.reduce((s, d) => s + (+d.gross || 0) - (+d.refunds || 0), 0);
+  // Sales after refunds, without sales tax (tax collected isn't your money).
+  const revenue = shop.reduce((s, d) => s + (+d.gross || 0) - (+d.refunds || 0) - (+d.tax || 0), 0);
   const orders = shop.reduce((s, d) => s + (+d.orders || 0), 0), units = shop.reduce((s, d) => s + (+d.units || 0), 0);
   const m = sumRows(meta);
   // Store-wide: product cost from the store's cost % (or Crew's ratio until it's entered), plus per-order costs.
@@ -2431,7 +2432,7 @@ function Stats(ctx) {
   const labels = Array.from({ length: n }, (_, i) => R.addDays(start, i));
   const byDayShop = new Map(data.shop_days.map((d) => [d.day, d]));
   const metaByDay = new Map(); data.meta_days.forEach((r) => { if (r.day >= start && r.day <= end) metaByDay.set(r.day, (metaByDay.get(r.day) || 0) + (+r.spend || 0)); });
-  const revS = labels.map((d) => (byDayShop.has(d) ? (+byDayShop.get(d).gross || 0) - (+byDayShop.get(d).refunds || 0) : null));
+  const revS = labels.map((d) => (byDayShop.has(d) ? (+byDayShop.get(d).gross || 0) - (+byDayShop.get(d).refunds || 0) - (+byDayShop.get(d).tax || 0) : null));
   const spS = labels.map((d) => (metaByDay.has(d) ? metaByDay.get(d) : null));
   const merS = labels.map((d, i) => (revS[i] != null && spS[i] ? revS[i] / spS[i] : null));
   // per-ad rows

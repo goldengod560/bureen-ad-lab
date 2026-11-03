@@ -116,10 +116,13 @@ create table if not exists shop_days (
   gross        numeric not null default 0,   -- total sales incl. shipping and tax, after discounts
   refunds      numeric not null default 0,
   discounts    numeric not null default 0,
+  tax          numeric not null default 0,   -- sales tax collected (not your money)
   units        int not null default 0,
   synced_at    timestamptz not null default now(),
   created_at   timestamptz not null default now()
 );
+
+alter table shop_days add column if not exists tax numeric not null default 0;
 
 -- Change log: site, stock, offer, tracking, Meta changes
 create table if not exists events (
