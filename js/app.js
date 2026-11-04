@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=144';
-import * as R from './rules.js?v=144';
-import { importHistory } from './importer.js?v=144';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=144';
+import { createBackend } from './data.js?v=145';
+import * as R from './rules.js?v=145';
+import { importHistory } from './importer.js?v=145';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=145';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -151,7 +151,7 @@ function App() {
 
   const activeStage1 = { length: testingCount(data) };
   const rules0 = R.rulesOf(product);
-  const NAV = [['today', 'Today'], ['board', 'Board'], ['archive', 'Archive'], ['goal', 'Goal'], ['stats', 'Stats'], ['angles', 'Angles'], ['rules', 'Rules'], ['learn', 'Learnings'], ['more', 'More']];
+  const NAV = [['today', 'Overview'], ['board', 'Board'], ['archive', 'Archive'], ['goal', 'Goal'], ['stats', 'Stats'], ['angles', 'Angles'], ['rules', 'Rules'], ['learn', 'Learnings'], ['more', 'More']];
 
   return html`
     <header class="top">
@@ -178,7 +178,7 @@ function App() {
       ${view === 'goal' && html`<${Goal} ...${ctx} setPid=${setPid} />`}
       ${view === 'more' && html`<${More} ...${ctx} />`}
     </main>
-    <nav class="bnav" aria-label="Main">${[['today', 'Today'], ['board', 'Board'], ['archive', 'Archive'], ['goal', 'Goal'], ['stats', 'Stats'], ['more', 'More']].map(([k, l]) => html`<button class=${view === k || (k === 'more' && (view === 'learn' || view === 'rules' || view === 'angles')) ? 'on' : ''} onClick=${() => setView(k)}>${l}</button>`)}</nav>
+    <nav class="bnav" aria-label="Main">${[['today', 'Overview'], ['board', 'Board'], ['archive', 'Archive'], ['goal', 'Goal'], ['stats', 'Stats'], ['more', 'More']].map(([k, l]) => html`<button class=${view === k || (k === 'more' && (view === 'learn' || view === 'rules' || view === 'angles')) ? 'on' : ''} onClick=${() => setView(k)}>${l}</button>`)}</nav>
     ${modal && html`<${modal.type} ...${ctx} ...${modal.props} close=${() => setModal(null)} />`}
     <${Lightbox} item=${lightbox} onClose=${() => setLightbox(null)} />
     <${Toast} msg=${toast} />`;
@@ -1529,7 +1529,7 @@ function Today(ctx) {
   const row = (list) => html`<div class="list">${list.map((it) => html`<button class="li" style="background:none;border-left:0;border-right:0;border-bottom:0;color:inherit;text-align:left;cursor:pointer;width:100%" onClick=${it.go}><span class=${'bar ' + it.tone}></span><span class="grow"><b>${it.title}</b><br/><span class="small muted">${it.sub}</span></span><span class="mono tiny" style="color:var(--accent2)">${it.tag}</span></button>`)}</div>`;
   const live1 = (t) => { const ad = data.ads.find((a) => a.id === t.ad_id), p = products.find((x) => x.id === t.product_id); if (!ad || !p || t.stage !== 1) return null; const st = R.testStatus(t, data.checkpoints.filter((c) => c.test_id === t.id), R.rulesOf(p), R.econOf(p).aov, liveFor(t, ad, data)); return st.m ? ` · ${R.xroas(st.m.roas)} · ${st.m.purchases} buy${st.m.purchases === 1 ? '' : 's'} on ${R.money0(st.m.spend)}` : ''; };
   return html`
-    <div class="row"><div class="stack" style="gap:0"><span class="small" style="color:var(--accent2);letter-spacing:.16em;font-weight:600">${new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }).toUpperCase()}</span><h1 style="font-size:34px">Today</h1></div></div>
+    <div class="row"><div class="stack" style="gap:0"><span class="small" style="color:var(--accent2);letter-spacing:.16em;font-weight:600">${new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }).toUpperCase()}</span><h1 style="font-size:34px">Overview</h1></div></div>
     <${MetaDrop} ...${ctx} />
     <section class="panel"><h2>To do today</h2>
       ${todo.length ? row(todo) : html`<div class="empty">Nothing to do today.</div>`}
@@ -2150,7 +2150,7 @@ function mainPlan(data, product) {
   const scaleChecks = [
     [nowB === 'above', `Last 7 days above break-even (${R.xroas(cur.roas)} vs ${R.xroas(be)})`, true],
     [l3.spend > 0 && l3.roas >= be, `Last 3 days holding above break-even (${R.xroas(l3.roas)})`, true],
-    [!alarms.length, alarms.length ? 'A spend alarm is open (see Today)' : 'No spend alarms', true],
+    [!alarms.length, alarms.length ? 'A spend alarm is open (see Overview)' : 'No spend alarms', true],
     [sinceRaise == null || sinceRaise >= bw, sinceRaise == null ? 'No budget change logged yet' : sinceRaise >= bw ? `Last budget change ${sinceRaise} days ago` : `Budget changed ${ago(sinceRaise)} (wait at least ${bw} days between changes: ${bw - sinceRaise} more)`, true],
     [sinceAdd == null || sinceAdd >= aw, sinceAdd == null ? 'No ad added to Main recently' : sinceAdd >= aw ? `Last ad added to Main ${sinceAdd} days ago` : `Ad added to Main ${ago(sinceAdd)} (let it settle at least ${aw} days: ${aw - sinceAdd} more)`, true],
     [!R.isWeekendLock(), R.isWeekendLock() ? 'Weekend lock (your rule: no budget changes Fri night to Sun)' : 'Not the weekend lock', true],
