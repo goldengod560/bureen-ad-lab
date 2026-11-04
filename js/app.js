@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=145';
-import * as R from './rules.js?v=145';
-import { importHistory } from './importer.js?v=145';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=145';
+import { createBackend } from './data.js?v=146';
+import * as R from './rules.js?v=146';
+import { importHistory } from './importer.js?v=146';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=146';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1482,16 +1482,16 @@ function Today(ctx) {
   for (const t of data.tests.filter((x) => x.status === 'active')) {
     const ad = data.ads.find((a) => a.id === t.ad_id); const p = products.find((x) => x.id === t.product_id); if (!ad || !p) continue;
     const rules = R.rulesOf(p);
-    if (t.stage === 2) { const d = R.daysBetween(t.start_date, R.today()); if (d >= rules.stage2Min) items.push({ kind: 'todo', tone: 'blue', title: `Judge in Main: ${ad.base_name}`, sub: `${d} days in Main · ${p.name}`, tag: 'RECORD', go: () => setModal({ type: MainForm, props: { adId: ad.id, mode: 'record', testId: t.id } }) }); continue; }
+    if (t.stage === 2) { const d = R.daysBetween(t.start_date, R.today()); if (d >= rules.stage2Min) items.push({ ad, kind: 'todo', tone: 'blue', title: `Judge in Main: ${ad.base_name}`, sub: `${d} days in Main · ${p.name}`, tag: 'RECORD', go: () => setModal({ type: MainForm, props: { adId: ad.id, mode: 'record', testId: t.id } }) }); continue; }
     const st = R.testStatus(t, data.checkpoints.filter((c) => c.test_id === t.id), rules, R.econOf(p).aov, liveFor(t, ad, data));
-    if (st.early) items.push({ kind: 'todo', tone: 'red', title: `Pause or keep running? ${displayName(ad)}`, sub: st.text, tag: 'DECIDE', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) });
-    if (st.final) items.push({ kind: 'todo', tone: 'blue', title: `Finalize: ${displayName(ad)}`, sub: `${p.name} · the 7 days are done. Record the result when you turn it off.`, tag: 'FINALIZE', go: () => setModal({ type: FinalizeForm, props: { testId: t.id } }) });
-    else if (st.due.length) items.push({ kind: 'todo', tone: 'amber', title: `Day ${st.due[st.due.length - 1]} results: ${displayName(ad)}`, sub: `${p.name} · add an Ads Manager file that covers day ${st.due[st.due.length - 1]}, or type the numbers.`, tag: 'RESULTS', go: () => setModal({ type: CheckinForm, props: { testId: t.id } }) });
+    if (st.early) items.push({ ad, kind: 'todo', tone: 'red', title: `Pause or keep running? ${displayName(ad)}`, sub: st.text, tag: 'DECIDE', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) });
+    if (st.final) items.push({ ad, kind: 'todo', tone: 'blue', title: `Finalize: ${displayName(ad)}`, sub: `${p.name} · the 7 days are done. Record the result when you turn it off.`, tag: 'FINALIZE', go: () => setModal({ type: FinalizeForm, props: { testId: t.id } }) });
+    else if (st.due.length) items.push({ ad, kind: 'todo', tone: 'amber', title: `Day ${st.due[st.due.length - 1]} results: ${displayName(ad)}`, sub: `${p.name} · add an Ads Manager file that covers day ${st.due[st.due.length - 1]}, or type the numbers.`, tag: 'RESULTS', go: () => setModal({ type: CheckinForm, props: { testId: t.id } }) });
   }
   for (const t of data.tests.filter((x) => x.stage === 1 && x.status === 'complete')) {
     const ad = data.ads.find((a) => a.id === t.ad_id); if (!ad) continue;
     const rr = runsFor(t, ad, data), lc = lateChange(t, rr);
-    if (lc) items.push({ kind: 'todo', tone: 'amber', title: `Check result: ${displayName(ad)}`, sub: `Newer files: your rules now say ${R.RESULTS[lc.now].label} (filed as ${R.RESULTS[t.result] ? R.RESULTS[t.result].label : t.result}).`, tag: 'REVIEW', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) });
+    if (lc) items.push({ ad, kind: 'todo', tone: 'amber', title: `Check result: ${displayName(ad)}`, sub: `Newer files: your rules now say ${R.RESULTS[lc.now].label} (filed as ${R.RESULTS[t.result] ? R.RESULTS[t.result].label : t.result}).`, tag: 'REVIEW', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) });
   }
   for (const p of products) {
     const bh = benchHealth(data, p);
@@ -1509,9 +1509,9 @@ function Today(ctx) {
     for (const ad of data.ads.filter((x) => x.product_id === p.id && x.stage === 'main')) {
       const h = mainHealth(ad, data, p);
       const fc = fatigueForecast(ad, data, p);
-      if (fc && fc.state === 'at') items.push({ kind: 'heads', tone: 'amber', title: `${displayName(ad)}: at break-even and falling`, sub: fc.text, tag: 'FORECAST', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) });
-      if (fc && fc.state === 'soon') { const bench = data.ads.filter((x) => x.product_id === p.id && x.stage === 'bench').length; items.push({ kind: 'heads', tone: 'amber', title: `${displayName(ad)}: about ${fc.lo}–${fc.hi} days until it drops under break-even`, sub: `${bench ? `${bench} backup${bench === 1 ? '' : 's'} on the Bench.` : 'No backup on the Bench: test a replacement now.'} Forecast from its falling 7-day ROAS; a guide, not a promise.`, tag: 'FORECAST', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) }); }
-      if (h && h.creative === 'fatigue' && !(ad.tags || {}).fatiguing) items.push({ kind: 'heads', tone: 'amber', title: `${displayName(ad)}: possible fatigue`, sub: healthText(h).c, tag: 'CHECK', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) });
+      if (fc && fc.state === 'at') items.push({ ad, kind: 'heads', tone: 'amber', title: `${displayName(ad)}: at break-even and falling`, sub: fc.text, tag: 'FORECAST', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) });
+      if (fc && fc.state === 'soon') { const bench = data.ads.filter((x) => x.product_id === p.id && x.stage === 'bench').length; items.push({ ad, kind: 'heads', tone: 'amber', title: `${displayName(ad)}: about ${fc.lo}–${fc.hi} days until it drops under break-even`, sub: `${bench ? `${bench} backup${bench === 1 ? '' : 's'} on the Bench.` : 'No backup on the Bench: test a replacement now.'} Forecast from its falling 7-day ROAS; a guide, not a promise.`, tag: 'FORECAST', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) }); }
+      if (h && h.creative === 'fatigue' && !(ad.tags || {}).fatiguing) items.push({ ad, kind: 'heads', tone: 'amber', title: `${displayName(ad)}: possible fatigue`, sub: healthText(h).c, tag: 'CHECK', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) });
     }
   }
 
@@ -1526,20 +1526,154 @@ function Today(ctx) {
   const rules0 = R.rulesOf(products[0]);
   const running = data.tests.filter((t) => t.status === 'active');
   const todo = items.filter((x) => x.kind !== 'heads'), heads = items.filter((x) => x.kind === 'heads');
-  const row = (list) => html`<div class="list">${list.map((it) => html`<button class="li" style="background:none;border-left:0;border-right:0;border-bottom:0;color:inherit;text-align:left;cursor:pointer;width:100%" onClick=${it.go}><span class=${'bar ' + it.tone}></span><span class="grow"><b>${it.title}</b><br/><span class="small muted">${it.sub}</span></span><span class="mono tiny" style="color:var(--accent2)">${it.tag}</span></button>`)}</div>`;
-  const live1 = (t) => { const ad = data.ads.find((a) => a.id === t.ad_id), p = products.find((x) => x.id === t.product_id); if (!ad || !p || t.stage !== 1) return null; const st = R.testStatus(t, data.checkpoints.filter((c) => c.test_id === t.id), R.rulesOf(p), R.econOf(p).aov, liveFor(t, ad, data)); return st.m ? ` · ${R.xroas(st.m.roas)} · ${st.m.purchases} buy${st.m.purchases === 1 ? '' : 's'} on ${R.money0(st.m.spend)}` : ''; };
+  const narrow = useNarrow();
+  const [headsOpen, setHeadsOpen] = useState(() => lsGet('adlab-ov-heads', '0') === '1');
+  const [weekOpen, setWeekOpen] = useState(() => lsGet('adlab-ov-week', '0') === '1');
+  const flip = (k, v, set) => { set(v); lsSet(k, v ? '1' : '0'); };
+  const VERB = { DECIDE: 'Open ad', RESULTS: 'Add results', FINALIZE: 'Finalize', DAILY: 'Add file', RECORD: 'Record', REVIEW: 'Review', ACT: 'Open', SPEND: 'Check' };
+  const row = (list, btn) => html`<div class="list">${list.map((it) => html`<button class="li ovli" onClick=${it.go}><span class=${'bar ' + it.tone}></span>${it.ad && html`<${Media} path=${it.ad.media_path} type=${it.ad.media_type} poster=${it.ad.tags && it.ad.tags.poster} cls="sm" />`}<span class="grow"><b>${it.title}</b><br/><span class="small muted">${it.sub}</span></span>${btn ? html`<span class="btn sm">${VERB[it.tag] || 'Open'}</span>` : html`<span class="mono tiny" style="color:var(--accent2)">${it.tag}</span>`}</button>`)}</div>`;
+  // ---- numbers: the last full day with Shopify + Meta (normally yesterday) ----
+  const crewP = products.find((p) => p.kind === 'crew') || products[0];
+  const econ = R.econOf(crewP), bev = R.storeBE(econ);
+  const td = R.today(), yd = R.addDays(td, -1);
+  const day = lastMeta && lastMeta < yd && lastMeta >= R.addDays(yd, -6) ? lastMeta : yd;
+  const dayLbl = day === yd ? 'yesterday' : R.shortDate(day);
+  const cur = periodTotals(data, day, day, econ), prv = periodTotals(data, R.addDays(day, -1), R.addDays(day, -1), econ);
+  const days7 = Array.from({ length: 7 }, (_, i) => R.addDays(day, i - 6));
+  const p7 = days7.map((d) => periodTotals(data, d, d, econ).profit);
+  const known = p7.filter((v) => v != null), green = known.filter((v) => v >= 0).length, sum7 = known.reduce((a, v) => a + v, 0);
+  const budget = products.reduce((s, p) => s + (R.num((p.rules || {}).mainBudget) || 0), 0) + data.tests.filter((t) => t.status === 'active' && t.stage === 1).reduce((s, t) => s + (+t.budget || 0), 0);
+  const mStart = day.slice(0, 8) + '01', mt = periodTotals(data, mStart, day, econ);
+  const dim = R.daysBetween(mStart, monthEnd(monthKey(mStart))) + 1, elapsed = R.daysBetween(mStart, day) + 1;
+  const gStage = stageFor(mStart), gLo = gStage.profit[0], gHi = gStage.profit[1];
+  const pace = mt.profit != null ? mt.profit / elapsed * dim : null;
+  const spark = known.length > 1 ? (() => { const lo = Math.min(...known), hi = Math.max(...known), w = 120, h = 26; const pts = p7.map((v, i) => (v == null ? null : `${(i / 6 * w).toFixed(1)},${(h - 3 - (v - lo) / ((hi - lo) || 1) * (h - 6)).toFixed(1)}`)).filter(Boolean).join(' '); return html`<svg class="spark" width=${w} height=${h} viewBox=${`0 0 ${w} ${h}`} aria-hidden="true"><polyline points=${pts} fill="none" stroke="var(--pass)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" /></svg>`; })() : null;
+  const meter = (pct, col, mark) => html`<div class="ovmeter"><i style=${`width:${Math.max(0, Math.min(100, pct)).toFixed(0)}%;background:${col}`}></i>${mark != null && html`<b style=${`left:${Math.max(0, Math.min(100, mark)).toFixed(0)}%`}></b>`}</div>`;
+  const merScale = Math.max((bev.roas || 3) * 2, cur.mer || 0);
+  const tiles = html`<section class="tiles k4 o-tiles">
+    <div class="tile"><div class="k">Profit · ${dayLbl}</div><div class=${'v ' + (cur.profit == null ? '' : cur.profit >= 0 ? 'pos' : 'neg')}>${signMoney(cur.profit)}</div>
+      <div class="s">${cur.profit == null ? (!lastMeta || lastMeta < day ? 'Add the Ads Manager file for this day' : 'Needs Shopify numbers for this day') : prv.profit != null ? html`<span class=${cur.profit >= prv.profit ? 'pos' : 'neg'}>${cur.profit >= prv.profit ? '▲' : '▼'} ${R.money0(Math.abs(cur.profit - prv.profit))}</span> vs ${WKD[R.parseDay(R.addDays(day, -1)).getDay()]}` : 'Estimate'}</div>${spark}</div>
+    <div class="tile"><div class="k">MER (blended ROAS)</div><div class=${'v ' + (cur.mer == null || !bev.roas ? '' : cur.mer >= bev.roas ? 'pos' : 'neg')}>${R.xroas(cur.mer)}</div><div class="s">Store break-even ${R.xroas(bev.roas)}${bev.estimated ? ' (est.)' : ''}</div>${cur.mer != null && meter(cur.mer / merScale * 100, cur.mer >= (bev.roas || 0) ? 'var(--pass)' : 'var(--fail)', bev.roas ? bev.roas / merScale * 100 : null)}</div>
+    <div class="tile"><div class="k">Sales (no tax)</div><div class="v">${cur.hasShop ? R.money0(cur.revenue) : '—'}</div><div class="s">${cur.hasShop ? `${cur.orders} order${cur.orders === 1 ? '' : 's'} · avg ${R.money(cur.aov)}` : 'No Shopify numbers for this day'}</div></div>
+    <div class="tile"><div class="k">Ad spend</div><div class="v">${cur.hasMeta ? R.money0(cur.spend) : '—'}</div><div class="s">${budget ? `of ${R.money0(budget)}/day budget` : 'Meta'}</div>${budget > 0 && cur.hasMeta && meter(cur.spend / budget * 100, 'var(--accent)')}</div>
+  </section>`;
+  const month = html`<section class="panel o-month" title="Estimate from Shopify and your Ads Manager files, like Stats. The Goal page uses the numbers you enter there.">
+    <div class="row small"><span class="muted">${MON_LONG[+mStart.slice(5, 7) - 1]}</span><span class="spacer"></span><span class="mono"><b>${signMoney(mt.profit)}</b> <span class="muted">of ${R.money0(gLo)} goal</span></span></div>
+    ${meter(mt.profit != null ? mt.profit / gLo * 100 : 0, mt.profit != null && mt.profit >= gLo ? 'var(--pass)' : 'var(--pass)')}
+    <div class="row tiny muted"><span>${mt.profit != null ? Math.round(mt.profit / gLo * 100) + '% · ' : ''}${elapsed} of ${dim} days</span><span class="spacer"></span><span>${pace != null ? `On pace for about ${signMoney(pace)} · ` : ''}stretch ${R.money0(gHi)}</span></div>
+  </section>`;
+  const chart = html`<section class="panel o-chart"><div class="row"><h2>Profit · last 7 days</h2><span class="spacer"></span>${known.length > 0 && html`<span class="small muted">${green} of ${known.length} days green · <b class=${sum7 >= 0 ? 'pos' : 'neg'}>${signMoney(sum7)}</b></span>`}</div><${ProfitBars} days=${days7} vals=${p7} /></section>`;
+  const todoP = html`<section class="panel o-todo"><div class="row"><h2>To do</h2><span class="spacer"></span>${todo.length > 0 && html`<span class="chip t-fail">${todo.length}</span>`}</div>${todo.length ? row(todo, true) : html`<div class="empty">Nothing to do today.</div>`}</section>`;
+  // ---- live now: Main ads (7-day ROAS) and running tests ----
+  const tone7 = (p, t) => { if (!t || !t.spend) return ''; if (!t.purchases) return 'neg'; const v = R.vsBreakEven(R.econOf(p), { purchases: t.purchases, roas: t.roas, cpa: t.cpa, aov: t.purchases && t.revenue != null ? t.revenue / t.purchases : null }); return !v || v.missing ? '' : v.band === 'above' ? 'pos' : v.band === 'below' ? 'neg' : 'midc'; };
+  const bar = (d, n) => html`<span class="daybar"><i style=${`width:${Math.min(100, d / n * 100).toFixed(0)}%`}></i></span>`;
+  const liveRows = [];
+  for (const p of products) for (const ad of data.ads.filter((a) => a.product_id === p.id && a.stage === 'main')) {
+    if (running.some((t) => t.ad_id === ad.id && t.stage === 2)) continue;
+    const t = sumRows(rowsForAd(ad, data.meta_days).filter((r) => r.day > R.addDays(day, -7) && r.day <= day));
+    liveRows.push({ ad, kind: 'MAIN', chip: 't-pass', roas: t.spend ? t.roas : null, tone: tone7(p, t), sub: t.spend ? `${R.money0(t.spend)} spent · last 7 days` : 'No spend in the last 7 days' });
+  }
+  for (const t of running) {
+    const ad = data.ads.find((a) => a.id === t.ad_id), p = products.find((x) => x.id === t.product_id); if (!ad || !p) continue;
+    const rules = R.rulesOf(p);
+    if (t.stage === 2) { const d = Math.max(1, R.daysBetween(t.start_date, td) + 1), n = rules.stage2Min; const s = sumRows(rowsForAd(ad, data.meta_days).filter((r) => r.day >= t.start_date && r.day <= day));
+      liveRows.push({ ad, kind: 'TRIAL', chip: 't-live', roas: s.spend ? s.roas : null, tone: tone7(p, s), sub: html`<span class="nw">Trial in Main · day ${Math.min(d, n)}/${n}</span>${bar(d, n)}<span class="nw">${Math.round(s.purchases)} buys</span>` }); continue; }
+    const st = R.testStatus(t, data.checkpoints.filter((c) => c.test_id === t.id), rules, R.econOf(p).aov, liveFor(t, ad, data)), m = st.m;
+    const n = t.planned_days || rules.plannedDays || 7, d = R.testDay(t);
+    liveRows.push({ ad, kind: 'TEST', chip: 't-live', roas: m ? m.roas : null, tone: m ? tone7(p, m) : '', sub: html`<span class="nw">${d < 1 ? 'Partial day' : `Day ${Math.min(d, n)}/${n}`}</span>${bar(Math.max(0, d), n)}<span class="nw">${m ? `${m.purchases} buy${m.purchases === 1 ? '' : 's'}` : 'no numbers yet'}</span>` });
+  }
+  const nMain = liveRows.filter((r) => r.kind === 'MAIN').length, nTest = liveRows.filter((r) => r.kind === 'TEST').length, nTrial = liveRows.filter((r) => r.kind === 'TRIAL').length;
+  const free = rules0.slots - live;
+  const liveP = html`<section class="panel o-live"><div class="row"><h2>Live now</h2><span class="spacer"></span><span class="small muted">${[nMain && `${nMain} in Main`, nTest && `${nTest} test${nTest === 1 ? '' : 's'}`, nTrial && `${nTrial} trial`].filter(Boolean).join(' · ') || 'Nothing running'}${ready.length ? ` · up next: ${ready[0].base_name}` : ''}</span></div>
+    ${free > 0 && ready.length > 0 && html`<button class="status live small ovslot" onClick=${() => setModal({ type: AdDetail, props: { adId: ready[0].id } })}>${free} test slot${free > 1 ? 's' : ''} free. Launch next: <b>${ready[0].base_name}</b> →</button>`}
+    ${liveRows.length ? html`<div class="lvgrid">${liveRows.map((r) => html`<button class="li ovli" onClick=${() => setModal({ type: AdDetail, props: { adId: r.ad.id } })}><${Media} path=${r.ad.media_path} type=${r.ad.media_type} poster=${r.ad.tags && r.ad.tags.poster} cls="" />
+      <span class="grow"><span class="row" style="gap:6px;flex-wrap:nowrap"><b class="ell">${r.ad.base_name}</b><span class=${'chip ' + r.chip}>${r.kind}</span></span><span class="row small muted lvsub">${r.sub}</span></span><span class=${'mono lvroas ' + r.tone}>${R.xroas(r.roas)}</span></button>`)}</div>` : html`<div class="empty">No live ads</div>`}</section>`;
+  // ---- this week ----
+  const wk = weekEvents(data, products, todo, running);
+  const evp = (e) => html`<button class=${'ev ' + e.tone + (e.solid ? ' solid' : '')} onClick=${e.go || null} title=${e.detail || ''}>${e.text}</button>`;
+  const wkrow = (d, i) => { const list = wk.byDay.get(d) || []; const x = R.parseDay(d);
+    return html`<div class=${'wkrow' + (i === 0 ? ' today' : '')}><div class="wkd">${i === 0 ? 'TODAY' : WKD[x.getDay()].toUpperCase()}<small>${MON[x.getMonth()]} ${x.getDate()}</small></div><div class="grow evs">${list.length ? list.map(evp) : html`<span class="tiny" style="color:var(--dim)">nothing due</span>`}</div></div>`; };
+  const later = wk.days.slice(1).reduce((n, d) => n + (wk.byDay.get(d) || []).length, 0);
+  const weekP = html`<section class="panel o-week"><div class="row"><h2>This week</h2><span class="spacer"></span>${!narrow && html`<button class="link small" onClick=${() => setModal({ type: WeekModal, props: { wk } })}>Full view →</button>`}</div>
+    <div class="wklist">${(narrow && !weekOpen ? wk.days.slice(0, 1) : wk.days).map(wkrow)}</div>
+    ${narrow && html`<button class="btn sm ghost" style="align-self:stretch" onClick=${() => flip('adlab-ov-week', !weekOpen, setWeekOpen)}>${weekOpen ? 'Show today only ▴' : `Open this week ▾${later ? ` · ${later} coming up` : ''}`}</button>`}</section>`;
+  const headsShown = narrow || headsOpen ? heads : heads.slice(0, 1);
+  const headsP = heads.length > 0 && html`<section class="panel o-heads"><div class="row"><h2>Heads up</h2><span class="spacer"></span><span class="chip t-live">${heads.length}</span></div>${row(headsShown)}
+    ${!narrow && heads.length > 1 && html`<button class="link small" style="align-self:flex-start" onClick=${() => flip('adlab-ov-heads', !headsOpen, setHeadsOpen)}>${headsOpen ? 'Show less' : `+${heads.length - 1} more`}</button>`}</section>`;
+  const drop = html`<div class="o-drop"><${MetaDrop} ...${ctx} compact=${true} /></div>`;
   return html`
-    <div class="row"><div class="stack" style="gap:0"><span class="small" style="color:var(--accent2);letter-spacing:.16em;font-weight:600">${new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }).toUpperCase()}</span><h1 style="font-size:34px">Overview</h1></div></div>
-    <${MetaDrop} ...${ctx} />
-    <section class="panel"><h2>To do today</h2>
-      ${todo.length ? row(todo) : html`<div class="empty">Nothing to do today.</div>`}
-    </section>
-    ${heads.length > 0 && html`<section class="panel"><h2>Heads up</h2><div class="tiny muted" style="margin-top:-6px">Things to know. No action needed unless it says so.</div>${row(heads)}</section>`}
-    ${ready.length > 0 && live < rules0.slots && html`<section class="panel"><h2>Slot open</h2><div class="small">${rules0.slots - live} test slot${rules0.slots - live > 1 ? 's' : ''} free. Launch next from Up Next:</div>
-      <div class="list">${ready.map((a) => html`<button class="li" style="background:none;border-left:0;border-right:0;border-bottom:0;color:inherit;text-align:left;cursor:pointer;width:100%" onClick=${() => setModal({ type: AdDetail, props: { adId: a.id } })}><${Media} path=${a.media_path} type=${a.media_type} poster=${a.tags && a.tags.poster} cls="" /><span class="grow small"><b>#${ready.indexOf(a) + 1} · ${a.base_name}</b><br/><span class="muted">${(products.find((p) => p.id === a.product_id) || {}).name}</span></span></button>`)}</div></section>`}
-    <section class="panel"><h2>Running</h2>
-      ${running.length ? html`<div class="list">${running.map((t) => { const ad = data.ads.find((a) => a.id === t.ad_id); return ad && html`<button class="li" style="background:none;border-left:0;border-right:0;border-bottom:0;color:inherit;text-align:left;cursor:pointer;width:100%" onClick=${() => setModal({ type: AdDetail, props: { adId: ad.id } })}><span class="bar blue"></span><span class="grow small"><b>${displayName(ad)}</b><br/><span class="muted">${t.stage === 2 ? 'Trial in Main' : (products.find((p) => p.id === t.product_id) || {}).name} · ${R.testDay(t) < 1 ? 'partial day, day 1 tomorrow' : 'day ' + Math.min(R.testDay(t), t.planned_days || 7) + ' of ' + (t.planned_days || 7)}${live1(t) || ''}</span></span></button>`; })}</div>` : html`<div class="empty">No live tests</div>`}
-    </section>`;
+    <div class="row ovhead"><div class="stack" style="gap:0"><span class="small" style="color:var(--accent2);letter-spacing:.16em;font-weight:600">${new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }).toUpperCase()}</span><h1 style="font-size:34px">Overview</h1></div><span class="spacer"></span>${!narrow && drop}</div>
+    <div class="ov">
+      <div class="ov-col">${tiles}<div class="ov-pair">${chart}${todoP}</div>${narrow && drop}${liveP}</div>
+      <div class="ov-col ov-rail">${month}${weekP}${headsP}</div>
+    </div>`;
+}
+
+// ---------- overview helpers ----------
+const mdLabel = (d) => { const x = R.parseDay(d); return `${MON[x.getMonth()]} ${x.getDate()}`; };
+const signMoney = (v) => (v == null || !isFinite(v) ? '—' : (v < 0 ? '-' : '') + '$' + Math.round(Math.abs(v)).toLocaleString());
+function useNarrow(px = 900) {
+  const q = () => typeof matchMedia === 'function' && matchMedia(`(max-width:${px}px)`).matches;
+  const [n, setN] = useState(q);
+  useEffect(() => { if (typeof matchMedia !== 'function') return; const m = matchMedia(`(max-width:${px}px)`); const h = () => setN(m.matches); m.addEventListener ? m.addEventListener('change', h) : m.addListener(h); return () => (m.removeEventListener ? m.removeEventListener('change', h) : m.removeListener(h)); }, []);
+  return n;
+}
+function ProfitBars({ days, vals }) {
+  const [box, W] = useWidth(); const H = 160, B = 20, T = 18;
+  const nums = vals.filter((v) => v != null);
+  const lo = Math.min(0, ...nums), hi = Math.max(1, ...nums);
+  const y = (v) => T + (H - T - B) * (hi - v) / ((hi - lo) || 1);
+  const bw = W / days.length;
+  return html`<div class="chart pbars" ref=${box}>${!nums.length ? html`<div class="empty">No profit numbers for these days yet. They need Shopify sales and an Ads Manager file.</div>` : html`<svg width=${W} height=${H} style=${`height:${H}px`} role="img" aria-label="Profit by day">
+    <line x1="0" x2=${W} y1=${y(0)} y2=${y(0)} class="grid" />
+    ${days.map((d, i) => { const v = vals[i], x0 = i * bw + bw * 0.2, w = bw * 0.6, cx = x0 + w / 2, lbl = html`<text x=${cx} y=${H - 5} class="ax" text-anchor="middle">${mdLabel(d)}</text>`;
+      if (v == null) return html`<g>${lbl}<text x=${cx} y=${y(0) - 5} class="ax" text-anchor="middle">—</text></g>`;
+      const top = v >= 0 ? y(v) : y(0), h = Math.max(2, Math.abs(y(v) - y(0)));
+      return html`<g><title>${mdLabel(d)}: ${signMoney(v)}</title><rect x=${x0} y=${top} width=${w} height=${h} rx="3" fill=${v >= 0 ? 'var(--pass)' : 'var(--fail)'} opacity=${i === days.length - 1 ? 1 : 0.55} /><text x=${cx} y=${v >= 0 ? top - 5 : y(0) - 5} class="ax val" text-anchor="middle">${signMoney(v)}</text>${lbl}</g>`; })}
+  </svg>`}</div>`;
+}
+// What happens on each of the next 7 days: today's to-dos, test last days, Main trials, fatigue forecasts, sale days and your logged events.
+function weekEvents(data, products, todo, running) {
+  const td = R.today(), days = Array.from({ length: 7 }, (_, i) => R.addDays(td, i)), last = days[6];
+  const byDay = new Map(days.map((d) => [d, []])), lanes = [];
+  const add = (d, e) => { if (byDay.has(d)) byDay.get(d).push(e); };
+  const TONE = { red: 'red', amber: 'amber', blue: 'blue' };
+  todo.forEach((it) => add(td, { text: it.title, tone: TONE[it.tone] || 'blue', solid: it.tone === 'red', go: it.go, detail: it.sub }));
+  for (const t of running) {
+    const ad = data.ads.find((a) => a.id === t.ad_id), p = products.find((x) => x.id === t.product_id); if (!ad || !p) continue;
+    const rules = R.rulesOf(p);
+    if (t.stage === 2) { const end = R.addDays(t.start_date, rules.stage2Min); add(end > td ? end : td, { text: `${ad.base_name} · judge in Main`, tone: 'blue', detail: `${rules.stage2Min} days in Main` }); lanes.push({ ad, from: td, to: end > td ? end : td, color: 'var(--accent)', label: 'trial', endText: 'judge in Main' }); continue; }
+    const n = t.planned_days || rules.plannedDays || 7, d = R.testDay(t), end = R.addDays(td, Math.max(0, n - Math.max(d, 1)));
+    const st = R.testStatus(t, data.checkpoints.filter((c) => c.test_id === t.id), rules, R.econOf(p).aov, liveFor(t, ad, data)), m = st.m;
+    const col = !m || !m.spend ? 'var(--accent)' : !m.purchases || (m.roas != null && m.roas < rules.failRoas) ? 'var(--fail)' : m.roas != null && m.roas >= (rules.passRoas || 3) ? 'var(--pass)' : 'var(--mid)';
+    if (end > td) add(end, { text: `${ad.base_name} · day ${n}, last day`, tone: col === 'var(--pass)' ? 'green' : col === 'var(--fail)' ? 'red' : col === 'var(--mid)' ? 'amber' : 'blue', detail: 'Record the result the morning after' });
+    lanes.push({ ad, from: td, to: end, color: col, label: m && m.spend ? R.xroas(m.roas) : 'test', endText: `day ${n}` });
+  }
+  for (const p of products) for (const ad of data.ads.filter((a) => a.product_id === p.id && a.stage === 'main')) {
+    const fc = fatigueForecast(ad, data, p); if (!fc || (fc.state !== 'soon' && fc.state !== 'at')) continue;
+    const a0 = fc.state === 'at' ? td : R.addDays(td, fc.lo), b0 = fc.state === 'at' ? td : R.addDays(td, fc.hi);
+    if (a0 <= last) { add(a0, { text: `${ad.base_name} may dip under break-even`, tone: 'amber', detail: fc.text }); lanes.push({ ad, from: a0, to: b0 > last ? last : b0, color: 'var(--mid)', label: 'may dip', striped: true }); }
+  }
+  for (const c of calendarOf(data)) {
+    if (c.to < td || c.from > last) continue;
+    if (c.from >= td) add(c.from, { text: c.name, tone: c.big ? 'blue' : 'muted', solid: !!c.big, detail: c.detail || '' });
+    else add(td, { text: `${c.name} (on now)`, tone: 'muted', detail: c.detail || '' });
+  }
+  return { days, byDay, lanes };
+}
+function WeekModal({ wk, close, setModal }) {
+  const head = wk.days.map((d, i) => { const x = R.parseDay(d); return html`<div class=${'wc hd' + (i === 0 ? ' today' : '')}>${i === 0 ? 'Today' : WKD[x.getDay()]}<small>${MON[x.getMonth()]} ${x.getDate()}</small></div>`; });
+  const you = wk.days.map((d, i) => html`<div class=${'wc' + (i === 0 ? ' today' : '')}>${(wk.byDay.get(d) || []).filter((e) => !wk.lanes.some((l) => e.text.startsWith(l.ad.base_name + ' ·') || e.text.startsWith(l.ad.base_name + ' may'))).map((e) => html`<button class=${'ev ' + e.tone + (e.solid ? ' solid' : '')} onClick=${e.go ? () => { close(); e.go(); } : null} title=${e.detail || ''}>${e.text}</button>`)}</div>`);
+  return html`<${Modal} title="This week" sub="What happens when, so nothing sneaks up on you. Bars run to each test's last day." wide=${true} onClose=${close}>
+    <div class="wkgrid">
+      <div class="wc lane"></div>${head}
+      <div class="wc lane"><b>You</b><small>things to do</small></div>${you}
+      ${wk.lanes.map((l) => html`<div class="wc lane"><${Media} path=${l.ad.media_path} type=${l.ad.media_type} poster=${l.ad.tags && l.ad.tags.poster} cls="sm" /><span><b>${l.ad.base_name}</b></span></div>
+        ${wk.days.map((d, i) => { const on = d >= l.from && d <= l.to, first = d === l.from, endD = d === l.to;
+          return html`<div class=${'wc' + (i === 0 ? ' today' : '')}>${on && html`<div class=${'lanebar' + (l.striped ? ' striped' : '') + (first ? ' l' : '') + (endD ? ' r' : '')} style=${`--c:${l.color}`}>${first ? l.label : endD && l.endText ? l.endText : ''}</div>`}</div>`; })}`)}
+    </div>
+    ${!wk.lanes.length && html`<div class="empty">No live tests or Main forecasts this week.</div>`}
+  </${Modal}>`;
 }
 
 // ---------- angles ----------
