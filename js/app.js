@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=153';
-import * as R from './rules.js?v=153';
-import { importHistory } from './importer.js?v=153';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=153';
+import { createBackend } from './data.js?v=154';
+import * as R from './rules.js?v=154';
+import { importHistory } from './importer.js?v=154';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=154';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -3715,9 +3715,9 @@ function PeriodForm(ctx) {
   const ex = id ? goalPeriods(data).find((x) => x.id === id) : null;
   const t = R.today(), y = R.addDays(t, -1), td = R.parseDay(t), mon = R.addDays(t, -((td.getDay() + 6) % 7));
   const lm = R.addDays(t.slice(0, 8) + '01', -1);
-  const presets = [['thisweek', 'This week', mon <= y ? mon : R.addDays(mon, -7), y], ['lastweek', 'Last week', R.addDays(mon, -7), R.addDays(mon, -1)], ['thismonth', 'This month', t.slice(0, 8) + '01' <= y ? t.slice(0, 8) + '01' : lm.slice(0, 8) + '01', y], ['lastmonth', 'Last month', lm.slice(0, 8) + '01', lm], ['custom', 'Custom dates', null, null]];
+  const presets = [['yesterday', 'Yesterday', y, y], ['thisweek', 'This week', mon <= y ? mon : R.addDays(mon, -7), y], ['lastweek', 'Last week', R.addDays(mon, -7), R.addDays(mon, -1)], ['thismonth', 'This month', t.slice(0, 8) + '01' <= y ? t.slice(0, 8) + '01' : lm.slice(0, 8) + '01', y], ['lastmonth', 'Last month', lm.slice(0, 8) + '01', lm], ['custom', 'Custom dates', null, null]];
   const [f, setF] = useState(() => ex ? { from: ex.from, to: ex.to, rev: String(ex.rev || ''), revType: ex.revType, spend: String(ex.spend || ''), orders: ex.orders ? String(ex.orders) : '', profit: ex.profit != null ? String(ex.profit) : '', refunds: ex.refunds ? String(ex.refunds) : '', other: ex.other ? String(ex.other) : '', exact: ex.exact != null ? String(ex.exact) : '', preset: 'custom', costFinal: !!ex.costFinal, ...Object.fromEntries(['shipIn', 'retFees', 'cogs', 'packs', 'labels', 'packaging', 'fees', 'fixedCost'].map((k) => [k, ex[k] != null ? String(ex[k]) : ''])) }
-    : { from: f0 || presets[1][2], to: t0 || presets[1][3], rev: '', revType: 'net', spend: '', orders: '', profit: '', refunds: '', other: '', exact: '', shipIn: '', retFees: '', cogs: '', packs: '', labels: '', packaging: '', fees: '', fixedCost: '', costFinal: false, preset: f0 ? 'custom' : 'lastweek' });
+    : { from: f0 || y, to: t0 || y, rev: '', revType: 'net', spend: '', orders: '', profit: '', refunds: '', other: '', exact: '', shipIn: '', retFees: '', cogs: '', packs: '', labels: '', packaging: '', fees: '', fixedCost: '', costFinal: false, preset: f0 ? 'custom' : 'yesterday' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const pick = (k) => { const pr = presets.find((x) => x[0] === k); setF({ ...f, preset: k, ...(pr[2] ? { from: pr[2], to: pr[3] } : {}) }); };
   const days = f.from && f.to && f.to >= f.from ? R.daysBetween(f.from, f.to) + 1 : 0;
