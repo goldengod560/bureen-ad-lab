@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=157';
-import * as R from './rules.js?v=157';
-import { importHistory } from './importer.js?v=157';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=157';
+import { createBackend } from './data.js?v=158';
+import * as R from './rules.js?v=158';
+import { importHistory } from './importer.js?v=158';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=158';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1641,12 +1641,12 @@ function Today(ctx) {
   const td = R.today(), yd = R.addDays(td, -1);
   const day = lastMeta && lastMeta < yd && lastMeta >= R.addDays(yd, -6) ? lastMeta : yd;
   const dayLbl = day === yd ? 'yesterday' : R.shortDate(day);
-  const cur = periodTotals(data, day, day, econ), prv = periodTotals(data, R.addDays(day, -1), R.addDays(day, -1), econ);
+  const cur0 = periodTotals(data, day, day, econ), cur = { ...cur0, profit: dayProfit(data, day, econ) }, prv = { profit: dayProfit(data, R.addDays(day, -1), econ) };
   const days7 = Array.from({ length: 7 }, (_, i) => R.addDays(day, i - 6));
-  const p7 = days7.map((d) => periodTotals(data, d, d, econ).profit);
+  const p7 = days7.map((d) => dayProfit(data, d, econ));
   const known = p7.filter((v) => v != null), green = known.filter((v) => v >= 0).length, sum7 = known.reduce((a, v) => a + v, 0);
   const budget = products.reduce((s, p) => s + (R.num((p.rules || {}).mainBudget) || 0), 0) + data.tests.filter((t) => t.status === 'active' && t.stage === 1).reduce((s, t) => s + (+t.budget || 0), 0);
-  const mStart = day.slice(0, 8) + '01', mt = periodTotals(data, mStart, day, econ);
+  const mStart = day.slice(0, 8) + '01', mt = { ...periodTotals(data, mStart, day, econ), profit: rangeProfit(data, mStart, day, econ) };
   const dim = R.daysBetween(mStart, monthEnd(monthKey(mStart))) + 1, elapsed = R.daysBetween(mStart, day) + 1;
   const gStage = stageFor(mStart), gLo = gStage.profit[0], gHi = gStage.profit[1];
   const pace = mt.profit != null ? mt.profit / elapsed * dim : null;
@@ -1750,7 +1750,7 @@ function StocksOverview(p) {
   const all = useMemo(() => {
     const ds = [...new Set(data.shop_days.map((d) => d.day))].filter((d) => d <= day && d >= day.slice(0, 4) + '-01-01').sort();
     let c = 0; const out = [];
-    for (const d of ds) { const t = periodTotals(data, d, d, econ); if (t.profit == null) continue; c += t.profit; out.push({ day: d, v: t.profit, cum: c, sales: t.revenue, spend: t.spend, mer: t.mer }); }
+    for (const d of ds) { const t = periodTotals(data, d, d, econ), pr = dayProfit(data, d, econ); if (pr == null) continue; c += pr; out.push({ day: d, v: pr, cum: c, sales: t.revenue, spend: t.spend, mer: t.mer }); }
     return out;
   }, [data, day]);
   // Ranges end on the last full day. This month starts on the 1st; This year on Jan 1, or the first day with Shopify numbers.
@@ -1788,7 +1788,7 @@ function StocksOverview(p) {
       <div class="row" style="align-items:flex-end;flex-wrap:wrap"><div><div class="small muted">Portfolio value · profit ${rngLabel}${shown.length ? ` · ${mdLabel(shown[0].day)} to ${mdLabel(shown[shown.length - 1].day)}` : ''}${rng === 'YTD' && firstShop && firstShop > day.slice(0, 4) + '-01-01' ? html` <span title="Shopify only gives the app your recent days">(numbers start ${mdLabel(firstShop)}, your first Shopify day here)</span>` : ''}</div><div class="skbig">${total == null ? '—' : (total < 0 ? '−' : '') + R.money(Math.abs(total))}</div>
         <div class=${'skdelta ' + ((cur.profit || 0) >= 0 ? 'pos' : 'neg')}>${cur.profit == null ? '—' : (cur.profit >= 0 ? '+' : '−') + R.money(Math.abs(cur.profit))}${chPct != null ? ` (${chPct >= 0 ? '+' : ''}${chPct.toFixed(1)}%)` : ''} <span class="muted">${dayName}</span></div></div><span class="spacer"></span>${drop}</div>
       <${PortfolioChart} pts=${shown} />
-      <div class="row skrng">${[['1W', '1W'], ['MTD', 'This month'], ['3M', '3M'], ['YTD', 'This year']].map(([k, l]) => html`<button class=${rng === k ? 'on' : ''} onClick=${() => { setRng(k); lsSet('adlab-sk-range2', k); }}>${l}</button>`)}<span class="spacer"></span><span class="small muted">every dollar of profit, after ads and all costs</span></div>
+      <div class="row skrng">${[['1W', '1W'], ['MTD', 'This month'], ['3M', '3M'], ['YTD', 'This year']].map(([k, l]) => html`<button class=${rng === k ? 'on' : ''} onClick=${() => { setRng(k); lsSet('adlab-sk-range2', k); }}>${l}</button>`)}<span class="spacer"></span><span class="small muted">profit after ads and all costs · your entered numbers, estimated on days without them</span></div>
       <div class="skstrip">${strip.map(([a, b, c, d]) => html`<div><div class="small muted">${a}</div><div class=${'skv ' + c}>${b}</div><div class="tiny muted">${d}</div></div>`)}</div>
       <section class="panel sktarget"><div class="row small" style="gap:8px;flex-wrap:wrap"><b>${MON_LONG[+day.slice(5, 7) - 1]} price target</b><span class="muted">${R.money0(gLo)} goal · ${R.money0(gHi)} stretch</span><span class="spacer"></span><b>${signMoney(mt.profit)}</b><span class="muted">· ${elapsed} of ${dim} days</span></div>
         <div class="row" style="gap:12px"><div class="sktrack grow"><i style=${`width:${Math.max(0, Math.min(100, (mt.profit || 0) / gHi * 100)).toFixed(1)}%`}></i><b style=${`left:${(gLo / gHi * 100).toFixed(1)}%`}></b></div>${ahead != null && html`<span class=${'sig ' + (ahead >= 0 ? 'sig-buy' : 'sig-sell')}>${ahead >= 0 ? 'AHEAD BY ' : 'BEHIND BY '}${R.money0(Math.abs(ahead))}</span>`}</div>
@@ -1920,7 +1920,7 @@ function Ticker({ data }) {
     const last = lastMetaDay(data); if (!last) return [];
     const out = [];
     const crew = data.products.find((p) => p.kind === 'crew') || data.products[0], econ = R.econOf(crew);
-    const y = periodTotals(data, last, last, econ), y0 = periodTotals(data, R.addDays(last, -1), R.addDays(last, -1), econ);
+    const y = { ...periodTotals(data, last, last, econ), profit: dayProfit(data, last, econ) }, y0 = { profit: dayProfit(data, R.addDays(last, -1), econ) };
     if (y.profit != null) out.push(['PROFIT', signMoney(y.profit), y0.profit != null ? (y.profit >= y0.profit ? '▲ ' : '▼ ') + R.money0(Math.abs(y.profit - y0.profit)) : '', y.profit >= 0]);
     if (y.mer != null) out.push(['MER', R.xroas(y.mer), '', y.mer >= 2.62]);
     const live = data.ads.filter((a) => a.stage === 'main' || a.stage === 'testing');
@@ -2164,8 +2164,10 @@ function GoalLine({ days, lo, hi, dim }) {
   const H = 210, L = 52, Rt = 12, T = 12, B = 24;
   let c = 0; const cum = days.map((d) => (d.v == null ? null : (c += d.v)));
   const lastI = cum.reduce((m, v, i) => (v != null ? i : m), -1);
+  // The scale fits your line and the stretch. A pace far above it is cut off at the top edge, not drawn off the chart.
   const vals = [...cum.filter((v) => v != null), hi, 0];
   const max = Math.max(...vals) * 1.08, min = Math.min(0, ...vals);
+  const clipId = 'gl' + dim + Math.round(hi);
   const x = (i) => L + i * (W - L - Rt) / Math.max(1, dim - 1), y = (v) => T + (H - T - B) * (1 - (v - min) / (max - min || 1));
   const line = (f) => days.map((_, i) => `${x(i)},${y(f(i))}`).join(' ');
   const act = cum.map((v, i) => (v == null || i > lastI ? null : `${x(i)},${y(v)}`)).filter(Boolean).join(' ');
@@ -2181,7 +2183,8 @@ function GoalLine({ days, lo, hi, dim }) {
       ${[0, 6, 13, 20, 27, dim - 1].filter((k, j, a) => k < dim && a.indexOf(k) === j).map((k) => html`<text x=${x(k)} y=${H - 6} class="ax" text-anchor=${k === dim - 1 ? 'end' : k === 0 ? 'start' : 'middle'}>${mdLabel(days[k].d)}</text>`)}
       <polyline points=${line((k) => hi * (k + 1) / dim)} fill="none" stroke="var(--mid)" stroke-width="2" stroke-dasharray="6 5" vector-effect="non-scaling-stroke" />
       <polyline points=${line((k) => lo * (k + 1) / dim)} fill="none" stroke="#fff" stroke-opacity=".75" stroke-width="2" stroke-dasharray="6 5" vector-effect="non-scaling-stroke" />
-      ${proj && html`<polyline points=${proj} fill="none" stroke="var(--pass)" stroke-opacity=".45" stroke-width="2" stroke-dasharray="2 5" vector-effect="non-scaling-stroke" />`}
+      <defs><clipPath id=${clipId}><rect x=${L} y=${T} width=${Math.max(0, W - L - Rt)} height=${H - T - B} /></clipPath></defs>
+      ${proj && html`<polyline points=${proj} clip-path=${`url(#${clipId})`} fill="none" stroke="var(--pass)" stroke-opacity=".45" stroke-width="2" stroke-dasharray="2 5" vector-effect="non-scaling-stroke" />`}
       <polyline points=${act} fill="none" stroke="var(--pass)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke" />
       ${lastI >= 0 && html`<circle cx=${x(lastI)} cy=${y(cum[lastI])} r="5" fill="var(--pass)" />`}
       <line x1=${x(i)} x2=${x(i)} y1=${T} y2=${H - B} class="cross" />
@@ -3203,6 +3206,12 @@ function rangeDays(key, custom) {
   // 7, 30 and 90 days are full days ending yesterday, like Ads Manager's "Last 7 days". Today isn't finished.
   const n = +key || 7, y = R.addDays(end, -1); return mk(R.addDays(y, -(n - 1)), y);
 }
+// Profit for one day: the numbers you entered on Goals when that day has them (exact),
+// otherwise the estimate from Shopify + Meta. Every page uses this so the totals match.
+const enteredCache = new WeakMap();
+function enteredDays(data) { let dm = enteredCache.get(data); if (!dm) { dm = dayMap(goalPeriods(data), R.storeEcon()); enteredCache.set(data, dm); } return dm; }
+function dayProfit(data, d, econ) { const v = enteredDays(data).get(d); return v && v.profit != null ? v.profit : periodTotals(data, d, d, econ).profit; }
+function rangeProfit(data, a, b, econ) { let t = null; for (let d = a; d <= b; d = R.addDays(d, 1)) { const v = dayProfit(data, d, econ); if (v != null) t = (t || 0) + v; } return t; }
 function periodTotals(data, start, end, econ) {
   const shop = data.shop_days.filter((d) => d.day >= start && d.day <= end);
   const meta = data.meta_days.filter((d) => d.day >= start && d.day <= end);
