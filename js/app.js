@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=159';
-import * as R from './rules.js?v=159';
-import { importHistory } from './importer.js?v=159';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=159';
+import { createBackend } from './data.js?v=160';
+import * as R from './rules.js?v=160';
+import { importHistory } from './importer.js?v=160';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=160';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1714,7 +1714,7 @@ function Today(ctx) {
 }
 
 // ---------- Stocks look: Overview ----------
-function PortfolioChart({ pts }) {
+function PortfolioChart({ pts, onSel }) {
   const [box, W] = useWidth(); const [sel, setSel] = useState(null); const H = 210, L = 52, T = 10, B = 22;
   if (pts.length < 2) return html`<div class="empty">The chart fills in once Shopify and your Ads Manager files cover a few days.</div>`;
   const vals = pts.map((p) => p.cum), lo = Math.min(0, ...vals), hi = Math.max(1, ...vals);
@@ -1722,16 +1722,18 @@ function PortfolioChart({ pts }) {
   const line = pts.map((p, i) => `${x(i).toFixed(1)},${y(p.cum).toFixed(1)}`).join(' ');
   const area = `M${x(0)},${y(lo)} L` + pts.map((p, i) => `${x(i).toFixed(1)},${y(p.cum).toFixed(1)}`).join(' L') + ` L${x(pts.length - 1)},${y(lo)} Z`;
   const i = sel == null ? pts.length - 1 : sel, p = pts[i];
-  const pick = (e) => { const r = e.currentTarget.getBoundingClientRect(); const k = Math.round((e.clientX - r.left - L) / ((W - L - 8) / (pts.length - 1))); setSel(Math.max(0, Math.min(pts.length - 1, k))); };
+  const pick = (e) => { const r = e.currentTarget.getBoundingClientRect(); const k = Math.max(0, Math.min(pts.length - 1, Math.round((e.clientX - r.left - L) / ((W - L - 8) / (pts.length - 1))))); setSel(k); onSel && onSel(k); };
+  const leave = (e) => { if (e.pointerType === 'mouse') { setSel(null); onSel && onSel(null); } };
+  const unit = p.unit || 'day', lb = (q) => q.label || mdLabel(q.day);
   const step = Math.max(1, Math.ceil(pts.length / 6));
   return html`<div ref=${box}>
-    <div class="small skread"><b>${mdLabel(p.day)}</b> · total ${signMoney(p.cum)} · that day <b class=${p.v >= 0 ? 'pos' : 'neg'}>${signMoney(p.v)}</b>${p.sales != null ? ` · sales ${R.money0(p.sales)} · ad spend ${R.money0(p.spend)}${p.mer ? ' · MER ' + R.xroas(p.mer) : ''}` : ''}${sel == null ? html` <span class="muted">· tap the chart, the numbers stay here</span>` : ''}</div>
-    <svg width=${W} height=${H} style=${`height:${H}px;display:block`} onPointerDown=${pick} role="img" aria-label="Profit since the first day with numbers">
+    <div class="small skread"><b>${unit === 'month' ? p.long : mdLabel(p.day)}</b> · total ${signMoney(p.cum)} · that ${unit}${p.partial ? ' so far' : ''} <b class=${p.v >= 0 ? 'pos' : 'neg'}>${signMoney(p.v)}</b>${p.sales != null ? ` · sales ${R.money0(p.sales)}${p.spend != null ? ` · ad spend ${R.money0(p.spend)}` : ''}${p.mer ? ' · MER ' + R.xroas(p.mer) : ''}` : ''}${unit === 'month' && p.days ? ` · ${p.days} days with numbers` : ''}${sel == null ? html` <span class="muted">· hover or tap the chart</span>` : ''}</div>
+    <svg width=${W} height=${H} style=${`height:${H}px;display:block`} onPointerDown=${pick} onPointerMove=${pick} onPointerLeave=${leave} role="img" aria-label="Profit over time">
       <defs><linearGradient id="skg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--pass)" stop-opacity=".25" /><stop offset="1" stop-color="var(--pass)" stop-opacity="0" /></linearGradient></defs>
       ${[lo, (lo + hi) / 2, hi].map((t) => html`<line x1=${L} x2=${W} y1=${y(t)} y2=${y(t)} stroke="var(--line)" /><text x=${L - 6} y=${y(t) + 4} text-anchor="end" class="skax">${signMoney(t)}</text>`)}
       <path d=${area} fill="url(#skg)" /><polyline points=${line} fill="none" stroke="var(--pass)" stroke-width="2.5" stroke-linejoin="round" />
       <line x1=${x(i)} x2=${x(i)} y1=${T} y2=${H - B} stroke="var(--line2)" /><circle cx=${x(i)} cy=${y(p.cum)} r="5" fill="var(--pass)" stroke="#000" stroke-width="2" />
-      ${pts.map((q, k) => (k % step === 0 || k === pts.length - 1) && !(k !== pts.length - 1 && k > pts.length - 1 - step / 2) && html`<text x=${x(k)} y=${H - 5} text-anchor=${k === pts.length - 1 && k > 0 ? 'end' : k === 0 ? 'start' : 'middle'} class="skax">${mdLabel(q.day)}</text>`)}
+      ${pts.map((q, k) => (k % step === 0 || k === pts.length - 1) && !(k !== pts.length - 1 && k > pts.length - 1 - step / 2) && html`<text x=${x(k)} y=${H - 5} text-anchor=${k === pts.length - 1 && k > 0 ? 'end' : k === 0 ? 'start' : 'middle'} class="skax">${lb(q)}</text>`)}
     </svg></div>`;
 }
 function Spark({ vals, be }) {
@@ -1762,7 +1764,15 @@ function StocksOverview(p) {
   const pts = all.filter((q) => q.day >= fromDay), base = pts.length && all.indexOf(pts[0]) > 0 ? all[all.indexOf(pts[0]) - 1].cum : 0;
   const rngLabel = { '1W': 'last 7 days', MTD: 'this month', '3M': 'last 3 months', YTD: 'this year' }[rng] || 'this month';
   const firstShop = all.length ? all[0].day : null;
-  const shown = pts.map((q) => ({ ...q, cum: q.cum - base })), total = shown.length ? shown[shown.length - 1].cum : null;
+  const daily = pts.map((q) => ({ ...q, cum: q.cum - base }));
+  // This year is shown month by month; the other ranges day by day.
+  const shown = rng !== 'YTD' ? daily : (() => { const out = []; for (const q of daily) { const ym = q.day.slice(0, 7); let m = out[out.length - 1];
+      if (!m || m.ym !== ym) { m = { ym, unit: 'month', label: MON_LONG[+ym.slice(5) - 1].slice(0, 3), long: `${MON_LONG[+ym.slice(5) - 1]} ${ym.slice(0, 4)}`, v: 0, sales: null, spend: null, days: 0 }; out.push(m); }
+      m.v += q.v; m.cum = q.cum; m.day = q.day; m.days++; if (q.sales != null) m.sales = (m.sales || 0) + q.sales; if (q.spend != null) m.spend = (m.spend || 0) + q.spend; }
+    for (const m of out) { m.mer = m.sales && m.spend ? m.sales / m.spend : null; m.partial = m.day < monthEnd(m.ym) && m.ym === day.slice(0, 7); }
+    return out; })();
+  const [hv, setHv] = useState(null); const hp = hv != null && shown[hv] ? shown[hv] : null;
+  const total = hp ? hp.cum : shown.length ? shown[shown.length - 1].cum : null;
   const before = shown.length > 1 ? shown[shown.length - 2].cum : null, chPct = before && cur.profit != null ? cur.profit / Math.abs(before) * 100 : null;
   const left = Math.max(1, dim - elapsed), need = mt.profit != null ? Math.max(0, (gHi - mt.profit) / left) : null, avg = mt.profit != null ? mt.profit / elapsed : null;
   const pace = mt.profit != null ? mt.profit / elapsed * dim : null, onTrack = gHi * elapsed / dim, ahead = mt.profit != null ? mt.profit - onTrack : null;
@@ -1789,10 +1799,11 @@ function StocksOverview(p) {
   return html`<div class="skov">
     <div class="skmain">
       <div class="small skallp"><b>All products</b> <span class="muted">· ${products.map((x) => x.name).join(', ')}</span></div>
-      <div class="row" style="align-items:flex-end;flex-wrap:wrap"><div><div class="small muted">Portfolio value · profit ${rngLabel}${shown.length ? ` · ${mdLabel(shown[0].day)} to ${mdLabel(shown[shown.length - 1].day)}` : ''}${rng === 'YTD' && firstShop && firstShop > day.slice(0, 4) + '-01-01' ? html` <span title="Shopify only gives the app your recent days">(numbers start ${mdLabel(firstShop)}, the first day with numbers)</span>` : ''}</div><div class="skbig">${total == null ? '—' : (total < 0 ? '−' : '') + R.money(Math.abs(total))}</div>
-        <div class=${'skdelta ' + ((cur.profit || 0) >= 0 ? 'pos' : 'neg')}>${cur.profit == null ? '—' : (cur.profit >= 0 ? '+' : '−') + R.money(Math.abs(cur.profit))}${chPct != null ? ` (${chPct >= 0 ? '+' : ''}${chPct.toFixed(1)}%)` : ''} <span class="muted">${dayName}</span></div></div><span class="spacer"></span>${drop}</div>
-      <${PortfolioChart} pts=${shown} />
-      <div class="row skrng">${[['1W', '1W'], ['MTD', 'This month'], ['3M', '3M'], ['YTD', 'This year']].map(([k, l]) => html`<button class=${rng === k ? 'on' : ''} onClick=${() => { setRng(k); lsSet('adlab-sk-range2', k); }}>${l}</button>`)}<span class="spacer"></span><span class="small muted">profit after ads and all costs · your entered numbers, estimated on days without them</span></div>
+      <div class="row" style="align-items:flex-end;flex-wrap:wrap"><div><div class="small muted">Portfolio value · profit ${rngLabel}${daily.length ? ` · ${mdLabel(daily[0].day)} to ${mdLabel(daily[daily.length - 1].day)}` : ''}${rng === 'YTD' && firstShop && firstShop > day.slice(0, 4) + '-01-01' ? html` <span title="Shopify only gives the app your recent days">(numbers start ${mdLabel(firstShop)}, the first day with numbers)</span>` : ''}</div><div class="skbig">${total == null ? '—' : (total < 0 ? '−' : '') + R.money(Math.abs(total))}</div>
+        ${hp ? html`<div class=${'skdelta ' + (hp.v >= 0 ? 'pos' : 'neg')}>${(hp.v >= 0 ? '+' : '−') + R.money(Math.abs(hp.v))} <span class="muted">${hp.unit === 'month' ? `in ${hp.long}${hp.partial ? ' so far' : ''}` : `on ${R.parseDay(hp.day).toLocaleDateString('en-US', { weekday: 'short' })} ${mdLabel(hp.day)}`} · total through then</span></div>`
+          : html`<div class=${'skdelta ' + ((cur.profit || 0) >= 0 ? 'pos' : 'neg')}>${cur.profit == null ? '—' : (cur.profit >= 0 ? '+' : '−') + R.money(Math.abs(cur.profit))}${chPct != null ? ` (${chPct >= 0 ? '+' : ''}${chPct.toFixed(1)}%)` : ''} <span class="muted">${dayName}</span></div>`}</div><span class="spacer"></span>${drop}</div>
+      <${PortfolioChart} key=${rng} pts=${shown} onSel=${setHv} />
+      <div class="row skrng">${[['1W', '1W'], ['MTD', 'This month'], ['3M', '3M'], ['YTD', 'This year']].map(([k, l]) => html`<button class=${rng === k ? 'on' : ''} onClick=${() => { setRng(k); setHv(null); lsSet('adlab-sk-range2', k); }}>${l}</button>`)}<span class="spacer"></span><span class="small muted">profit after ads and all costs · your entered numbers, estimated on days without them</span></div>
       <div class="skstrip">${strip.map(([a, b, c, d]) => html`<div><div class="small muted">${a}</div><div class=${'skv ' + c}>${b}</div><div class="tiny muted">${d}</div></div>`)}</div>
       <section class="panel sktarget"><div class="row small" style="gap:8px;flex-wrap:wrap"><b>${MON_LONG[+day.slice(5, 7) - 1]} price target</b><span class="muted">${R.money0(gLo)} goal · ${R.money0(gHi)} stretch</span><span class="spacer"></span><b>${signMoney(mt.profit)}</b><span class="muted">· ${elapsed} of ${dim} days</span></div>
         <div class="row" style="gap:12px"><div class="sktrack grow"><i style=${`width:${Math.max(0, Math.min(100, (mt.profit || 0) / gHi * 100)).toFixed(1)}%`}></i><b style=${`left:${(gLo / gHi * 100).toFixed(1)}%`}></b></div>${ahead != null && html`<span class=${'sig ' + (ahead >= 0 ? 'sig-buy' : 'sig-sell')}>${ahead >= 0 ? 'AHEAD BY ' : 'BEHIND BY '}${R.money0(Math.abs(ahead))}</span>`}</div>
