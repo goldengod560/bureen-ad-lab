@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=155';
-import * as R from './rules.js?v=155';
-import { importHistory } from './importer.js?v=155';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=155';
+import { createBackend } from './data.js?v=156';
+import * as R from './rules.js?v=156';
+import { importHistory } from './importer.js?v=156';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=156';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -21,7 +21,7 @@ const STOCKS_READY = true; // More → Look switches between Classic and Stocks
 let LOOK = (() => { try { return STOCKS_READY ? (localStorage.getItem('adlab-look') || 'classic') : 'classic'; } catch (e) { return 'classic'; } })();
 const NAMES = { stocks: { today: 'Overview', board: 'Portfolio', archive: 'History', goal: 'Goals', stats: 'Stats', angles: 'Angles', rules: 'Rules', learn: 'Journal', more: 'More' } };
 // The tab icon and bar colour follow the look. The home-screen icon is always the Stocks one.
-function applyLook(l) { try { document.documentElement.dataset.look = l; const f = document.getElementById('favicon'); if (f) f.href = l === 'stocks' ? 'icons/bg-192.png' : 'icons/icon-192.png'; const t = document.querySelector('meta[name=theme-color]'); if (t) t.content = l === 'stocks' ? '#000000' : '#060A12'; } catch (e) {} }
+function applyLook(l) { try { document.documentElement.dataset.look = l; const f = document.getElementById('favicon'); if (f) f.href = l === 'stocks' ? 'icons/ba-192.png' : 'icons/icon-192.png'; const t = document.querySelector('meta[name=theme-color]'); if (t) t.content = l === 'stocks' ? '#000000' : '#060A12'; } catch (e) {} }
 applyLook(LOOK);
 const navName = (k, l) => (NAMES[LOOK] && NAMES[LOOK][k]) || l;
 const posterTried = new Set();
@@ -167,7 +167,7 @@ function App() {
 
   return html`
     <header class="top">
-      <div class="brand">${look === 'stocks' ? html`<img class="skmark" src="icons/bg-192.png" alt="" width="28" height="28" />Bureen` : html`<i></i>BUREEN<b>AD LAB</b>`}</div>
+      <div class="brand">${look === 'stocks' ? html`<img class="skmark" src="icons/ba-192.png" alt="" width="28" height="28" />Bureen` : html`<i></i>BUREEN<b>AD LAB</b>`}</div>
       ${look === 'stocks' && html`<${TopSearch} data=${data} setModal=${setModal} />`}
       <nav class="nav" aria-label="Sections">${NAV.filter(([k]) => !(look === 'stocks' && k === 'angles')).map(([k, l]) => html`<button class=${view === k ? 'on' : ''} onClick=${() => setView(k)}>${navName(k, l)}</button>`)}</nav>
       <div class="right">
