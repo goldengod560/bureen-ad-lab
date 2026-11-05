@@ -1,0 +1,78 @@
+/* Look picker (both looks) */
+.looks{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.lookopt{display:flex;flex-direction:column;gap:4px;align-items:flex-start;text-align:left;padding:10px;border-radius:12px;border:1px solid var(--line2);background:var(--panel);color:inherit;cursor:pointer;font:inherit}
+.lookopt.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.lookprev{width:100%;height:46px;border-radius:8px;display:block}
+.lk-classic .lookprev{background:linear-gradient(90deg,#0B1220 60%,#3D8BFF 60% 62%,#0B1220 62%);border:1px solid #1A2740}
+.lk-stocks .lookprev{background:#000 linear-gradient(160deg,transparent 55%,rgba(0,200,5,.35) 56%,transparent 70%);border:1px solid #24292E}
+
+/* ===== Stocks look ===== */
+html[data-look=stocks]{
+  --bg:#000; --panel:#111316; --panel2:#1B1F23; --line:#24292E; --line2:#343B42;
+  --ink:#F5F7F8; --soft:#D5DADF; --muted:#8A939C; --dim:#5E666E;
+  --accent:#00C805; --accent2:#3DDC44; --pass:#00C805; --mid:#FFB020; --ins:#8A939C; --fail:#FF5000;
+  --display:"Inter",system-ui,-apple-system,sans-serif; --body:"Inter",system-ui,-apple-system,sans-serif; --mono:"Inter",system-ui,sans-serif;
+}
+html[data-look=stocks] body{background:#000;background-image:none;font-variant-numeric:tabular-nums}
+html[data-look=stocks] h1,html[data-look=stocks] h2,html[data-look=stocks] h3{text-transform:none;letter-spacing:-.01em;font-weight:700}
+html[data-look=stocks] .top{background:rgba(0,0,0,.94)}
+html[data-look=stocks] .brand{font:800 20px var(--body);letter-spacing:-.01em}
+html[data-look=stocks] .brand i{width:20px;height:20px;border-radius:6px;box-shadow:none;vertical-align:-4px;margin-right:8px}
+html[data-look=stocks] .brand b{display:none}
+html[data-look=stocks] .nav button.on{background:none;box-shadow:none;color:var(--accent)}
+html[data-look=stocks] .nav button{color:var(--ink);font-weight:600}
+html[data-look=stocks] .panel{border:0;border-radius:14px;background:var(--panel)}
+html[data-look=stocks] .tile{border:0;border-radius:12px}
+html[data-look=stocks] .btn{border-radius:999px}
+html[data-look=stocks] .btn.primary{color:#000;box-shadow:none}
+html[data-look=stocks] .chip{border-radius:6px}
+html[data-look=stocks] .tcard{border-radius:12px}
+html[data-look=stocks] .bnav{background:#000}
+html[data-look=stocks] .bnav button.on{color:var(--accent);box-shadow:none}
+html[data-look=stocks] .slots i.on{background:var(--accent);box-shadow:none}
+
+/* signals */
+.sig{display:inline-flex;align-items:center;font:800 10.5px/1 var(--body);letter-spacing:.04em;padding:4px 8px;border-radius:999px;white-space:nowrap;vertical-align:middle}
+.sig-buy{background:var(--pass);color:#000}.sig-hold{background:#2A3036;color:var(--ink)}.sig-sell{background:var(--fail);color:#000}.sig-dec{background:var(--mid);color:#000}.sig-wait{border:1px solid #4A8CFF;color:#9CC0FF;background:rgba(74,140,255,.12)}
+.sigd{font-size:11.5px;font-weight:700;color:#9CC0FF;margin-left:6px}
+.sigrow{display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin:2px 0}
+
+/* stocks overview */
+.skov{display:grid;grid-template-columns:minmax(0,1fr) 350px;gap:24px;align-items:start}
+.skmain{display:flex;flex-direction:column;gap:14px;min-width:0}
+.skbig{font-size:52px;font-weight:800;letter-spacing:-.02em;line-height:1.05}
+.skdelta{font-weight:600}
+.pos{color:var(--pass)}.neg{color:var(--fail)}
+.skread{padding:6px 0;border-bottom:1px solid var(--line)}
+.skax{fill:var(--muted);font:11px var(--body)}
+.skrng button{background:none;border:0;color:var(--muted);font:700 13px var(--body);padding:6px 10px;border-radius:6px;cursor:pointer}
+.skrng button.on{color:var(--accent);background:rgba(0,200,5,.12)}
+.skrng{border-bottom:1px solid var(--line);padding-bottom:8px}
+.skstrip{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}
+.skv{font-size:20px;font-weight:700}
+.sktrack{position:relative;height:10px;background:var(--panel2);border-radius:5px}
+.sktrack i{position:absolute;left:0;top:0;bottom:0;background:var(--pass);border-radius:5px}
+.sktrack b{position:absolute;top:-4px;width:2px;height:18px;background:var(--ink)}
+.sktarget{gap:8px}
+.skgrid2{display:grid;grid-template-columns:1.2fr 1fr;gap:14px;align-items:start}
+.sktrade{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}
+.sktrade .thumb.sm{width:46px;height:46px}
+.skup{width:46px;height:46px;border:1px dashed var(--line2);border-radius:10px;display:grid;place-items:center;color:var(--muted);flex-shrink:0}
+.skcal{display:flex;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--line);font-size:13px}
+.skcal b{width:62px;flex-shrink:0}
+.skdot{width:8px;height:8px;border-radius:50%;flex-shrink:0;background:var(--muted)}
+.skdot.red{background:var(--fail)}.skdot.amber{background:var(--mid)}.skdot.blue{background:#4A8CFF}.skdot.green{background:var(--pass)}
+.skwatch{gap:2px;position:sticky;top:80px}
+.sklbl{font-weight:700;font-size:13px;margin:12px 0 2px}
+.skrow{display:flex;align-items:center;gap:10px;padding:8px 0;border:0;border-top:1px solid var(--line);background:none;color:inherit;width:100%;text-align:left;cursor:pointer;font:inherit}
+.skrow .thumb{width:38px;height:38px}
+.thumb.round{border-radius:50%}
+.tdot{width:8px;height:8px;border-radius:50%;flex-shrink:0;background:#2F6BFF}
+.tdot.k-vneck{background:#FF8A1F}.tdot.k-long{background:#9B5CFF}.tdot.k-thermal{background:#C9CED6}.tdot.k-tank{background:#D7263D}
+.skpill{min-width:62px;text-align:center;font-weight:700;font-size:13px;padding:6px 8px;border-radius:8px;color:#000}
+.skpill.g{background:var(--pass)}.skpill.a{background:var(--mid)}.skpill.r{background:var(--fail)}.skpill.q{background:none;color:var(--muted);font-weight:500}
+@media (max-width:1100px){.skov{grid-template-columns:minmax(0,1fr)}.skwatch{position:static}.skstrip{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:700px){.skgrid2{grid-template-columns:minmax(0,1fr)}.skstrip{grid-template-columns:repeat(2,minmax(0,1fr))}.skbig{font-size:40px}}
+.skov .o-drop .drop{border:0;background:none;padding:0;flex-direction:column;align-items:flex-end}
+.skov .o-drop .drop>.small{display:none}
+.skov .o-drop .status{max-width:420px}
