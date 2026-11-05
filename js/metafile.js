@@ -1,6 +1,6 @@
 // Reads an Ads Manager export (CSV or Excel) into one row per ad per day.
 // Export at the Ad level, either one day at a time or with Breakdown → Time → Day.
-import * as R from './rules.js?v=156';
+import * as R from './rules.js?v=157';
 
 function parseCSV(text) {
   const rows = []; let row = [], cell = '', q = false;
@@ -128,9 +128,18 @@ export const normName = (s) => String(s || '').toLowerCase().replace(/\s*\|\s*\d
 
 // Every name an ad has had: its current name plus old names (renamed in Ads Manager), so files under either still match.
 export const namesOf = (ad) => [ad.base_name, ...((((ad.tags || {}).aliases) || []))].filter(Boolean).map(normName);
+// Rows are indexed by ad name once per file set, so looking up an ad doesn't scan every row again.
+const rowIndex = new WeakMap();
+function indexOf(metaDays) {
+  let ix = rowIndex.get(metaDays);
+  if (!ix) { ix = new Map(); metaDays.forEach((r, i) => { const k = normName(r.ad_name); let a = ix.get(k); if (!a) ix.set(k, (a = [])); a.push(i); }); rowIndex.set(metaDays, ix); }
+  return ix;
+}
 export function rowsForAd(ad, metaDays) {
-  const ns = new Set(namesOf(ad));
-  return metaDays.filter((r) => ns.has(normName(r.ad_name)));
+  const ix = indexOf(metaDays), ns = [...new Set(namesOf(ad))];
+  if (ns.length === 1) return (ix.get(ns[0]) || []).map((i) => metaDays[i]);
+  const all = ns.flatMap((n) => ix.get(n) || []).sort((a, b) => a - b);
+  return all.map((i) => metaDays[i]);
 }
 
 // Sum a list of daily rows.

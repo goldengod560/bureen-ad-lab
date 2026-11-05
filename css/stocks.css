@@ -386,3 +386,5 @@ html[data-look=stocks] .brand{display:flex;align-items:center;gap:8px;white-spac
 .skimg>.gbadge{z-index:2}.skimg>.check{z-index:2}
 .skimg>.thumb .play{z-index:1}
 html[data-look=stocks] .brand .skmark{width:30px;height:30px}
+/* the card is what you drag, never the picture inside it */
+.skcard img,.skcard video,.tcard img,.tcard video{-webkit-user-drag:none;user-drag:none;pointer-events:none;user-select:none}

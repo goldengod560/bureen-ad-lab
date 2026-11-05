@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=156';
-import * as R from './rules.js?v=156';
-import { importHistory } from './importer.js?v=156';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=156';
+import { createBackend } from './data.js?v=157';
+import * as R from './rules.js?v=157';
+import { importHistory } from './importer.js?v=157';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=157';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -88,7 +88,9 @@ function App() {
   const [session, setSession] = useState(undefined);
   const [data, setData] = useState(null);
   const [pid, setPid] = useState(() => { try { return localStorage.getItem('adlab-pid'); } catch (e) { return null; } });
-  const [view, setView] = useState('board');
+  // Remember the page, so a refresh stays where you were.
+  const [view, setViewRaw] = useState(() => { const v = lsGet('adlab-view', 'board'); return ['today', 'board', 'archive', 'goal', 'stats', 'angles', 'rules', 'learn', 'more'].includes(v) ? v : 'board'; });
+  const setView = (v) => { setViewRaw(v); lsSet('adlab-view', v); };
   const [look, setLookRaw] = useState(LOOK);
   const setLook = (v) => { LOOK = v; setLookRaw(v); lsSet('adlab-look', v); };
   useEffect(() => { applyLook(look); }, [look]);
@@ -1844,7 +1846,8 @@ const SK_STAGE = { next: ['Watchlist · Up next', 'Ready to launch, in order'], 
   ideas: ['Ideas', 'Not listed yet'], retest: ['Relist', 'Never got a fair shot'], exhausted: ['Matured', 'Worked, then wore out'], mid: ['Flat', 'Close, not quite'], failed: ['Sold at a loss', 'Did not pass'], seasonal: ['Parked', 'Saved for a sale'], retired: ['Delisted', 'Put away'] };
 const skName = (k) => (['next', 'testing', 'bench', 'main'].includes(k) ? SK_STAGE[k][0] : R.stageLabel(k));
 // The last full day with Meta numbers: never today, since today isn't finished (matches Ads Manager's "Last 7 days").
-function lastMetaDay(data) { const m = data.meta_days.reduce((a, r) => (r.day > a ? r.day : a), ''), y = R.addDays(R.today(), -1); return m && m > y ? y : m; }
+const lastMetaCache = new WeakMap();
+function lastMetaDay(data) { let m = lastMetaCache.get(data.meta_days); if (m == null) { m = data.meta_days.reduce((a, r) => (r.day > a ? r.day : a), ''); lastMetaCache.set(data.meta_days, m); } const y = R.addDays(R.today(), -1); return m && m > y ? y : m; }
 function adRange(ad, data, a, b) { return sumRows(rowsForAd(ad, data.meta_days).filter((r) => r.day >= a && r.day <= b)); }
 function adDaily(ad, data, n = 7) {
   const last = lastMetaDay(data) || R.today(), rows = rowsForAd(ad, data.meta_days);
