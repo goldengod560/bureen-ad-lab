@@ -377,3 +377,5 @@ html[data-look=stocks] .folder span{font:700 12px var(--body)}
   .sksec>span:last-child{display:none}
 }
 @media (max-width:900px){ .skov .skgrid2>.sktradecol{order:1} }
+html[data-look=stocks] .brand .skmark{width:28px;height:28px;border-radius:7px;margin-right:2px;display:block}
+html[data-look=stocks] .brand{display:flex;align-items:center;gap:8px;white-space:nowrap}
