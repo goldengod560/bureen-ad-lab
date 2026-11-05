@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=147';
-import * as R from './rules.js?v=147';
-import { importHistory } from './importer.js?v=147';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=147';
+import { createBackend } from './data.js?v=148';
+import * as R from './rules.js?v=148';
+import { importHistory } from './importer.js?v=148';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=148';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -17,7 +17,8 @@ const toneOf = (result) => (R.RESULTS[result] || {}).tone || 'muted';
 const extOf = (file) => (file.name.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '');
 let toastTimer;
 // Look: 'classic' (default) or 'stocks'. Same pages and data; Stocks changes names, colours and some layouts.
-let LOOK = (() => { try { return localStorage.getItem('adlab-look') || 'classic'; } catch (e) { return 'classic'; } })();
+const STOCKS_READY = false; // the Stocks look stays hidden until every page is done
+let LOOK = (() => { try { return STOCKS_READY ? (localStorage.getItem('adlab-look') || 'classic') : 'classic'; } catch (e) { return 'classic'; } })();
 const NAMES = { stocks: { today: 'Overview', board: 'Portfolio', archive: 'History', goal: 'Goals', stats: 'Stats', angles: 'Angles', rules: 'Rules', learn: 'Journal', more: 'More' } };
 try { document.documentElement.dataset.look = LOOK; } catch (e) {}
 const navName = (k, l) => (NAMES[LOOK] && NAMES[LOOK][k]) || l;
@@ -3566,8 +3567,8 @@ function More(ctx) {
   };
   return html`
     <h1 style="font-size:30px">More</h1>
-    <section class="panel"><h2>Look</h2><p class="small muted" style="margin:0">Same pages, same numbers, same buttons. Only the style and some names change. Saved on this device.</p>
-      <div class="looks">${[['classic', 'Classic', 'The look you have now'], ['stocks', 'Stocks', 'Portfolio, watchlist and a signal on every ad']].map(([k, l, d]) => html`<button type="button" class=${'lookopt lk-' + k + (look === k ? ' on' : '')} onClick=${() => setLook(k)}><span class="lookprev"></span><b>${l}${look === k ? ' ✓' : ''}</b><span class="small muted">${d}</span></button>`)}</div></section>
+    ${STOCKS_READY && html`<section class="panel"><h2>Look</h2><p class="small muted" style="margin:0">Same pages, same numbers, same buttons. Only the style and some names change. Saved on this device.</p>
+      <div class="looks">${[['classic', 'Classic', 'The look you have now'], ['stocks', 'Stocks', 'Portfolio, watchlist and a signal on every ad']].map(([k, l, d]) => html`<button type="button" class=${'lookopt lk-' + k + (look === k ? ' on' : '')} onClick=${() => setLook(k)}><span class="lookprev"></span><b>${l}${look === k ? ' ✓' : ''}</b><span class="small muted">${d}</span></button>`)}</div></section>`}
     <div class="grid2">
       <section class="panel"><h2>Angles</h2><p class="small muted" style="margin:0">How each angle and concept has done, with every ad that ran it.</p><div class="row"><button class="btn" onClick=${() => setView('angles')}>Open Angles</button></div></section>
       <${ZipAll} data=${data} />
