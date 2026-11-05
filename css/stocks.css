@@ -338,3 +338,42 @@ html[data-look=stocks] .folder span{font:700 12px var(--body)}
   .skgrid .skkv{grid-template-columns:repeat(2,auto)}
   .skphonebox .skgrid .skkv{grid-template-columns:repeat(4,auto)}
 }
+/* Record the Main result: numbers from the files */
+.mcmp{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.mcmp>div{display:flex;flex-direction:column;gap:3px;background:var(--panel2);border-radius:10px;padding:10px 12px}
+.mcmp small{color:var(--muted);font-size:12px}
+.mcmp b{font-size:24px}
+@media (max-width:700px){.mcmp{grid-template-columns:minmax(0,1fr)}}
+/* chart readout above the plot */
+.skread{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;min-height:22px;margin-bottom:4px}
+.skread i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px}
+/* loaned test cards (another product's test using this product's slot) */
+.skcard.loan{opacity:.45}
+.skcard.loan .skimg img,.skcard.loan .skimg video{filter:grayscale(1)}
+.skcard.loan:hover,.skcard.loan:focus-visible{opacity:.85}
+/* products panel */
+.sksec{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1.1fr) .5fr .8fr 1fr;gap:8px;align-items:center;padding:8px 0;border-top:1px solid var(--line);font-size:13.5px}
+.sksec>span{min-width:0;display:flex;flex-direction:column;gap:3px}
+.sksec>span.skwt{flex-direction:row}
+.sksech{border-top:0;padding:2px 0}
+.skspend{display:block;height:4px;border-radius:2px;background:#4A8CFF;opacity:.7}
+.skr0{font-weight:800}.skr0.g{color:var(--pass)}.skr0.a{color:var(--mid)}.skr0.r{color:var(--fail)}
+.sktot{border-top:1px solid var(--line2)}
+/* journal history */
+.skhm{font:800 12px var(--body);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:14px 0 4px}
+.skh{display:grid;grid-template-columns:64px 112px minmax(0,1fr) auto;gap:12px;align-items:start;padding:10px 0;border-top:1px solid var(--line)}
+.skhd{display:flex;flex-direction:column;line-height:1.2}
+.skhd b{font-size:13.5px;white-space:nowrap}
+.skhk{font:700 11.5px var(--body);white-space:nowrap;border-radius:999px;padding:3px 9px;justify-self:start;background:var(--panel2);color:var(--muted)}
+.skhk.k-mid{background:rgba(255,176,32,.14);color:var(--mid)}.skhk.k-ins{background:rgba(74,140,255,.14);color:#7FB0FF}.skhk.k-live{background:rgba(0,200,5,.12);color:var(--pass)}.skhk.k-pass{background:rgba(0,200,5,.12);color:var(--pass)}
+.skht{font-size:14px;line-height:1.45;overflow-wrap:anywhere}
+.skhx{display:flex;gap:10px;opacity:.6}
+.skh:hover .skhx{opacity:1}
+@media (max-width:700px){
+  .skh{grid-template-columns:56px minmax(0,1fr);gap:4px 10px}
+  .skh .skhk{grid-column:2}.skh .skht{grid-column:2}.skh .skhx{grid-column:2}
+  .skhd{grid-row:1/4}
+  .sksec{grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) .5fr .8fr;font-size:13px}
+  .sksec>span:last-child{display:none}
+}
+@media (max-width:900px){ .skov .skgrid2>.sktradecol{order:1} }

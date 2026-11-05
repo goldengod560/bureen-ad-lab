@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=149';
-import * as R from './rules.js?v=149';
-import { importHistory } from './importer.js?v=149';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=149';
+import { createBackend } from './data.js?v=150';
+import * as R from './rules.js?v=150';
+import { importHistory } from './importer.js?v=150';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=150';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -367,7 +367,7 @@ function adSignal(ad, data) {
   }
   if (ad.stage === 'main') {
     if (t && t.stage === 2) { const end = R.addDays(t.start_date, rules.stage2Min); return end <= R.today() ? { k: 'dec', why: 'The trial in Main is done. Keep it or send it back.' } : { k: 'wait', date: end }; }
-    const last = data.meta_days.reduce((m, r) => (r.day > m ? r.day : m), ''); if (!last) return { k: 'hold' };
+    const last = lastMetaDay(data); if (!last) return { k: 'hold' };
     const rows = rowsForAd(ad, data.meta_days), sum = (a, b) => sumRows(rows.filter((r) => r.day > a && r.day <= b));
     const cur = sum(R.addDays(last, -7), last), prev = sum(R.addDays(last, -14), R.addDays(last, -7)), be = R.econOf(p).opBE || 2.85;
     const roas = (x) => (x.spend ? x.revenue / x.spend : null);
@@ -684,7 +684,7 @@ function Archive(ctx) {
   const list = searching ? b.apply(ads.filter((a) => FOLDERS.includes(a.stage) && b.match(a)), data) : b.apply(ads.filter((a) => a.stage === folder), data);
   const hint = { ideas: 'Drafts and new uploads. Tap one and choose "Ready: put in Up Next" when it is ready to launch.', retest: 'Ads that never got a fair shot. Queue one for a retest when you want to run it again.', exhausted: 'Worked, then fatigued. Revive one to the Bench after a long rest.', mid: 'Close but not a pass. Best ones to recycle with a fix.', failed: 'Did not work.', seasonal: 'Sale and holiday ads.', retired: 'Hidden from everything else.' };
   return html`
-    <div class="row"><h1 style="font-size:30px">${LOOK === 'stocks' ? 'Closed positions' : 'Archive'}</h1></div>
+    <div class="row"><h1 style="font-size:30px">${LOOK === 'stocks' ? 'History' : 'Archive'}</h1></div>
     <div class="folders">${FOLDERS.map((f) => html`<button class=${'folder' + (folder === f && !searching ? ' on' : '')} onClick=${() => { setFolder(f); b.setQ(''); }}><b>${LOOK === 'stocks' ? skName(f) : R.stageLabel(f)}</b><span>${count(f)}</span></button>`)}</div>
     ${LOOK === 'stocks' && html`<${StockArchiveTop} data=${data} product=${product} />`}
     <${Toolbar} b=${b} data=${data} product=${product} sel=${sel} setSel=${setSel} />
@@ -1468,12 +1468,29 @@ function MainForm(ctx) {
     await be.insert('decisions', { product_id: ad.product_id, ad_id: ad.id, kind: 'move', day: f.date, choice: emergency ? 'Straight to Main without a test' : 'Put in Main (Stage 2)', reason: f.note || 'Budget unchanged' });
     await reload(); close(); say('In Main. Check back in ' + rules.stage2Min + ' to ' + rules.stage2Max + ' days.');
   };
-  const record = async () => {
-    const held = f.verdict === 'held';
-    await be.update('tests', test.id, { status: 'complete', result: held ? 'held' : 'not_held', result_reason: `Main ROAS ${f.base || (test.conditions || {}).baseRoas || '?'}x before, ${f.after || '?'}x after.`, override_reason: f.note || null });
-    if (!held) await be.update('ads', ad.id, { stage: f.dest, tags: { ...(ad.tags || {}), notHeld: true } });
-    await be.insert('decisions', { product_id: ad.product_id, ad_id: ad.id, test_id: test.id, kind: 'result', choice: held ? 'Held in Main' : `Didn't hold in Main, moved to ${R.stageLabel(f.dest)}`, reason: f.note });
-    await reload(); close(); say(held ? 'Held in Main' : 'Moved to ' + R.stageLabel(f.dest));
+  // Main numbers come straight from your Ads Manager files: the other Main ads in the 7 days before it went in,
+  // then all of Main (with it) from that day through yesterday. Today is left out because it isn't finished.
+  const cmp = useMemo(() => {
+    if (!test || !test.start_date) return null;
+    const y = R.addDays(R.today(), -1), from = test.start_date;
+    const others = data.ads.filter((a) => a.product_id === ad.product_id && a.stage === 'main' && a.id !== ad.id);
+    const rows = (list, a, b) => list.flatMap((x) => rowsForAd(x, data.meta_days)).filter((r) => r.day >= a && r.day <= b);
+    const before = sumRows(rows(others, R.addDays(from, -7), R.addDays(from, -1))), after = sumRows(rows([...others, ad], from, y)), self = sumRows(rows([ad], from, y));
+    const be0 = R.econOf(product).opBE || 2.85, rr = (x) => (x.spend ? x.revenue / x.spend : null);
+    const b = rr(before) != null ? rr(before) : R.num((test.conditions || {}).baseRoas), a = rr(after), me = rr(self);
+    const keep = a != null && a >= be0 && (b == null || a >= b * 0.9);
+    const why = a == null ? 'No Main numbers since it went in yet. Add an Ads Manager file first.'
+      : keep ? `Main is at ${R.xroas(a)} since it went in${b != null ? `, ${a >= b ? 'up' : 'about level'} from ${R.xroas(b)} before` : ''}, and above break-even ${R.xroas(be0)}.`
+      : a < be0 ? `Main dropped to ${R.xroas(a)} since it went in, under break-even ${R.xroas(be0)}.` : `Main fell from ${R.xroas(b)} to ${R.xroas(a)} since it went in.`;
+    const why2 = why + (a != null && me != null && me < be0 ? ` On its own this ad is at ${R.xroas(me)}, under break-even, so keep an eye on it.` : '');
+    return { before, after, self, b, a, me, keep, why: why2, from, y, be0 };
+  }, [data, test]);
+  const record = async (held, dest) => {
+    const base = cmp && cmp.b != null ? cmp.b.toFixed(2) : f.base || (test.conditions || {}).baseRoas || '?', aft = cmp && cmp.a != null ? cmp.a.toFixed(2) : f.after || '?';
+    await be.update('tests', test.id, { status: 'complete', result: held ? 'held' : 'not_held', result_reason: `Main ROAS ${base}x before, ${aft}x after.${cmp && cmp.me != null ? ` This ad ${cmp.me.toFixed(2)}x.` : ''}`, override_reason: f.note || null });
+    if (!held) await be.update('ads', ad.id, { stage: dest, tags: { ...(ad.tags || {}), notHeld: true } });
+    await be.insert('decisions', { product_id: ad.product_id, ad_id: ad.id, test_id: test.id, kind: 'result', choice: held ? 'Held in Main' : `Didn't hold in Main, moved to ${R.stageLabel(dest)}`, reason: f.note || (cmp ? cmp.why : '') });
+    await reload(); close(); say(held ? 'Kept in Main' : 'Moved to ' + R.stageLabel(dest));
   };
   const days = test && test.start_date ? R.daysBetween(test.start_date, R.today()) : 0;
   const benchLeft = data.ads.filter((a) => a.product_id === ad.product_id && a.stage === 'bench' && a.id !== ad.id).length;
@@ -1485,12 +1502,13 @@ function MainForm(ctx) {
       <${Field} full label=${emergency ? 'Why skip the test' : 'Note'}><input value=${f.note} onInput=${set('note')} /><//></div>
       <div class="row"><button class="btn primary" onClick=${start}>Put in Main</button><button class="btn ghost" onClick=${close}>Cancel</button></div>`
     : html`${days < rules.stage2Min && html`<div class="banner">Only ${days} days in Main. Your rule is ${rules.stage2Min} to ${rules.stage2Max}.</div>`}
-      <div class="form"><${Field} label="Main ROAS before"><input inputmode="decimal" value=${f.base || ((test && test.conditions) || {}).baseRoas || ''} onInput=${set('base')} /><//>
-      <${Field} label="Main ROAS since adding it"><input inputmode="decimal" value=${f.after} onInput=${set('after')} /><//>
-      <${Field} label="Verdict"><select value=${f.verdict} onChange=${set('verdict')}><option value="held">Held in Main (keep it)</option><option value="not">Didn't hold</option></select><//>
-      ${f.verdict !== 'held' && html`<${Field} label="Move it to"><select value=${f.dest} onChange=${set('dest')}><option value="bench">Bench (try again later)</option><option value="mid">Mid-Tier</option><option value="failed">Failed</option></select><//>`}
-      <${Field} full label="Note"><input value=${f.note} onInput=${set('note')} /><//></div>
-      <div class="row"><button class="btn primary" onClick=${record}>Save</button><button class="btn ghost" onClick=${close}>Cancel</button></div>`}
+      ${cmp && html`<div class="mcmp">${[[`Main before · ${mdLabel(R.addDays(cmp.from, -7))} to ${mdLabel(R.addDays(cmp.from, -1))}`, cmp.b, cmp.before], [`Main since it went in · ${mdLabel(cmp.from)} to ${mdLabel(cmp.y)}`, cmp.a, cmp.after], ['This ad in Main', cmp.me, cmp.self]].map(([l, r, t]) => html`<div><small>${l}</small><b class=${r == null ? '' : r >= cmp.be0 ? 'pos' : 'neg'}>${r == null ? '—' : R.xroas(r)}</b><span class="tiny muted">${t.spend ? `${R.money0(t.spend)} spent · ${Math.round(t.purchases)} buys` : 'no numbers'}</span></div>`)}</div>
+        <div class=${'status ' + (cmp.a == null ? 'warn' : cmp.keep ? 'good' : 'bad')}><b>${cmp.a == null ? 'Not enough numbers yet' : cmp.keep ? 'Suggestion: keep it' : 'Suggestion: take it out'}</b> · ${cmp.why}</div>`}
+      <div class="tiny muted">From your Ads Manager files, through yesterday (today isn't finished). Pick one, then make the same change in Meta.</div>
+      <${Field} full label="Note (optional)"><input value=${f.note} onInput=${set('note')} /><//>
+      <div class="row" style="flex-wrap:wrap;gap:8px"><button class=${'btn ' + (!cmp || cmp.keep ? 'primary' : '')} onClick=${() => record(true)}>Keep in Main</button>
+        <button class=${'btn ' + (cmp && !cmp.keep && cmp.a != null ? 'primary' : '')} onClick=${() => record(false, 'bench')}>Back to Bench</button>
+        <button class="btn" onClick=${() => record(false, 'mid')}>Mid-Tier</button><button class="btn danger" onClick=${() => record(false, 'failed')}>Failed</button><button class="btn ghost" onClick=${close}>Cancel</button></div>`}
   <//>`;
 }
 
@@ -1709,7 +1727,7 @@ function PortfolioChart({ pts }) {
       ${[lo, (lo + hi) / 2, hi].map((t) => html`<line x1=${L} x2=${W} y1=${y(t)} y2=${y(t)} stroke="var(--line)" /><text x=${L - 6} y=${y(t) + 4} text-anchor="end" class="skax">${signMoney(t)}</text>`)}
       <path d=${area} fill="url(#skg)" /><polyline points=${line} fill="none" stroke="var(--pass)" stroke-width="2.5" stroke-linejoin="round" />
       <line x1=${x(i)} x2=${x(i)} y1=${T} y2=${H - B} stroke="var(--line2)" /><circle cx=${x(i)} cy=${y(p.cum)} r="5" fill="var(--pass)" stroke="#000" stroke-width="2" />
-      ${pts.map((q, k) => k % step === 0 && html`<text x=${x(k)} y=${H - 5} text-anchor="middle" class="skax">${mdLabel(q.day)}</text>`)}
+      ${pts.map((q, k) => (k % step === 0 || k === pts.length - 1) && !(k !== pts.length - 1 && k > pts.length - 1 - step / 2) && html`<text x=${x(k)} y=${H - 5} text-anchor=${k === pts.length - 1 && k > 0 ? 'end' : k === 0 ? 'start' : 'middle'} class="skax">${mdLabel(q.day)}</text>`)}
     </svg></div>`;
 }
 function Spark({ vals, be }) {
@@ -1722,17 +1740,20 @@ function Spark({ vals, be }) {
 const roasPill = (v) => html`<span class=${'skpill ' + (v == null ? 'q' : v >= 2.85 ? 'g' : v >= 2 ? 'a' : 'r')}>${v == null ? 'queued' : v ? R.xroas(v) : '0 buys'}</span>`;
 function StocksOverview(p) {
   const { data, products, setModal, cur, prv, day, dayLbl, mt, gLo, gHi, dim, elapsed, todo, heads, liveRows, wk, ready, drop, green, known, budget, bev, VERB } = p;
-  const [rng, setRng] = useState(() => lsGet('adlab-sk-range', 'ALL'));
+  const [rng, setRng] = useState(() => lsGet('adlab-sk-range2', 'MTD'));
   const [newsAll, setNewsAll] = useState(false);
   const econ = R.econOf(products.find((x) => x.kind === 'crew') || products[0]);
   const all = useMemo(() => {
-    const ds = [...new Set(data.shop_days.map((d) => d.day))].filter((d) => d <= day).sort().slice(-120);
+    const ds = [...new Set(data.shop_days.map((d) => d.day))].filter((d) => d <= day && d >= day.slice(0, 4) + '-01-01').sort();
     let c = 0; const out = [];
     for (const d of ds) { const t = periodTotals(data, d, d, econ); if (t.profit == null) continue; c += t.profit; out.push({ day: d, v: t.profit, cum: c, sales: t.revenue, spend: t.spend, mer: t.mer }); }
     return out;
   }, [data, day]);
-  const n = { '1W': 7, '1M': 30, '3M': 90, ALL: 1e9 }[rng] || 1e9;
-  const pts = all.slice(-n), base = all.length > pts.length ? all[all.length - pts.length - 1].cum : 0;
+  // Ranges end on the last full day. This month starts on the 1st; This year on Jan 1, or the first day with Shopify numbers.
+  const fromDay = { '1W': R.addDays(day, -6), MTD: day.slice(0, 8) + '01', '3M': R.addDays(day, -89), YTD: day.slice(0, 4) + '-01-01' }[rng] || day.slice(0, 8) + '01';
+  const pts = all.filter((q) => q.day >= fromDay), base = pts.length && all.indexOf(pts[0]) > 0 ? all[all.indexOf(pts[0]) - 1].cum : 0;
+  const rngLabel = { '1W': 'last 7 days', MTD: 'this month', '3M': 'last 3 months', YTD: 'this year' }[rng] || 'this month';
+  const firstShop = all.length ? all[0].day : null;
   const shown = pts.map((q) => ({ ...q, cum: q.cum - base })), total = shown.length ? shown[shown.length - 1].cum : null;
   const before = shown.length > 1 ? shown[shown.length - 2].cum : null, chPct = before && cur.profit != null ? cur.profit / Math.abs(before) * 100 : null;
   const left = Math.max(1, dim - elapsed), need = mt.profit != null ? Math.max(0, (gHi - mt.profit) / left) : null, avg = mt.profit != null ? mt.profit / elapsed : null;
@@ -1760,16 +1781,17 @@ function StocksOverview(p) {
   return html`<div class="skov">
     <div class="skmain">
       <div class="small skallp"><b>All products</b> <span class="muted">· ${products.map((x) => x.name).join(', ')}</span></div>
-      <div class="row" style="align-items:flex-end;flex-wrap:wrap"><div><div class="small muted">Portfolio value · total profit since ${shown.length ? mdLabel(shown[0].day) : '—'}</div><div class="skbig">${total == null ? '—' : (total < 0 ? '−' : '') + R.money(Math.abs(total))}</div>
+      <div class="row" style="align-items:flex-end;flex-wrap:wrap"><div><div class="small muted">Portfolio value · profit ${rngLabel}${shown.length ? ` · ${mdLabel(shown[0].day)} to ${mdLabel(shown[shown.length - 1].day)}` : ''}${rng === 'YTD' && firstShop && firstShop > day.slice(0, 4) + '-01-01' ? html` <span title="Shopify only gives the app your recent days">(numbers start ${mdLabel(firstShop)}, your first Shopify day here)</span>` : ''}</div><div class="skbig">${total == null ? '—' : (total < 0 ? '−' : '') + R.money(Math.abs(total))}</div>
         <div class=${'skdelta ' + ((cur.profit || 0) >= 0 ? 'pos' : 'neg')}>${cur.profit == null ? '—' : (cur.profit >= 0 ? '+' : '−') + R.money(Math.abs(cur.profit))}${chPct != null ? ` (${chPct >= 0 ? '+' : ''}${chPct.toFixed(1)}%)` : ''} <span class="muted">${dayName}</span></div></div><span class="spacer"></span>${drop}</div>
       <${PortfolioChart} pts=${shown} />
-      <div class="row skrng">${['1W', '1M', '3M', 'ALL'].map((k) => html`<button class=${rng === k ? 'on' : ''} onClick=${() => { setRng(k); lsSet('adlab-sk-range', k); }}>${k}</button>`)}<span class="spacer"></span><span class="small muted">every dollar of profit, after ads and all costs</span></div>
+      <div class="row skrng">${[['1W', '1W'], ['MTD', 'This month'], ['3M', '3M'], ['YTD', 'This year']].map(([k, l]) => html`<button class=${rng === k ? 'on' : ''} onClick=${() => { setRng(k); lsSet('adlab-sk-range2', k); }}>${l}</button>`)}<span class="spacer"></span><span class="small muted">every dollar of profit, after ads and all costs</span></div>
       <div class="skstrip">${strip.map(([a, b, c, d]) => html`<div><div class="small muted">${a}</div><div class=${'skv ' + c}>${b}</div><div class="tiny muted">${d}</div></div>`)}</div>
       <section class="panel sktarget"><div class="row small" style="gap:8px;flex-wrap:wrap"><b>${MON_LONG[+day.slice(5, 7) - 1]} price target</b><span class="muted">${R.money0(gLo)} goal · ${R.money0(gHi)} stretch</span><span class="spacer"></span><b>${signMoney(mt.profit)}</b><span class="muted">· ${elapsed} of ${dim} days</span></div>
         <div class="row" style="gap:12px"><div class="sktrack grow"><i style=${`width:${Math.max(0, Math.min(100, (mt.profit || 0) / gHi * 100)).toFixed(1)}%`}></i><b style=${`left:${(gLo / gHi * 100).toFixed(1)}%`}></b></div>${ahead != null && html`<span class=${'sig ' + (ahead >= 0 ? 'sig-buy' : 'sig-sell')}>${ahead >= 0 ? 'AHEAD BY ' : 'BEHIND BY '}${R.money0(Math.abs(ahead))}</span>`}</div>
         <div class="small muted">Goal at the white line${pace != null ? html` · on pace for <b style="color:var(--ink)">${signMoney(pace)}</b>` : ''} · need <b style="color:var(--ink)">${need != null ? R.money0(need) + '/day' : '—'}</b> for the stretch, you’re averaging <b class="pos">${avg != null ? R.money0(avg) + '/day' : '—'}</b> so far</div></section>
       <div class="skgrid2">
-        <section class="panel"><div class="row"><h2>Today’s trades · ${todo.length}</h2><span class="spacer"></span><span class="tiny muted">you make them in Meta · this only logs them</span></div>${todo.length ? todo.map(trade) : html`<div class="empty">Nothing to do today.</div>`}</section>
+        <div class="stack sktradecol" style="gap:14px"><section class="panel"><div class="row"><h2>Today’s trades · ${todo.length}</h2><span class="spacer"></span><span class="tiny muted">you make them in Meta · this only logs them</span></div>${todo.length ? todo.map(trade) : html`<div class="empty">Nothing to do today.</div>`}</section>
+        <${Sectors} data=${data} products=${products} /></div>
         <div class="stack" style="gap:14px">
           <section class="panel"><h2>Earnings calendar · this week</h2>${evs.length ? evs.map(({ d, e }) => html`<div class="skcal"><i class=${'skdot ' + e.tone}></i><b>${d === R.today() ? 'Today' : `${wd(d)} ${mdLabel(d)}`}</b><span>${e.text}</span></div>`) : html`<div class="empty">Nothing due this week.</div>`}</section>
           <section class="panel"><div class="row"><h2>News · heads up</h2><span class="spacer"></span><span class="small muted">${heads.length}</span></div>${heads.length ? newsShown.map((it) => html`<button class="skcal sknews" onClick=${it.go}><i class=${'skdot ' + it.tone}></i><span>${it.title}</span></button>`) : html`<div class="empty">All quiet.</div>`}
@@ -1781,6 +1803,25 @@ function StocksOverview(p) {
       ${grp('Reserve · Bench', data.ads.filter((a) => a.stage === 'bench').slice(0, 4).map((ad) => ({ ad, q: 'ready' })))}${grp('Up next', ready.slice(0, 3).map((ad, i) => ({ ad, q: '#' + (i + 1) + ' in line' })))}
       <div class="tiny muted" style="margin-top:8px">Dot = product colour · tap ⓘ on Portfolio for what the signals mean</div></section>
   </div>`;
+}
+
+// Each product's ads over the last 7 full days, against the 7 days before.
+function Sectors({ data, products }) {
+  const last = lastMetaDay(data); if (!last) return null;
+  const a = R.addDays(last, -6), pa = R.addDays(last, -13), pb = R.addDays(last, -7);
+  const rows = products.filter((p) => !p.archived).map((p) => {
+    const ads = data.ads.filter((x) => x.product_id === p.id), rs = ads.flatMap((x) => rowsForAd(x, data.meta_days));
+    const c = sumRows(rs.filter((r) => r.day >= a && r.day <= last)), v = sumRows(rs.filter((r) => r.day >= pa && r.day <= pb));
+    const be0 = R.econOf(p).opBE || 2.85;
+    return { p, c, v, be0, live: ads.filter((x) => x.stage === 'main' || x.stage === 'testing').length };
+  }).filter((x) => x.c.spend > 0 || x.live > 0).sort((x, y) => y.c.spend - x.c.spend);
+  const all = rows.reduce((t, x) => ({ spend: t.spend + x.c.spend, rev: t.rev + x.c.revenue, buys: t.buys + x.c.purchases }), { spend: 0, rev: 0, buys: 0 });
+  const mx = Math.max(1, ...rows.map((x) => x.c.spend));
+  return html`<section class="panel"><div class="row"><h2>Products · last 7 days</h2><span class="spacer"></span><span class="tiny muted">${mdLabel(a)} to ${mdLabel(last)} · Meta</span></div>
+    <div class="sksec sksech tiny muted"><span>Product</span><span>Ad spend</span><span>Buys</span><span>ROAS</span><span>vs week before</span></div>
+    ${rows.map(({ p, c, v, be0 }) => { const r = c.spend ? c.revenue / c.spend : null, r0 = v.spend ? v.revenue / v.spend : null, d = r != null && r0 != null ? r - r0 : null;
+      return html`<div class="sksec"><span class="skwt"><i class=${'tdot k-' + p.kind}></i><b>${p.name}</b></span><span><b>${R.money0(c.spend)}</b><i class="skspend" style=${`width:${Math.round(c.spend / mx * 100)}%`}></i></span><span>${Math.round(c.purchases)}</span><span><b class=${'skr0 ' + toneX(r, be0)}>${r == null ? '—' : R.xroas(r)}</b></span><span class=${d == null ? 'muted' : d >= 0 ? 'pos' : 'neg'}>${d == null ? 'new' : `${d >= 0 ? '▲ +' : '▼ '}${d.toFixed(2)}x`}</span></div>`; })}
+    <div class="sksec sktot"><span><b>All products</b></span><span><b>${R.money0(all.spend)}</b></span><span>${Math.round(all.buys)}</span><span><b>${all.spend ? R.xroas(all.rev / all.spend) : '—'}</b></span><span class="tiny muted">Meta-reported</span></div></section>`;
 }
 
 // Search every ad from the top bar (Stocks look).
@@ -1799,8 +1840,9 @@ function TopSearch({ data, setModal }) {
 // =================== Stocks look: shared pieces ===================
 const SK_STAGE = { next: ['Watchlist · Up next', 'Ready to launch, in order'], testing: ['IPOs · Testing', 'Tests live in Meta'], bench: ['Reserve · Bench', 'Passed. Backups for Main'], main: ['Holdings · Main', 'Running in Main now'],
   ideas: ['Ideas', 'Not listed yet'], retest: ['Relist', 'Never got a fair shot'], exhausted: ['Matured', 'Worked, then wore out'], mid: ['Flat', 'Close, not quite'], failed: ['Sold at a loss', 'Did not pass'], seasonal: ['Parked', 'Saved for a sale'], retired: ['Delisted', 'Put away'] };
-const skName = (k) => (SK_STAGE[k] || [R.stageLabel(k)])[0];
-const lastMetaDay = (data) => data.meta_days.reduce((m, r) => (r.day > m ? r.day : m), '');
+const skName = (k) => (['next', 'testing', 'bench', 'main'].includes(k) ? SK_STAGE[k][0] : R.stageLabel(k));
+// The last full day with Meta numbers: never today, since today isn't finished (matches Ads Manager's "Last 7 days").
+function lastMetaDay(data) { const m = data.meta_days.reduce((a, r) => (r.day > a ? r.day : a), ''), y = R.addDays(R.today(), -1); return m && m > y ? y : m; }
 function adRange(ad, data, a, b) { return sumRows(rowsForAd(ad, data.meta_days).filter((r) => r.day >= a && r.day <= b)); }
 function adDaily(ad, data, n = 7) {
   const last = lastMetaDay(data) || R.today(), rows = rowsForAd(ad, data.meta_days);
@@ -1846,7 +1888,7 @@ function StockCard(props) {
     kv = lv ? [['Spend', R.money0(lv.m.spend)], ['Buys', lv.m.purchases], ['CPA', R.money(lv.m.cpa)], ['CTR', R.pct(lv.m.ctr)], ['Add to cart', Math.round(sumRows(rowsForAd(ad, data.meta_days).filter((r) => r.day >= ((test.conditions || {}).spendFrom || test.start_date))).adds_to_cart)], ['CPM', R.money0(lv.m.cpm)], ['Hook', R.pct(lv.m.hookRate)], ['Freq', lv.m.frequency ? lv.m.frequency.toFixed(1) : '—']] : null;
   }
   const loan = props.product && ad.product_id !== props.product.id && ad.stage === 'testing';
-  return html`<div role="button" tabindex="0" class=${'skcard' + (selected ? ' sel' : '') + ' st-' + ad.stage} onClick=${click} onKeyDown=${(e) => (e.key === 'Enter' ? click() : null)}
+  return html`<div role="button" tabindex="0" class=${'skcard' + (selected ? ' sel' : '') + ' st-' + ad.stage + (props.product && ad.product_id !== props.product.id && ad.stage === 'testing' ? ' loan' : '')} onClick=${click} onKeyDown=${(e) => (e.key === 'Enter' ? click() : null)}
       draggable=${!select} onDragStart=${drag} onDragEnd=${() => props.onDragState && props.onDragState(false)}
       onDragOver=${reorder ? (e) => { if ([...e.dataTransfer.types].includes('text/adlab')) { e.preventDefault(); e.stopPropagation(); } } : null}
       onDrop=${reorder ? (e) => { e.preventDefault(); e.stopPropagation(); props.onReorder(e.dataTransfer.getData('text/adlab'), ad); } : null}>
@@ -2090,6 +2132,7 @@ function StocksGoal(g) {
         <div class="skprog"><div class="trk"><i style=${`width:${pct.toFixed(1)}%`}></i></div><b class="goal" style=${`left:${(lo / hi * 100).toFixed(1)}%`}></b><span class="lab" style=${`left:${(lo / hi * 100).toFixed(1)}%`}>GOAL ${R.money0(lo)}${actual != null ? ' · ' + Math.round(actual / lo * 100) + '%' : ''}</span>
           <span class="ontrack" style=${`left:${Math.min(99, shouldBe / hi * 100).toFixed(1)}%`}></span><span class="str">STRETCH ${R.money0(hi)}</span></div>
         <div class="row small" style="gap:16px;flex-wrap:wrap;margin-top:-6px"><span><b class="pos">■</b> you · <b>${signMoney(actual)}</b></span><span><b style="color:var(--mid)">┆</b> on track by today · <b>${R.money0(shouldBe)}</b></span><span><b>│</b> goal · <b>${R.money0(lo)}</b></span></div>
+        <${GoalLine} days=${daysArr} lo=${lo} hi=${hi} dim=${dimNow} />
         <div class="row small"><b>Every day this month</b><span class="spacer"></span><span class="muted"><b class="pos">■</b> made ${R.money0(perDayNeed)}+ · <b style="color:var(--mid)">■</b> under · <b class="neg">■</b> lost money · empty = to come</span></div>
         <div class="skdays">${daysArr.map((x, i) => html`<div class=${'skday' + (x.v == null ? '' : x.v >= perDayNeed ? ' g' : x.v >= 0 ? ' a' : ' r') + (x.today ? ' today' : '')} title=${x.d}>${x.v == null ? i + 1 : signMoney(x.v)}</div>`)}</div>
         <div class="skstrip" style="border-top:1px solid var(--line);padding-top:12px">${[['Sales', R.money0(s.rev)], ['Ad spend', R.money0(s.spend)], ['Profit', signMoney(actual)], ['MER', s.spend ? R.xroas(s.rev / s.spend) : '—'], ['Orders', Math.round(s.orders || 0)], ['Days with numbers', `${cm.days} of ${dimNow}`]].map(([a, b]) => html`<div><div class="small muted">${a}</div><div class="skv">${b}</div></div>`)}</div>
@@ -2108,6 +2151,38 @@ function StocksGoal(g) {
       <section class="panel"><h2>The long game · $12,000 / month by Sep 2027</h2>
         <div class="skgrid4">${STAGES_GOAL.map((x, i) => html`<div class=${'skstage' + (x === stage ? ' on' : '')}><b>${x.name}${i > stIdx ? ' 🔒' : ''}</b><span class="tiny muted">${x.months}</span><b class="small">${R.money0(x.profit[0])}–${R.money0(x.profit[1])}/mo</b>${x === stage && html`<div class="skbar"><i style=${`width:${msDone.filter(Boolean).length / msDone.length * 100}%`}></i></div><span class="tiny muted">${msDone.filter(Boolean).length} of ${msDone.length} checks</span>`}</div>`)}</div></section>
     </div>`;
+}
+
+// Profit so far this month as a line, against the pace for the goal and the stretch.
+function GoalLine({ days, lo, hi, dim }) {
+  const [box, W] = useWidth(); const [hv, setHv] = useState(null);
+  const H = 210, L = 52, Rt = 12, T = 12, B = 24;
+  let c = 0; const cum = days.map((d) => (d.v == null ? null : (c += d.v)));
+  const lastI = cum.reduce((m, v, i) => (v != null ? i : m), -1);
+  const vals = [...cum.filter((v) => v != null), hi, 0];
+  const max = Math.max(...vals) * 1.08, min = Math.min(0, ...vals);
+  const x = (i) => L + i * (W - L - Rt) / Math.max(1, dim - 1), y = (v) => T + (H - T - B) * (1 - (v - min) / (max - min || 1));
+  const line = (f) => days.map((_, i) => `${x(i)},${y(f(i))}`).join(' ');
+  const act = cum.map((v, i) => (v == null || i > lastI ? null : `${x(i)},${y(v)}`)).filter(Boolean).join(' ');
+  const proj = lastI >= 0 ? `${x(lastI)},${y(cum[lastI])} ${x(dim - 1)},${y(cum[lastI] / (lastI + 1) * dim)}` : '';
+  const i = hv != null ? hv : Math.max(0, lastI), d = days[i];
+  const move = (e) => { const r = e.currentTarget.getBoundingClientRect(); setHv(Math.max(0, Math.min(dim - 1, Math.round((e.clientX - r.left - L) / ((W - L - Rt) / Math.max(1, dim - 1)))))); };
+  const ticks = [min, (max + min) / 2, max / 1.08].map((v) => Math.round(v));
+  return html`<div class="chart" ref=${box}>
+    <div class="skread small"><b>${d ? `${R.parseDay(d.d).toLocaleDateString('en-US', { weekday: 'short' })} ${mdLabel(d.d)}` : ''}</b>
+      <span><i style="background:var(--pass)"></i>you: <b>${cum[i] == null ? 'to come' : signMoney(cum[i])}</b></span><span><i style="background:#fff"></i>goal pace: <b>${R.money0(lo * (i + 1) / dim)}</b></span><span><i style="background:var(--mid)"></i>stretch pace: <b>${R.money0(hi * (i + 1) / dim)}</b></span>${lastI >= 0 && html`<span class="muted">· ends near ${signMoney(cum[lastI] / (lastI + 1) * dim)} at this pace</span>`}</div>
+    <svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${move} onPointerDown=${move} onPointerLeave=${() => setHv(null)} role="img" aria-label="Profit so far this month against the goal and stretch pace">
+      ${ticks.map((t) => html`<line x1=${L} x2=${W - Rt} y1=${y(t)} y2=${y(t)} class="grid" /><text x=${L - 6} y=${y(t) + 4} class="ax" text-anchor="end">${signMoney(t)}</text>`)}
+      ${[0, 6, 13, 20, 27, dim - 1].filter((k, j, a) => k < dim && a.indexOf(k) === j).map((k) => html`<text x=${x(k)} y=${H - 6} class="ax" text-anchor=${k === dim - 1 ? 'end' : k === 0 ? 'start' : 'middle'}>${mdLabel(days[k].d)}</text>`)}
+      <polyline points=${line((k) => hi * (k + 1) / dim)} fill="none" stroke="var(--mid)" stroke-width="2" stroke-dasharray="6 5" vector-effect="non-scaling-stroke" />
+      <polyline points=${line((k) => lo * (k + 1) / dim)} fill="none" stroke="#fff" stroke-opacity=".75" stroke-width="2" stroke-dasharray="6 5" vector-effect="non-scaling-stroke" />
+      ${proj && html`<polyline points=${proj} fill="none" stroke="var(--pass)" stroke-opacity=".45" stroke-width="2" stroke-dasharray="2 5" vector-effect="non-scaling-stroke" />`}
+      <polyline points=${act} fill="none" stroke="var(--pass)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke" />
+      ${lastI >= 0 && html`<circle cx=${x(lastI)} cy=${y(cum[lastI])} r="5" fill="var(--pass)" />`}
+      <line x1=${x(i)} x2=${x(i)} y1=${T} y2=${H - B} class="cross" />
+    </svg>
+    <div class="legend"><span><i style="background:var(--pass)"></i>You, adding up</span><span><i style="background:#fff"></i>Goal pace ${R.money0(lo)}</span><span><i style="background:var(--mid)"></i>Stretch pace ${R.money0(hi)}</span><span><i style="background:var(--pass);opacity:.45"></i>Where this pace ends</span></div>
+  </div>`;
 }
 
 // =================== Stocks look: Market data (Stats) ===================
@@ -2147,10 +2222,10 @@ function StockArchiveTop({ data, product, setFolder, folder }) {
   const lost = failed.reduce((s, a) => { const q = quickStats(a, data); return s + (q ? q.spend : 0); }, 0);
   const why = {}; for (const a of failed) { const t = lastStage1(a, data); const r = (t && t.result_reason) || ''; const k = /early|stop/i.test(r) ? 'Stopped early' : /0 buys|no buys|zero/i.test(r) ? 'No buys' : /click/i.test(r) ? 'Clicks, no buys' : /fail line|under|below/i.test(r) || a.result === 'fail' ? 'Under the fail line after the test' : 'Other / older result'; why[k] = (why[k] || 0) + 1; }
   const whyL = Object.entries(why).sort((a, b) => b[1] - a[1]), mxw = Math.max(1, ...whyL.map((x) => x[1]));
-  const relist = [...ads.filter((a) => a.stage === 'exhausted' && (a.tags || {}).offOn && R.daysBetween(a.tags.offOn, R.today()) >= 45).map((a) => ({ a, d: `Matured · rested ${R.daysBetween(a.tags.offOn, R.today())} days` })), ...ads.filter((a) => a.stage === 'mid').map((a) => ({ a, d: 'Flat · try it with a change' }))].slice(0, 4);
-  return html`<div class="skstrip4">${[['Closed', n('exhausted') + n('mid') + n('failed') + n('seasonal') + n('retired')], ['Win rate', judged ? Math.round((n('exhausted') + n('bench') + n('main')) / judged * 100) + '%' : '—'], ['Spent on losers', R.money0(lost)], ['Waiting to relist', n('retest')]].map(([a, b]) => html`<section class="panel"><span class="small muted">${a}</span><b class="skv">${b}</b></section>`)}</div>
-    <div class="grid2"><section class="panel"><h2>Why they were sold</h2>${whyL.length ? whyL.map(([k, v]) => html`<div class="row small" style="gap:10px"><span style="width:230px">${k}</span><div class="skbar grow"><i style=${`width:${v / mxw * 100}%;background:var(--fail)`}></i></div><b>${v}</b></div>`) : html`<div class="empty">No failed ads yet.</div>`}</section>
-      <section class="panel"><h2>Relist candidates</h2>${relist.length ? relist.map(({ a, d }) => html`<div class="li small"><${Media} path=${a.media_path} type=${a.media_type} poster=${a.tags && a.tags.poster} cls="round" /><span class="grow"><b>${a.base_name}</b><br/><span class="muted">${d}</span></span></div>`) : html`<div class="empty">Nothing rested long enough yet.</div>`}</section></div>`;
+  const relist = [...ads.filter((a) => a.stage === 'exhausted' && (a.tags || {}).offOn && R.daysBetween(a.tags.offOn, R.today()) >= 45).map((a) => ({ a, d: `Worked, then wore out · off ${R.daysBetween(a.tags.offOn, R.today())} days` })), ...ads.filter((a) => a.stage === 'mid').map((a) => ({ a, d: 'Mid-tier · close to passing, try a change' }))].slice(0, 4);
+  return html`<div class="skstrip4">${[['Done testing', n('exhausted') + n('mid') + n('failed') + n('seasonal') + n('retired')], ['Pass rate', judged ? Math.round((n('exhausted') + n('bench') + n('main')) / judged * 100) + '%' : '—'], ['Spent on failed ads', R.money0(lost)], ['Waiting to retest', n('retest')]].map(([a, b]) => html`<section class="panel"><span class="small muted">${a}</span><b class="skv">${b}</b></section>`)}</div>
+    <div class="grid2"><section class="panel"><h2>Why ads failed</h2>${whyL.length ? whyL.map(([k, v]) => html`<div class="row small" style="gap:10px"><span style="width:230px">${k}</span><div class="skbar grow"><i style=${`width:${v / mxw * 100}%;background:var(--fail)`}></i></div><b>${v}</b></div>`) : html`<div class="empty">No failed ads yet.</div>`}</section>
+      <section class="panel"><h2>Worth trying again</h2>${relist.length ? relist.map(({ a, d }) => html`<div class="li small"><${Media} path=${a.media_path} type=${a.media_type} poster=${a.tags && a.tags.poster} cls="round" /><span class="grow"><b>${a.base_name}</b><br/><span class="muted">${d}</span></span></div>`) : html`<div class="empty">Nothing rested long enough yet.</div>`}</section></div>`;
 }
 
 // =================== Stocks look: Journal score ===================
@@ -2169,6 +2244,18 @@ function StockScore({ data }) {
     ${by.map((x) => html`<div class="row small" style="gap:8px"><span style="width:80px">${x.l} calls</span><div class="skbar grow"><i style=${`width:${x.ok / x.n * 100}%`}></i></div><b>${x.ok} of ${x.n}</b></div>`)}
     <div class="tiny muted">Last ${recent.length} guesses · green right, red wrong</div><div class="row" style="gap:6px">${recent.map((t) => html`<span class=${'skdotb ' + (t.conditions.guess === actualOf(t.result) ? 'g' : 'r')} title=${(data.ads.find((a) => a.id === t.ad_id) || {}).base_name}></span>`)}</div>
     ${mad && html`<div class="sksurp"><${Media} path=${mad.media_path} type=${mad.media_type} poster=${mad.tags && mad.tags.poster} cls="sm" /><span><span class="tiny muted">Biggest surprise lately</span><br/><b>${mad.base_name}</b><br/><span class="tiny muted">you guessed ${miss.conditions.guess} · it was ${actualOf(miss.result)}</span></span></div>`}</section>`;
+}
+
+// Journal history: grouped by month, a filter per kind, full dates with the year when it isn't this year.
+function StockHistory({ items, data, reload, say }) {
+  const [f, setF] = useState('all'); const [more, setMore] = useState(false);
+  const kinds = [['all', 'Everything'], ['Change', 'Changes'], ['Decision', 'Decisions'], ['Learning', 'Learnings'], ['Rule change', 'Rule changes'], ['Hypothesis', 'Ideas to test']].filter(([k]) => k === 'all' || items.some((it) => it.tag === k));
+  const list = items.filter((it) => f === 'all' || it.tag === f), shown = more ? list : list.slice(0, 25);
+  const groups = []; for (const it of shown) { const ym = String(it.day || '').slice(0, 7); const g = groups[groups.length - 1]; if (g && g.ym === ym) g.items.push(it); else groups.push({ ym, items: [it] }); }
+  return html`<section class="panel"><div class="row" style="flex-wrap:wrap;gap:8px"><h2>History</h2><span class="spacer"></span><div class="skseg">${kinds.map(([k, l]) => html`<button class=${f === k ? 'on' : ''} onClick=${() => setF(k)}>${l} <span class="muted">${k === 'all' ? items.length : items.filter((it) => it.tag === k).length}</span></button>`)}</div></div>
+    <div class="tiny muted">Changes = things you changed (site, offer, Meta setup). Decisions = moves you logged on an ad. Learnings = what you found out.</div>
+    ${groups.length ? groups.map((g) => html`<div class="skhm">${g.ym ? `${MON_LONG[+g.ym.slice(5) - 1]} ${g.ym.slice(0, 4)}` : 'No date'}</div>${g.items.map((it) => html`<${HistoryRow} key=${(it.t || 'd') + (it.id || it.day + it.text)} it=${it} data=${data} reload=${reload} say=${say} />`)}`) : html`<div class="empty">Nothing yet</div>`}
+    ${list.length > 25 && html`<button class="link small" style="align-self:flex-start" onClick=${() => setMore(!more)}>${more ? 'Show less' : `Show all ${list.length}`}</button>`}</section>`;
 }
 
 // =================== Stocks look: More ===================
@@ -3082,18 +3169,20 @@ function LineChart({ labels, series, fmt, refLine, height = 190, cap, marks }) {
   const ticks = [0, 0.5, 1].map((f) => max / 1.1 * f);
   const step = Math.max(1, Math.ceil(labels.length / Math.max(3, Math.floor((W - L) / 64))));
   const move = (e) => { const r = e.currentTarget.getBoundingClientRect(); const px = (e.clientX - r.left); const i = Math.round((px - L) / ((W - L - Rt) / Math.max(1, labels.length - 1))); setHi(Math.max(0, Math.min(labels.length - 1, i))); };
+  const sk = LOOK === 'stocks', ri = hi != null ? hi : labels.reduce((m, _, i) => (series.some((s) => s.values[i] != null) ? i : m), labels.length - 1);
   return html`<div class="chart" ref=${box}>
+    ${sk && labels.length > 0 && html`<div class="skread small"><b>${R.parseDay(labels[ri]).toLocaleDateString('en-US', { weekday: 'short' })} ${mdLabel(labels[ri])}</b>${series.map((s) => html`<span><i style=${'background:' + s.color}></i>${s.name}: <b>${s.values[ri] == null ? '—' : fmt(s.values[ri])}</b></span>`)}${marks && marks[ri] && marks[ri].length > 0 && html`<span style="color:var(--mid)">${marks[ri].join(' · ')}</span>`}${hi == null && html`<span class="muted">· hover or tap a day</span>`}</div>`}
     <svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${move} onPointerDown=${move} onPointerLeave=${() => setHi(null)} role="img">
       ${marks && marks.map((m, i) => m.length > 0 && html`<rect x=${x(i) - (W - L - Rt) / Math.max(1, labels.length - 1) / 2} y=${T} width=${(W - L - Rt) / Math.max(1, labels.length - 1)} height=${H - T - B} fill="var(--mid)" opacity="0.10" />`)}
       ${ticks.map((t) => html`<line x1=${L} x2=${W - Rt} y1=${y(t)} y2=${y(t)} class="grid" /><text x=${L - 6} y=${y(t) + 4} class="ax" text-anchor="end">${fmt(t, true)}</text>`)}
-      ${labels.map((l, i) => i % step === 0 && html`<text x=${x(i)} y=${H - 6} class="ax" text-anchor="middle">${R.shortDate(l)}</text>`)}
+      ${labels.map((l, i) => i % step === 0 && html`<text x=${x(i)} y=${H - 6} class="ax" text-anchor="middle">${sk ? mdLabel(l) : R.shortDate(l)}</text>`)}
       ${refLine && html`<line x1=${L} x2=${W - Rt} y1=${y(refLine.value)} y2=${y(refLine.value)} class="ref" /><text x=${W - Rt} y=${y(refLine.value) - 5} class="ax" text-anchor="end">${refLine.label}</text>`}
       ${series.filter((s) => s.dots).map((s) => s.values.map((v, i) => v != null && html`<circle cx=${x(i)} cy=${y(v)} r="4" fill=${s.color} fill-opacity="0.6" stroke="var(--panel)" stroke-width="2" vector-effect="non-scaling-stroke" />`))}
       ${series.filter((s) => !s.dots).map((s) => { const pts = s.values.map((v, i) => (v == null ? null : `${x(i)},${y(v)}`)).filter(Boolean).join(' '); return html`<polyline points=${pts} fill="none" stroke=${s.color} stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke" />`; })}
       ${hi != null && html`<line x1=${x(hi)} x2=${x(hi)} y1=${T} y2=${H - B} class="cross" />${series.map((s) => s.values[hi] != null && html`<circle cx=${x(hi)} cy=${y(s.values[hi])} r="4" fill=${s.color} stroke="var(--panel)" stroke-width="2" vector-effect="non-scaling-stroke" />`)}`}
     </svg>
     ${series.length > 1 && html`<div class="legend">${series.map((s) => html`<span><i style=${'background:' + s.color + (s.dots ? ';opacity:.6;border-radius:50%;width:9px;height:9px' : '')}></i>${s.name}</span>`)}</div>`}
-    ${hi != null && html`<div class="tip" style=${`left:${Math.min(80, Math.max(8, x(hi) / W * 100))}%`}><b>${labels[hi]}</b>${series.map((s) => html`<div><i style=${'background:' + s.color}></i>${s.name}: ${s.values[hi] == null ? '—' : fmt(s.values[hi])}</div>`)}${marks && marks[hi] && marks[hi].length ? html`<div style="color:var(--mid)">${marks[hi].join(' · ')}</div>` : ''}</div>`}
+    ${hi != null && !sk && html`<div class="tip" style=${`left:${Math.min(80, Math.max(8, x(hi) / W * 100))}%`}><b>${labels[hi]}</b>${series.map((s) => html`<div><i style=${'background:' + s.color}></i>${s.name}: ${s.values[hi] == null ? '—' : fmt(s.values[hi])}</div>`)}${marks && marks[hi] && marks[hi].length ? html`<div style="color:var(--mid)">${marks[hi].join(' · ')}</div>` : ''}</div>`}
   </div>`;
 }
 
@@ -3106,7 +3195,8 @@ function rangeDays(key, custom) {
   if (key === 'mtd') return mk(end.slice(0, 8) + '01');
   if (key === 'lm') { const last = R.addDays(end.slice(0, 8) + '01', -1); return mk(last.slice(0, 8) + '01', last); }
   if (key === 'custom' && custom && custom.from && custom.to) { const a = custom.from <= custom.to ? custom.from : custom.to, b = custom.from <= custom.to ? custom.to : custom.from; return mk(a, b > end ? end : b); }
-  const n = +key || 7; return mk(R.addDays(end, -(n - 1)));
+  // 7, 30 and 90 days are full days ending yesterday, like Ads Manager's "Last 7 days". Today isn't finished.
+  const n = +key || 7, y = R.addDays(end, -1); return mk(R.addDays(y, -(n - 1)), y);
 }
 function periodTotals(data, start, end, econ) {
   const shop = data.shop_days.filter((d) => d.day >= start && d.day <= end);
@@ -3939,6 +4029,8 @@ function HistoryRow({ it, data, reload, say }) {
       <${Field} full label="What happened"><textarea value=${ed.note} onInput=${(e) => setEd({ ...ed, note: e.target.value })}></textarea><//></div>`
     : html`<textarea class="inp" style="width:100%;min-height:70px" value=${ed.text} onInput=${(e) => setEd({ ...ed, text: e.target.value })}></textarea>`}
     <div class="row"><button class="btn sm primary" onClick=${save}>Save</button><button class="btn sm ghost" onClick=${() => setEd(null)}>Cancel</button></div></div>`;
+  if (LOOK === 'stocks') { const d = String(it.day || '').slice(0, 10), txt = String(it.text || '').replace(/\s*[\w ]+: undefined → ;?/g, '').replace(/;\s*$/, '');
+    return html`<div class="skh"><span class="skhd"><b>${d ? mdLabel(d) : '—'}</b><span class="tiny muted">${d ? R.parseDay(d).toLocaleDateString('en-US', { weekday: 'short' }) : ''}</span></span><span class=${'skhk k-' + it.tone}>${it.tag}</span><span class="skht">${txt}${it.src ? html` <span class="muted">· ${it.src}</span>` : ''}</span>${canEdit && html`<span class="skhx"><button class="link tiny" onClick=${start}>Edit</button><button class="link tiny" style="color:var(--fail)" onClick=${del}>Delete</button></span>`}</div>`; }
   return html`<div class="li"><span class="mono small muted" style="width:52px">${R.shortDate(it.day)}</span><span class=${'chip t-' + it.tone}>${it.tag}</span><span class="grow small">${it.text}${it.src ? html` <span class="muted">· ${it.src}</span>` : ''}</span>${canEdit && html`<button class="link small" onClick=${start}>Edit</button><button class="link small" style="color:var(--fail)" onClick=${del}>Delete</button>`}</div>`;
 }
 function Learn(ctx) {
@@ -3976,7 +4068,7 @@ function Learn(ctx) {
         ${ev.part === 'ads' && html`<${AdPicks} data=${data} pid=${ev.pid || product.id} value=${ev.ads} onChange=${(ads) => setEv({ ...ev, ads })} />`}`}</div>
         <div class="row"><button class="btn" onClick=${addE}>Log change</button></div></section>
     </div>
-    <section class="panel"><h2>History</h2>${items.length ? html`<div class="list">${items.map((it) => html`<${HistoryRow} key=${(it.t || 'd') + (it.id || it.day + it.text)} it=${it} data=${data} reload=${reload} say=${say} />`)}</div>` : html`<div class="empty">Nothing yet</div>`}</section>
+    ${LOOK === 'stocks' ? html`<${StockHistory} items=${items} data=${data} reload=${reload} say=${say} />` : html`<section class="panel"><h2>History</h2>${items.length ? html`<div class="list">${items.map((it) => html`<${HistoryRow} key=${(it.t || 'd') + (it.id || it.day + it.text)} it=${it} data=${data} reload=${reload} say=${say} />`)}</div>` : html`<div class="empty">Nothing yet</div>`}</section>`}
     </div>${LOOK === 'stocks' && html`<div class="stack skjrail"><${StockScore} data=${data} /></div>`}</div>`;
 }
 
