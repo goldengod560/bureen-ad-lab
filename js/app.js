@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=158';
-import * as R from './rules.js?v=158';
-import { importHistory } from './importer.js?v=158';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=158';
+import { createBackend } from './data.js?v=159';
+import * as R from './rules.js?v=159';
+import { importHistory } from './importer.js?v=159';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=159';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1748,9 +1748,13 @@ function StocksOverview(p) {
   const [newsAll, setNewsAll] = useState(false);
   const econ = R.econOf(products.find((x) => x.kind === 'crew') || products[0]);
   const all = useMemo(() => {
-    const ds = [...new Set(data.shop_days.map((d) => d.day))].filter((d) => d <= day && d >= day.slice(0, 4) + '-01-01').sort();
+    // Every day with Shopify numbers or with numbers you entered on Goals, so older months count too.
+    const ds = [...new Set([...data.shop_days.map((d) => d.day), ...enteredDays(data).keys()])].filter((d) => d <= day && d >= day.slice(0, 4) + '-01-01').sort();
     let c = 0; const out = [];
-    for (const d of ds) { const t = periodTotals(data, d, d, econ), pr = dayProfit(data, d, econ); if (pr == null) continue; c += pr; out.push({ day: d, v: pr, cum: c, sales: t.revenue, spend: t.spend, mer: t.mer }); }
+    const em = enteredDays(data);
+    for (const d of ds) { const t = periodTotals(data, d, d, econ), pr = dayProfit(data, d, econ); if (pr == null) continue; c += pr;
+      const e = em.get(d), sales = t.hasShop ? t.revenue : e ? e.rev : null, spend = t.hasMeta ? t.spend : e ? e.spend : null;
+      out.push({ day: d, v: pr, cum: c, sales, spend, mer: t.mer != null ? t.mer : sales && spend ? sales / spend : null }); }
     return out;
   }, [data, day]);
   // Ranges end on the last full day. This month starts on the 1st; This year on Jan 1, or the first day with Shopify numbers.
@@ -1785,7 +1789,7 @@ function StocksOverview(p) {
   return html`<div class="skov">
     <div class="skmain">
       <div class="small skallp"><b>All products</b> <span class="muted">· ${products.map((x) => x.name).join(', ')}</span></div>
-      <div class="row" style="align-items:flex-end;flex-wrap:wrap"><div><div class="small muted">Portfolio value · profit ${rngLabel}${shown.length ? ` · ${mdLabel(shown[0].day)} to ${mdLabel(shown[shown.length - 1].day)}` : ''}${rng === 'YTD' && firstShop && firstShop > day.slice(0, 4) + '-01-01' ? html` <span title="Shopify only gives the app your recent days">(numbers start ${mdLabel(firstShop)}, your first Shopify day here)</span>` : ''}</div><div class="skbig">${total == null ? '—' : (total < 0 ? '−' : '') + R.money(Math.abs(total))}</div>
+      <div class="row" style="align-items:flex-end;flex-wrap:wrap"><div><div class="small muted">Portfolio value · profit ${rngLabel}${shown.length ? ` · ${mdLabel(shown[0].day)} to ${mdLabel(shown[shown.length - 1].day)}` : ''}${rng === 'YTD' && firstShop && firstShop > day.slice(0, 4) + '-01-01' ? html` <span title="Shopify only gives the app your recent days">(numbers start ${mdLabel(firstShop)}, the first day with numbers)</span>` : ''}</div><div class="skbig">${total == null ? '—' : (total < 0 ? '−' : '') + R.money(Math.abs(total))}</div>
         <div class=${'skdelta ' + ((cur.profit || 0) >= 0 ? 'pos' : 'neg')}>${cur.profit == null ? '—' : (cur.profit >= 0 ? '+' : '−') + R.money(Math.abs(cur.profit))}${chPct != null ? ` (${chPct >= 0 ? '+' : ''}${chPct.toFixed(1)}%)` : ''} <span class="muted">${dayName}</span></div></div><span class="spacer"></span>${drop}</div>
       <${PortfolioChart} pts=${shown} />
       <div class="row skrng">${[['1W', '1W'], ['MTD', 'This month'], ['3M', '3M'], ['YTD', 'This year']].map(([k, l]) => html`<button class=${rng === k ? 'on' : ''} onClick=${() => { setRng(k); lsSet('adlab-sk-range2', k); }}>${l}</button>`)}<span class="spacer"></span><span class="small muted">profit after ads and all costs · your entered numbers, estimated on days without them</span></div>
