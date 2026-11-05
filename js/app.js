@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=150';
-import * as R from './rules.js?v=150';
-import { importHistory } from './importer.js?v=150';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=150';
+import { createBackend } from './data.js?v=151';
+import * as R from './rules.js?v=151';
+import { importHistory } from './importer.js?v=151';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=151';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -20,7 +20,9 @@ let toastTimer;
 const STOCKS_READY = true; // More → Look switches between Classic and Stocks
 let LOOK = (() => { try { return STOCKS_READY ? (localStorage.getItem('adlab-look') || 'classic') : 'classic'; } catch (e) { return 'classic'; } })();
 const NAMES = { stocks: { today: 'Overview', board: 'Portfolio', archive: 'History', goal: 'Goals', stats: 'Stats', angles: 'Angles', rules: 'Rules', learn: 'Journal', more: 'More' } };
-try { document.documentElement.dataset.look = LOOK; } catch (e) {}
+// The tab icon and bar colour follow the look. The home-screen icon is always the Stocks one.
+function applyLook(l) { try { document.documentElement.dataset.look = l; const f = document.getElementById('favicon'); if (f) f.href = l === 'stocks' ? 'icons/stocks-192.png' : 'icons/icon-192.png'; const t = document.querySelector('meta[name=theme-color]'); if (t) t.content = l === 'stocks' ? '#000000' : '#060A12'; } catch (e) {} }
+applyLook(LOOK);
 const navName = (k, l) => (NAMES[LOOK] && NAMES[LOOK][k]) || l;
 const posterTried = new Set();
 
@@ -89,7 +91,7 @@ function App() {
   const [view, setView] = useState('board');
   const [look, setLookRaw] = useState(LOOK);
   const setLook = (v) => { LOOK = v; setLookRaw(v); lsSet('adlab-look', v); };
-  useEffect(() => { document.documentElement.dataset.look = look; }, [look]);
+  useEffect(() => { applyLook(look); }, [look]);
   const [stage, setStageRaw] = useState(() => lsGet('adlab-stage', 'next'));
   const setStage = (k) => { setStageRaw(k); lsSet('adlab-stage', k); };
   const [modal, setModal] = useState(null);
