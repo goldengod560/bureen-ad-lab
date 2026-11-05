@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=148';
-import * as R from './rules.js?v=148';
-import { importHistory } from './importer.js?v=148';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=148';
+import { createBackend } from './data.js?v=149';
+import * as R from './rules.js?v=149';
+import { importHistory } from './importer.js?v=149';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=149';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -17,7 +17,7 @@ const toneOf = (result) => (R.RESULTS[result] || {}).tone || 'muted';
 const extOf = (file) => (file.name.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '');
 let toastTimer;
 // Look: 'classic' (default) or 'stocks'. Same pages and data; Stocks changes names, colours and some layouts.
-const STOCKS_READY = false; // the Stocks look stays hidden until every page is done
+const STOCKS_READY = true; // More → Look switches between Classic and Stocks
 let LOOK = (() => { try { return STOCKS_READY ? (localStorage.getItem('adlab-look') || 'classic') : 'classic'; } catch (e) { return 'classic'; } })();
 const NAMES = { stocks: { today: 'Overview', board: 'Portfolio', archive: 'History', goal: 'Goals', stats: 'Stats', angles: 'Angles', rules: 'Rules', learn: 'Journal', more: 'More' } };
 try { document.documentElement.dataset.look = LOOK; } catch (e) {}
@@ -165,8 +165,9 @@ function App() {
 
   return html`
     <header class="top">
-      <div class="brand"><i></i>BUREEN<b>AD LAB</b></div>
-      <nav class="nav" aria-label="Sections">${NAV.map(([k, l]) => html`<button class=${view === k ? 'on' : ''} onClick=${() => setView(k)}>${navName(k, l)}</button>`)}</nav>
+      <div class="brand"><i></i>${look === 'stocks' ? 'Bureen' : html`BUREEN<b>AD LAB</b>`}</div>
+      ${look === 'stocks' && html`<${TopSearch} data=${data} setModal=${setModal} />`}
+      <nav class="nav" aria-label="Sections">${NAV.filter(([k]) => !(look === 'stocks' && k === 'angles')).map(([k, l]) => html`<button class=${view === k ? 'on' : ''} onClick=${() => setView(k)}>${navName(k, l)}</button>`)}</nav>
       <div class="right">
         ${be.mock && html`<span class="chip t-mid">Test mode</span>`}
         <span class="slots" title="Stage 1 tests live across all products"><span class="lbl">TEST SLOTS</span>
@@ -174,6 +175,7 @@ function App() {
           <span class="mono">${activeStage1.length}/${rules0.slots}</span></span>
       </div>
     </header>
+    ${look === 'stocks' && html`<${Ticker} data=${data} />`}
     <main class="wrap">
       ${data.missingTables && data.missingTables.length > 0 && html`<div class="banner"><b>One setup step left.</b> Stats needs two new database tables. In Supabase, open SQL Editor, paste <code>schema.sql</code> from the repo and press Run.</div>`}
       ${R.isWeekendLock() && html`<div class="banner"><b>Weekend lock.</b> Your rule: no new ads, reactivations or budget changes Friday night through Sunday.</div>`}
@@ -210,6 +212,8 @@ function Login() {
 function ProductTabs({ data, products, product, setPid, setModal }) {
   return html`<div class="ptabs" role="tablist" aria-label="Products">
     ${products.map((p) => { const n = data.ads.filter((a) => a.product_id === p.id && a.stage !== 'retired').length;
+      if (LOOK === 'stocks') { const mp = mainPlan(data, p), r = mp && mp.cur.spend ? mp.cur.roas : null;
+        return html`<button role="tab" aria-selected=${p.id === product.id} class=${'ptab' + (p.id === product.id ? ' on' : '')} onClick=${() => setPid(p.id)}><i class=${'tdot k-' + p.kind}></i>${p.name}${r != null && html`<span class="n">${r.toFixed(2)}x</span>`}</button>`; }
       return html`<button role="tab" aria-selected=${p.id === product.id} class=${'ptab' + (p.id === product.id ? ' on' : '')} onClick=${() => setPid(p.id)}>${p.name}<span class="n">${n}</span></button>`; })}
     <button class="ptab" style="border-style:dashed" onClick=${() => setModal({ type: ProductForm, props: {} })}>+ Add product</button>
   </div>`;
@@ -375,9 +379,15 @@ function adSignal(ad, data) {
   if (ad.stage === 'next') return { k: 'wait', why: 'Launches when a test slot opens.' };
   return null;
 }
-function SigChip({ s }) { return s ? html`<span class=${'sig sig-' + s.k} title=${s.why || SIG[s.k][1]}>${SIG[s.k][0]}</span>${s.date ? html`<span class="sigd">decide ${R.shortDate(s.date)}</span>` : ''}` : null; }
+function SigChip({ s, inline }) {
+  if (!s) return null;
+  const d = s.date ? R.parseDay(s.date) : null, dl = d ? `${d.toLocaleDateString('en-US', { weekday: 'short' })} ${mdLabel(s.date)}` : '';
+  if (inline) return html`<span class=${'sig sig-' + s.k} title=${s.why || SIG[s.k][1]}>${SIG[s.k][0]}${d ? ' · DECIDE ' + mdLabel(s.date).toUpperCase() : ''}</span>`;
+  return html`<span class=${'sig sig-' + s.k} title=${s.why || SIG[s.k][1]}>${SIG[s.k][0]}</span>${d ? html`<span class="sigd">decide ${dl}</span>` : ''}`;
+}
 
 function Card(props) {
+  if (LOOK === 'stocks' && props.data) return html`<${StockCard} ...${props} />`;
   const { ad, setModal, select, selected, onToggle, showStage } = props;
   const ci = cardInfo(ad, props);
   const t = ad.tags || {};
@@ -393,7 +403,6 @@ function Card(props) {
       ${select && html`<span class=${'check' + (selected ? ' on' : '')}>${selected ? '✓' : ''}</span>`}
       ${!select && ['main', 'bench', 'exhausted', 'mid', 'failed', 'retired', 'retest', 'seasonal'].includes(ad.stage) && props.data && (() => { const gr = adGrade(ad, props.data, props.data.products.find((x) => x.id === ad.product_id)); return gr && gr.g && html`<span class=${'gbadge t-' + gradeTone(gr.g)} title=${'Grade ' + gr.g + (gr.step ? (gr.step < 0 ? ' (down a step: last 2 weeks much weaker)' : ' (up a step: last 2 weeks much stronger)') : '')}>${gr.g}</span>`; })()}</span>
     <span class="tn">${displayName(ad)}</span>
-    ${LOOK === 'stocks' && props.data && html`<span class="sigrow"><${SigChip} s=${adSignal(ad, props.data)} /></span>`}
     ${ci.line && html`<span class="tl">${ci.line}</span>`}
     ${ci.line2 && html`<span class="tl">${ci.line2}</span>`}
   </button>`;
@@ -553,6 +562,37 @@ function Board(ctx) {
   const upload = html`<button class="btn sm" onClick=${() => setModal({ type: MetaFileModal, props: {} })}>Add Ads Manager file</button><label class="btn sm"><input type="file" multiple accept="image/*,video/*" hidden onChange=${(e) => { const fs = [...e.target.files]; e.target.value = ''; if (fs.length) setModal({ type: BulkForm, props: { files: fs } }); }} />Upload many</label><button class="btn primary sm" onClick=${newAd}>+ New ad</button>`;
   const searching = b.q.trim().length > 0;
   const results = searching ? b.apply(ads.filter(b.match), data) : [];
+  if (LOOK === 'stocks') {
+    const rules = R.rulesOf(product), others = data.ads.filter((a) => a.stage === 'testing' && a.product_id !== product.id);
+    const onTrial = by('main').filter((a) => data.tests.some((t) => t.ad_id === a.id && t.stage === 2 && t.status === 'active')).length;
+    const mb = R.num((product.rules || {}).mainBudget), usedBy = [...new Set(others.map((a) => (data.products.find((x) => x.id === a.product_id) || {}).name))].filter(Boolean);
+    const meta = { main: `${mb ? R.money0(mb) + '/day · ' : ''}${onTrial ? onTrial + ' on trial · ' : ''}${by('main').length - onTrial} running`,
+      testing: `${by('testing').length} ${product.name} here · ${testingCount(data)} of ${rules.slots} slots used${usedBy.length ? ' · also ' + usedBy.join(', ') : ''}`,
+      bench: `${by('bench').length} of ${rules.benchTarget}`, next: `${by('next').length} queued, in order` };
+    const empty = { main: 'Nothing in Main. Put your best Reserve ad in.', testing: others.length ? `No ${product.name} IPOs. Every slot is in use by ${usedBy.join(', ')}.` : 'No IPOs live. Launch one from the Watchlist.', bench: 'Empty reserve slot. An IPO that passes lands here.', next: 'Nothing queued. Add a new ad.' };
+    const inner = (k) => { const l = by(k);
+      if (k === 'testing' && !l.length && others.length) return html`<div class="skgrid">${others.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${cardCtx(ad)} />`)}</div>`;
+      if (!l.length) return html`<div class="skgrid"><div class="skempty">${empty[k]}</div></div>`;
+      if (k === 'main') return html`<div class="skgrid">${l.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${cardCtx(ad)} />`)}</div>`;
+      if (k === 'bench') return html`<div class="skgrid">${l.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${cardCtx(ad)} />`)}${Array.from({ length: Math.max(0, rules.benchTarget - l.length) }, () => html`<div class="skempty">${empty.bench}</div>`)}</div>`;
+      return html`<${CardGroupsSel} stageKey=${k} list=${l} ctx=${cctx} cardCtx=${cardCtx} limit=${6} grid="skgrid" />`; };
+    const box = (k) => html`<section class=${'skbox sk-' + k + (dropCol === k ? ' dropping' : '')} aria-label=${skName(k)} ...${dz(k)}>
+      <div class="row skboxh"><h2>${skName(k)}</h2><span class="spacer"></span><span class="small muted">${meta[k]}</span></div>${budgetLine(k)}${inner(k)}</section>`;
+    const ORDER = ['main', 'testing', 'bench', 'next'], cur2 = ORDER.includes(stage) ? stage : 'main';
+    return html`
+      <${SignalLegend} />
+      <${MainPlan} data=${data} product=${product} setModal=${ctx.setModal} reload=${ctx.reload} say=${ctx.say} />
+      <${ProductDaily} data=${data} product=${product} />
+      <${Toolbar} b=${b} data=${data} product=${product} sel=${sel} setSel=${setSel} extra=${upload} />
+      ${dragging && html`<div class="droprow"><span class="small muted">Drop on a folder:</span>${FOLDERS.map((f) => html`<span class=${'dropchip' + (dropCol === f ? ' on' : '')} ...${dz(f)}>${skName(f)}</span>`)}</div>`}
+      ${searching ? html`<section class="panel"><div class="row"><h2>Search: ${results.length} ad${results.length === 1 ? '' : 's'}</h2><span class="muted small">across every folder</span></div>
+          ${results.length ? html`<div class="skgrid">${results.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${cardCtx(ad)} showStage />`)}</div>` : html`<div class="empty">No ads match "${b.q}"</div>`}</section>`
+      : html`<div class="skboard">${ORDER.map(box)}</div>
+        <div class="skseg skphone" role="tablist" aria-label="Stages">${ORDER.map((k) => html`<button role="tab" aria-selected=${k === cur2} class=${k === cur2 ? 'on' : ''} onClick=${() => setStage(k)}>${skName(k).split(' · ')[1]} <span class="muted">${by(k).length}</span></button>`)}</div>
+        <div class="skphone skphonebox">${box(cur2)}</div>`}
+      <${SelectBar} sel=${sel} setSel=${setSel} ctx=${ctx} />
+      ${over && html`<div class="dropover"><div>Drop to add as new ads</div></div>`}`;
+  }
   return html`
     <${SummaryStrip} data=${data} product=${product} />
     <${MainPlan} data=${data} product=${product} setModal=${ctx.setModal} reload=${ctx.reload} say=${ctx.say} />
@@ -644,12 +684,13 @@ function Archive(ctx) {
   const list = searching ? b.apply(ads.filter((a) => FOLDERS.includes(a.stage) && b.match(a)), data) : b.apply(ads.filter((a) => a.stage === folder), data);
   const hint = { ideas: 'Drafts and new uploads. Tap one and choose "Ready: put in Up Next" when it is ready to launch.', retest: 'Ads that never got a fair shot. Queue one for a retest when you want to run it again.', exhausted: 'Worked, then fatigued. Revive one to the Bench after a long rest.', mid: 'Close but not a pass. Best ones to recycle with a fix.', failed: 'Did not work.', seasonal: 'Sale and holiday ads.', retired: 'Hidden from everything else.' };
   return html`
-    <div class="row"><h1 style="font-size:30px">Archive</h1></div>
-    <div class="folders">${FOLDERS.map((f) => html`<button class=${'folder' + (folder === f && !searching ? ' on' : '')} onClick=${() => { setFolder(f); b.setQ(''); }}><b>${R.stageLabel(f)}</b><span>${count(f)}</span></button>`)}</div>
+    <div class="row"><h1 style="font-size:30px">${LOOK === 'stocks' ? 'Closed positions' : 'Archive'}</h1></div>
+    <div class="folders">${FOLDERS.map((f) => html`<button class=${'folder' + (folder === f && !searching ? ' on' : '')} onClick=${() => { setFolder(f); b.setQ(''); }}><b>${LOOK === 'stocks' ? skName(f) : R.stageLabel(f)}</b><span>${count(f)}</span></button>`)}</div>
+    ${LOOK === 'stocks' && html`<${StockArchiveTop} data=${data} product=${product} />`}
     <${Toolbar} b=${b} data=${data} product=${product} sel=${sel} setSel=${setSel} />
     ${searching ? html`<div class="small muted">${list.length} match${list.length === 1 ? '' : 'es'} across the archive</div>` : html`<div class="small muted">${hint[folder]}</div>`}
-    ${searching ? html`<div class="agrid">${list.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${cardCtx(ad)} showStage />`)}</div>`
-      : html`<div class="stack"><${CardGroupsSel} key=${folder} stageKey=${folder} list=${list} ctx=${cctx} cardCtx=${cardCtx} limit=${12} grid="agrid" /></div>`}
+    ${searching ? html`<div class=${LOOK === 'stocks' ? 'skgrid' : 'agrid'}>${list.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${cardCtx(ad)} showStage />`)}</div>`
+      : html`<div class="stack"><${CardGroupsSel} key=${folder} stageKey=${folder} list=${list} ctx=${cctx} cardCtx=${cardCtx} limit=${12} grid=${LOOK === 'stocks' ? 'skgrid' : 'agrid'} /></div>`}
     <${SelectBar} sel=${sel} setSel=${setSel} ctx=${ctx} />`;
 }
 
@@ -958,6 +999,7 @@ function AdDetail(ctx) {
       break;
   }
   const era = R.ERAS[ad.setup_era];
+  if (LOOK === 'stocks') return html`<${StockQuote} ...${ctx} ad=${ad} product=${product} actions=${actions} tests=${tests} decisions=${decisions} family=${family} active=${active} move=${move} confirmDel=${confirmDel} setConfirmDel=${setConfirmDel} del=${del} rules=${rules} econ=${econ} />`;
 
   return html`<${Modal} wide title=${displayName(ad)} sub=${product.name + ' · ' + (ad.format || 'image')} onClose=${close}>
     <div class="detail">
@@ -1640,7 +1682,7 @@ function Today(ctx) {
   const headsP = heads.length > 0 && html`<section class="panel o-heads"><div class="row"><h2>Heads up</h2><span class="spacer"></span><span class="chip t-live">${heads.length}</span></div>${row(headsShown)}
     ${!narrow && heads.length > 1 && html`<button class="link small" style="align-self:flex-start" onClick=${() => flip('adlab-ov-heads', !headsOpen, setHeadsOpen)}>${headsOpen ? 'Show less' : `+${heads.length - 1} more`}</button>`}</section>`;
   const drop = html`<div class="o-drop"><${MetaDrop} ...${ctx} compact=${true} /></div>`;
-  if (LOOK === 'stocks') return html`<${StocksOverview} ...${ctx} cur=${cur} day=${day} dayLbl=${dayLbl} mt=${mt} gLo=${gLo} gHi=${gHi} dim=${dim} elapsed=${elapsed} todo=${todo} heads=${heads} liveRows=${liveRows} wk=${wk} ready=${ready} drop=${drop} green=${green} known=${known} />`;
+  if (LOOK === 'stocks') return html`<${StocksOverview} ...${ctx} cur=${cur} day=${day} dayLbl=${dayLbl} mt=${mt} gLo=${gLo} gHi=${gHi} dim=${dim} elapsed=${elapsed} todo=${todo} heads=${heads} liveRows=${liveRows} wk=${wk} ready=${ready} drop=${drop} green=${green} known=${known} prv=${prv} budget=${budget} bev=${bev} VERB=${VERB} />`;
   return html`
     <div class="row ovhead"><div class="stack" style="gap:0"><span class="small" style="color:var(--accent2);letter-spacing:.16em;font-weight:600">${new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }).toUpperCase()}</span><h1 style="font-size:34px">Overview</h1></div><span class="spacer"></span>${!narrow && drop}</div>
     <div class="ov">
@@ -1661,13 +1703,13 @@ function PortfolioChart({ pts }) {
   const pick = (e) => { const r = e.currentTarget.getBoundingClientRect(); const k = Math.round((e.clientX - r.left - L) / ((W - L - 8) / (pts.length - 1))); setSel(Math.max(0, Math.min(pts.length - 1, k))); };
   const step = Math.max(1, Math.ceil(pts.length / 6));
   return html`<div ref=${box}>
-    <div class="small skread"><b>${R.shortDate(p.day)}</b> · total ${signMoney(p.cum)} · that day <b class=${p.v >= 0 ? 'pos' : 'neg'}>${signMoney(p.v)}</b>${p.sales != null ? ` · sales ${R.money0(p.sales)} · ad spend ${R.money0(p.spend)}` : ''}${sel == null ? html` <span class="muted">· tap the chart, the numbers stay here</span>` : ''}</div>
+    <div class="small skread"><b>${mdLabel(p.day)}</b> · total ${signMoney(p.cum)} · that day <b class=${p.v >= 0 ? 'pos' : 'neg'}>${signMoney(p.v)}</b>${p.sales != null ? ` · sales ${R.money0(p.sales)} · ad spend ${R.money0(p.spend)}${p.mer ? ' · MER ' + R.xroas(p.mer) : ''}` : ''}${sel == null ? html` <span class="muted">· tap the chart, the numbers stay here</span>` : ''}</div>
     <svg width=${W} height=${H} style=${`height:${H}px;display:block`} onPointerDown=${pick} role="img" aria-label="Profit since the first day with numbers">
       <defs><linearGradient id="skg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--pass)" stop-opacity=".25" /><stop offset="1" stop-color="var(--pass)" stop-opacity="0" /></linearGradient></defs>
       ${[lo, (lo + hi) / 2, hi].map((t) => html`<line x1=${L} x2=${W} y1=${y(t)} y2=${y(t)} stroke="var(--line)" /><text x=${L - 6} y=${y(t) + 4} text-anchor="end" class="skax">${signMoney(t)}</text>`)}
       <path d=${area} fill="url(#skg)" /><polyline points=${line} fill="none" stroke="var(--pass)" stroke-width="2.5" stroke-linejoin="round" />
       <line x1=${x(i)} x2=${x(i)} y1=${T} y2=${H - B} stroke="var(--line2)" /><circle cx=${x(i)} cy=${y(p.cum)} r="5" fill="var(--pass)" stroke="#000" stroke-width="2" />
-      ${pts.map((q, k) => k % step === 0 && html`<text x=${x(k)} y=${H - 5} text-anchor="middle" class="skax">${R.shortDate(q.day)}</text>`)}
+      ${pts.map((q, k) => k % step === 0 && html`<text x=${x(k)} y=${H - 5} text-anchor="middle" class="skax">${mdLabel(q.day)}</text>`)}
     </svg></div>`;
 }
 function Spark({ vals, be }) {
@@ -1679,53 +1721,464 @@ function Spark({ vals, be }) {
 }
 const roasPill = (v) => html`<span class=${'skpill ' + (v == null ? 'q' : v >= 2.85 ? 'g' : v >= 2 ? 'a' : 'r')}>${v == null ? 'queued' : v ? R.xroas(v) : '0 buys'}</span>`;
 function StocksOverview(p) {
-  const { data, products, setModal, setView, cur, day, dayLbl, mt, gLo, gHi, dim, elapsed, todo, heads, liveRows, wk, ready, drop, green, known } = p;
+  const { data, products, setModal, cur, prv, day, dayLbl, mt, gLo, gHi, dim, elapsed, todo, heads, liveRows, wk, ready, drop, green, known, budget, bev, VERB } = p;
   const [rng, setRng] = useState(() => lsGet('adlab-sk-range', 'ALL'));
+  const [newsAll, setNewsAll] = useState(false);
   const econ = R.econOf(products.find((x) => x.kind === 'crew') || products[0]);
   const all = useMemo(() => {
     const ds = [...new Set(data.shop_days.map((d) => d.day))].filter((d) => d <= day).sort().slice(-120);
     let c = 0; const out = [];
-    for (const d of ds) { const t = periodTotals(data, d, d, econ); if (t.profit == null) continue; c += t.profit; out.push({ day: d, v: t.profit, cum: c, sales: t.revenue, spend: t.spend }); }
+    for (const d of ds) { const t = periodTotals(data, d, d, econ); if (t.profit == null) continue; c += t.profit; out.push({ day: d, v: t.profit, cum: c, sales: t.revenue, spend: t.spend, mer: t.mer }); }
     return out;
   }, [data, day]);
   const n = { '1W': 7, '1M': 30, '3M': 90, ALL: 1e9 }[rng] || 1e9;
   const pts = all.slice(-n), base = all.length > pts.length ? all[all.length - pts.length - 1].cum : 0;
   const shown = pts.map((q) => ({ ...q, cum: q.cum - base })), total = shown.length ? shown[shown.length - 1].cum : null;
+  const before = shown.length > 1 ? shown[shown.length - 2].cum : null, chPct = before && cur.profit != null ? cur.profit / Math.abs(before) * 100 : null;
   const left = Math.max(1, dim - elapsed), need = mt.profit != null ? Math.max(0, (gHi - mt.profit) / left) : null, avg = mt.profit != null ? mt.profit / elapsed : null;
-  const sinceTxt = shown.length ? `since ${R.shortDate(shown[0].day)}` : '';
-  const strip = [['Profit · ' + dayLbl, signMoney(cur.profit), cur.profit == null ? '' : cur.profit >= 0 ? 'pos' : 'neg'], ['Sales (no tax)', cur.hasShop ? R.money0(cur.revenue) : '—', ''], ['Ad spend', cur.hasMeta ? R.money0(cur.spend) : '—', ''],
-    ['MER (blended ROAS)', R.xroas(cur.mer), cur.mer != null && cur.mer >= 2.62 ? 'pos' : ''], ['Profit / order', cur.profit != null && cur.orders ? R.money(cur.profit / cur.orders) : '—', ''], ['Green days', known.length ? `${green} of ${known.length}` : '—', '']];
-  const sigOf = (r) => adSignal(r.ad, data);
-  const sevenDays = (ad) => { const last = day; return Array.from({ length: 7 }, (_, i) => { const d = R.addDays(last, i - 6); const t = sumRows(rowsForAd(ad, data.meta_days).filter((r) => r.day === d)); return t.spend ? t.revenue / t.spend : null; }); };
+  const pace = mt.profit != null ? mt.profit / elapsed * dim : null, onTrack = gHi * elapsed / dim, ahead = mt.profit != null ? mt.profit - onTrack : null;
+  const wd = (d) => R.parseDay(d).toLocaleDateString('en-US', { weekday: 'short' });
+  const dayName = day === R.addDays(R.today(), -1) ? `yesterday · ${wd(day)} ${mdLabel(day)}` : `${wd(day)} ${mdLabel(day)}`;
+  const strip = [
+    ['Profit ' + dayLbl, signMoney(cur.profit), cur.profit == null ? '' : cur.profit >= 0 ? 'pos' : 'neg', cur.profit != null && prv.profit != null ? html`<span class=${cur.profit >= prv.profit ? 'pos' : 'neg'}>${cur.profit >= prv.profit ? '▲' : '▼'}</span> ${R.money0(Math.abs(cur.profit - prv.profit))} vs ${wd(R.addDays(day, -1))}` : ''],
+    ['Sales (no tax)', cur.hasShop ? R.money0(cur.revenue) : '—', '', cur.hasShop ? `${cur.orders} order${cur.orders === 1 ? '' : 's'} · avg ${R.money(cur.aov)}` : 'no Shopify numbers'],
+    ['Ad spend', cur.hasMeta ? R.money0(cur.spend) : '—', '', budget ? `of ${R.money0(budget)}/day budget` : 'Meta'],
+    ['MER (blended ROAS)', R.xroas(cur.mer), cur.mer != null && bev.roas ? (cur.mer >= bev.roas ? 'pos' : 'neg') : '', `break-even ${R.xroas(bev.roas)}`],
+    ['Profit / order', cur.profit != null && cur.orders ? R.money(cur.profit / cur.orders) : '—', cur.profit != null && cur.orders ? (cur.profit >= 0 ? 'pos' : 'neg') : '', 'after everything'],
+    ['Green days', known.length ? `${green} of ${known.length}` : '—', known.length && green * 2 >= known.length ? 'pos' : '', 'last 7 days']];
   const team = (ad) => (products.find((x) => x.id === ad.product_id) || {}).kind;
-  const wrow = (r) => html`<button class="skrow" onClick=${() => setModal({ type: AdDetail, props: { adId: r.ad.id } })}><${Media} path=${r.ad.media_path} type=${r.ad.media_type} poster=${r.ad.tags && r.ad.tags.poster} cls="round" />
-    <span class="grow"><span class="row" style="gap:6px;flex-wrap:nowrap"><i class=${'tdot k-' + team(r.ad)}></i><b class="ell">${r.ad.base_name}</b></span><span class="sigrow"><${SigChip} s=${sigOf(r)} /></span></span><${Spark} vals=${sevenDays(r.ad)} />${roasPill(r.roas)}</button>`;
+  const wrow = (r) => html`<button class="skw" onClick=${() => setModal({ type: AdDetail, props: { adId: r.ad.id } })}><${Media} path=${r.ad.media_path} type=${r.ad.media_type} poster=${r.ad.tags && r.ad.tags.poster} cls="round" />
+    <span class="skwn"><span class="skwt"><i class=${'tdot k-' + team(r.ad)}></i><b>${displayName(r.ad).replace(/^(IMG|VID|Image|Video)\s*[|–-]\s*/i, '').replace(/\s*\|\s*V\d+$/i, '')}</b></span><${SigChip} s=${adSignal(r.ad, data)} inline /></span>
+    ${r.q ? html`<span class="small muted skqd">${r.q}</span>` : html`<${Spark} vals=${adDaily(r.ad, data)} be=${2.85} />${roasPill(r.roas)}`}</button>`;
   const grp = (t, list) => list.length > 0 && html`<div class="sklbl">${t}</div>${list.map(wrow)}`;
   const evs = wk.days.flatMap((d) => (wk.byDay.get(d) || []).map((e) => ({ d, e }))).slice(0, 6);
-  const trade = (it) => html`<div class="sktrade"><span class=${'bar ' + it.tone}></span>${it.ad ? html`<${Media} path=${it.ad.media_path} type=${it.ad.media_type} poster=${it.ad.tags && it.ad.tags.poster} cls="sm" />` : html`<span class="skup">⇪</span>`}
-    <span class="grow"><b>${it.title}</b>${it.ad ? html` <${SigChip} s=${sigOf({ ad: it.ad })} />` : ''}<br/><span class="small muted">${it.sub}</span><br/><button class="btn sm primary" style="margin-top:6px" onClick=${it.go}>Open</button></span></div>`;
+  const trade = (it) => { const sg = it.ad ? adSignal(it.ad, data) : null;
+    return html`<div class="sktrade">${it.ad ? html`<${Media} path=${it.ad.media_path} type=${it.ad.media_type} poster=${it.ad.tags && it.ad.tags.poster} cls="sm" />` : html`<span class="skup">⇪</span>`}
+      <span class="grow"><span class="row" style="gap:8px;flex-wrap:wrap"><b>${it.title}</b>${sg && html`<${SigChip} s=${sg} inline />`}</span><span class="small muted">${it.sub}</span>
+        <span class="row" style="gap:8px;margin-top:8px"><button class=${'btn sm ' + (it.tone === 'red' ? 'danger' : 'primary')} onClick=${it.go}>${VERB[it.tag] || 'Open'}</button>${it.ad && VERB[it.tag] !== 'Open ad' && html`<button class="btn sm" onClick=${() => setModal({ type: AdDetail, props: { adId: it.ad.id } })}>Open ad</button>`}</span></span></div>`; };
+  const newsShown = newsAll ? heads : heads.slice(0, 4);
   return html`<div class="skov">
     <div class="skmain">
-      <div class="row" style="align-items:flex-end"><div><div class="small muted">All products · profit ${sinceTxt}</div><div class="skbig">${signMoney(total)}</div>
-        <div class=${'skdelta ' + ((cur.profit || 0) >= 0 ? 'pos' : 'neg')}>${signMoney(cur.profit)} <span class="muted">${dayLbl}</span></div></div><span class="spacer"></span>${drop}</div>
+      <div class="small skallp"><b>All products</b> <span class="muted">· ${products.map((x) => x.name).join(', ')}</span></div>
+      <div class="row" style="align-items:flex-end;flex-wrap:wrap"><div><div class="small muted">Portfolio value · total profit since ${shown.length ? mdLabel(shown[0].day) : '—'}</div><div class="skbig">${total == null ? '—' : (total < 0 ? '−' : '') + R.money(Math.abs(total))}</div>
+        <div class=${'skdelta ' + ((cur.profit || 0) >= 0 ? 'pos' : 'neg')}>${cur.profit == null ? '—' : (cur.profit >= 0 ? '+' : '−') + R.money(Math.abs(cur.profit))}${chPct != null ? ` (${chPct >= 0 ? '+' : ''}${chPct.toFixed(1)}%)` : ''} <span class="muted">${dayName}</span></div></div><span class="spacer"></span>${drop}</div>
       <${PortfolioChart} pts=${shown} />
       <div class="row skrng">${['1W', '1M', '3M', 'ALL'].map((k) => html`<button class=${rng === k ? 'on' : ''} onClick=${() => { setRng(k); lsSet('adlab-sk-range', k); }}>${k}</button>`)}<span class="spacer"></span><span class="small muted">every dollar of profit, after ads and all costs</span></div>
-      <div class="skstrip">${strip.map(([a, b, c]) => html`<div><div class="small muted">${a}</div><div class=${'skv ' + c}>${b}</div></div>`)}</div>
-      <section class="panel sktarget"><div class="row small"><b>${MON_LONG[+day.slice(5, 7) - 1]} target</b><span class="muted">goal ${R.money0(gLo)} · stretch ${R.money0(gHi)}</span><span class="spacer"></span><b>${signMoney(mt.profit)}</b></div>
-        <div class="sktrack"><i style=${`width:${Math.max(0, Math.min(100, (mt.profit || 0) / gHi * 100)).toFixed(1)}%`}></i><b style=${`left:${(gLo / gHi * 100).toFixed(1)}%`}></b></div>
-        <div class="small muted">White line = goal ${R.money0(gLo)} · need <b style="color:var(--ink)">${need != null ? R.money0(need) + '/day' : '—'}</b> for the stretch · averaging <b class="pos">${avg != null ? R.money0(avg) + '/day' : '—'}</b></div></section>
+      <div class="skstrip">${strip.map(([a, b, c, d]) => html`<div><div class="small muted">${a}</div><div class=${'skv ' + c}>${b}</div><div class="tiny muted">${d}</div></div>`)}</div>
+      <section class="panel sktarget"><div class="row small" style="gap:8px;flex-wrap:wrap"><b>${MON_LONG[+day.slice(5, 7) - 1]} price target</b><span class="muted">${R.money0(gLo)} goal · ${R.money0(gHi)} stretch</span><span class="spacer"></span><b>${signMoney(mt.profit)}</b><span class="muted">· ${elapsed} of ${dim} days</span></div>
+        <div class="row" style="gap:12px"><div class="sktrack grow"><i style=${`width:${Math.max(0, Math.min(100, (mt.profit || 0) / gHi * 100)).toFixed(1)}%`}></i><b style=${`left:${(gLo / gHi * 100).toFixed(1)}%`}></b></div>${ahead != null && html`<span class=${'sig ' + (ahead >= 0 ? 'sig-buy' : 'sig-sell')}>${ahead >= 0 ? 'AHEAD BY ' : 'BEHIND BY '}${R.money0(Math.abs(ahead))}</span>`}</div>
+        <div class="small muted">Goal at the white line${pace != null ? html` · on pace for <b style="color:var(--ink)">${signMoney(pace)}</b>` : ''} · need <b style="color:var(--ink)">${need != null ? R.money0(need) + '/day' : '—'}</b> for the stretch, you’re averaging <b class="pos">${avg != null ? R.money0(avg) + '/day' : '—'}</b> so far</div></section>
       <div class="skgrid2">
-        <section class="panel"><div class="row"><h2>Today’s trades · ${todo.length}</h2><span class="spacer"></span><span class="tiny muted">you make them in Meta</span></div>${todo.length ? todo.map(trade) : html`<div class="empty">Nothing to do today.</div>`}</section>
+        <section class="panel"><div class="row"><h2>Today’s trades · ${todo.length}</h2><span class="spacer"></span><span class="tiny muted">you make them in Meta · this only logs them</span></div>${todo.length ? todo.map(trade) : html`<div class="empty">Nothing to do today.</div>`}</section>
         <div class="stack" style="gap:14px">
-          <section class="panel"><h2>Earnings calendar · this week</h2>${evs.length ? evs.map(({ d, e }) => html`<div class="skcal"><i class=${'skdot ' + e.tone}></i><b>${d === R.today() ? 'Today' : R.shortDate(d)}</b><span>${e.text}</span></div>`) : html`<div class="empty">Nothing due this week.</div>`}</section>
-          <section class="panel"><h2>News · heads up</h2>${heads.length ? heads.map((it) => html`<button class="skcal" style="width:100%;text-align:left;background:none;border:0;color:inherit;cursor:pointer" onClick=${it.go}><i class=${'skdot ' + it.tone}></i><span>${it.title}</span></button>`) : html`<div class="empty">All quiet.</div>`}</section>
+          <section class="panel"><h2>Earnings calendar · this week</h2>${evs.length ? evs.map(({ d, e }) => html`<div class="skcal"><i class=${'skdot ' + e.tone}></i><b>${d === R.today() ? 'Today' : `${wd(d)} ${mdLabel(d)}`}</b><span>${e.text}</span></div>`) : html`<div class="empty">Nothing due this week.</div>`}</section>
+          <section class="panel"><div class="row"><h2>News · heads up</h2><span class="spacer"></span><span class="small muted">${heads.length}</span></div>${heads.length ? newsShown.map((it) => html`<button class="skcal sknews" onClick=${it.go}><i class=${'skdot ' + it.tone}></i><span>${it.title}</span></button>`) : html`<div class="empty">All quiet.</div>`}
+            ${heads.length > 4 && html`<button class="link small" style="align-self:flex-start" onClick=${() => setNewsAll(!newsAll)}>${newsAll ? 'Show less' : `+${heads.length - 4} more`}</button>`}</section>
         </div></div>
     </div>
-    <section class="panel skwatch"><div class="row"><h2>Watchlist</h2><span class="spacer"></span><span class="tiny muted">all products · ROAS 7d</span></div>
+    <section class="panel skwatch"><div class="row"><h2>Watchlist · all products</h2><span class="spacer"></span><span class="tiny muted">ROAS 7d</span></div>
       ${grp('Holdings · Main', liveRows.filter((r) => r.kind !== 'TEST'))}${grp('IPOs · Testing', liveRows.filter((r) => r.kind === 'TEST'))}
-      ${grp('Reserve · Bench', data.ads.filter((a) => a.stage === 'bench').slice(0, 4).map((ad) => ({ ad, roas: null })))}${grp('Up next', ready.slice(0, 3).map((ad) => ({ ad, roas: null })))}
-      <div class="tiny muted" style="margin-top:8px">Tap a signal for what it means · More → Look to switch back</div></section>
+      ${grp('Reserve · Bench', data.ads.filter((a) => a.stage === 'bench').slice(0, 4).map((ad) => ({ ad, q: 'ready' })))}${grp('Up next', ready.slice(0, 3).map((ad, i) => ({ ad, q: '#' + (i + 1) + ' in line' })))}
+      <div class="tiny muted" style="margin-top:8px">Dot = product colour · tap ⓘ on Portfolio for what the signals mean</div></section>
   </div>`;
+}
+
+// Search every ad from the top bar (Stocks look).
+function TopSearch({ data, setModal }) {
+  const [q, setQ] = useState(''); const [open, setOpen] = useState(false);
+  const narrow = useNarrow();
+  const s = q.trim().toLowerCase();
+  const hits = s ? data.ads.filter((a) => [a.base_name, a.angle, a.concept, a.notes, a.headline, a.primary_text].some((x) => String(x || '').toLowerCase().includes(s))).slice(0, 8) : [];
+  const pname = (a) => (data.products.find((p) => p.id === a.product_id) || {}).name || '';
+  return html`<div class="sksearch" onFocusOut=${(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setTimeout(() => setOpen(false), 120); }}>
+    <input type="search" placeholder=${narrow && !open ? '⌕' : '⌕ Search ads, angles, notes'} aria-label="Search ads, angles, notes" value=${q} onFocus=${() => setOpen(true)} onInput=${(e) => { setQ(e.target.value); setOpen(true); }} onKeyDown=${(e) => { if (e.key === 'Escape') { setQ(''); setOpen(false); } if (e.key === 'Enter' && hits[0]) { setModal({ type: AdDetail, props: { adId: hits[0].id } }); setOpen(false); } }} />
+    ${open && s && html`<div class="skdrop">${hits.length ? hits.map((a) => html`<button class="skrow" onMouseDown=${(e) => e.preventDefault()} onClick=${() => { setModal({ type: AdDetail, props: { adId: a.id } }); setOpen(false); }}><${Media} path=${a.media_path} type=${a.media_type} poster=${a.tags && a.tags.poster} cls="round" /><span class="grow small"><b>${displayName(a)}</b><br/><span class="muted">${pname(a)} · ${skName(a.stage)}${a.angle ? ' · ' + a.angle : ''}</span></span></button>`) : html`<div class="small muted" style="padding:10px">No ads match "${q}"</div>`}</div>`}
+  </div>`;
+}
+
+// =================== Stocks look: shared pieces ===================
+const SK_STAGE = { next: ['Watchlist · Up next', 'Ready to launch, in order'], testing: ['IPOs · Testing', 'Tests live in Meta'], bench: ['Reserve · Bench', 'Passed. Backups for Main'], main: ['Holdings · Main', 'Running in Main now'],
+  ideas: ['Ideas', 'Not listed yet'], retest: ['Relist', 'Never got a fair shot'], exhausted: ['Matured', 'Worked, then wore out'], mid: ['Flat', 'Close, not quite'], failed: ['Sold at a loss', 'Did not pass'], seasonal: ['Parked', 'Saved for a sale'], retired: ['Delisted', 'Put away'] };
+const skName = (k) => (SK_STAGE[k] || [R.stageLabel(k)])[0];
+const lastMetaDay = (data) => data.meta_days.reduce((m, r) => (r.day > m ? r.day : m), '');
+function adRange(ad, data, a, b) { return sumRows(rowsForAd(ad, data.meta_days).filter((r) => r.day >= a && r.day <= b)); }
+function adDaily(ad, data, n = 7) {
+  const last = lastMetaDay(data) || R.today(), rows = rowsForAd(ad, data.meta_days);
+  return Array.from({ length: n }, (_, i) => { const d = R.addDays(last, i - n + 1); const t = sumRows(rows.filter((r) => r.day === d)); return t.spend ? t.revenue / t.spend : null; });
+}
+const toneX = (v, be = 2.85) => (v == null ? '' : v >= be ? 'g' : v >= 2 ? 'a' : 'r');
+function SignalLegend() {
+  const [open, setOpen] = useState(() => lsGet('adlab-sk-legend', window.matchMedia && window.matchMedia('(max-width:900px)').matches ? '0' : '1') === '1');
+  const flip = () => { setOpen(!open); lsSet('adlab-sk-legend', open ? '0' : '1'); };
+  return html`<section class="panel sklegend"><button class="link small" style="align-self:flex-start" onClick=${flip}>ⓘ What the signals mean ${open ? '▴' : '▾'}</button>
+    ${open && html`<div class="sklegrow">${Object.entries(SIG).map(([k, [l, d]]) => html`<span><span class=${'sig sig-' + k}>${l}</span> <span class="small muted">${d}</span></span>`)}</div>`}</section>`;
+}
+
+function StockCard(props) {
+  const { ad, data, setModal, select, selected, onToggle } = props;
+  const p = data.products.find((x) => x.id === ad.product_id) || props.product;
+  const be0 = R.econOf(p).opBE || 2.85;
+  const ci = cardInfo(ad, props), sg = adSignal(ad, data), t = ad.tags || {};
+  const last = lastMetaDay(data);
+  const w = last ? adRange(ad, data, R.addDays(last, -6), last) : null;
+  const q = quickStats(ad, data);
+  const has7 = w && w.spend > 0;
+  const big = has7 ? w.roas : q ? q.roas : null, bigl = has7 ? 'ROAS 7d' : q ? 'ROAS all time' : '';
+  const gr = ['main', 'bench', 'exhausted', 'mid', 'failed', 'retired', 'retest', 'seasonal'].includes(ad.stage) ? adGrade(ad, data, p) : null;
+  const click = () => (select ? onToggle(ad.id) : setModal({ type: AdDetail, props: { adId: ad.id } }));
+  const drag = (e) => { e.dataTransfer.setData('text/adlab', ad.id); e.dataTransfer.effectAllowed = 'move'; props.onDragState && props.onDragState(true); };
+  const reorder = ad.stage === 'next' && props.onReorder;
+  const test = data.tests.find((x) => x.ad_id === ad.id && x.status === 'active');
+  const go = (m) => (e) => { e.stopPropagation(); setModal(m); };
+  let btns = [];
+  if (!select && sg) {
+    if (sg.k === 'dec' && test) btns = test.stage === 2 ? [['Keep or send back', go({ type: MainForm, props: { adId: ad.id, mode: 'record', testId: test.id } }), 'primary']] : [['Record result', go({ type: FinalizeForm, props: { testId: test.id } }), 'primary']];
+    else if (sg.k === 'sell') btns = test && ad.stage === 'testing' ? [['Stop early', go({ type: StopForm, props: { adId: ad.id, testId: test.id } }), 'danger']] : [['Turn off', go({ type: ExhaustForm, props: { adId: ad.id } }), 'danger']];
+    else if (sg.k === 'buy') btns = [['+ New version', go({ type: AdForm, props: { mode: 'version', adId: ad.id } }), '']];
+  }
+  let kv = has7 ? [['Spend', R.money0(w.spend)], ['Buys', Math.round(w.purchases)], ['CPA', R.money(w.cpa)], ['CTR', w.impressions ? (w.link_clicks / w.impressions * 100).toFixed(1) + '%' : '—']] : null;
+  // A live test: numbers since launch, day count and the full set of test stats.
+  const lv = ad.stage === 'testing' && test ? liveFor(test, ad, data) : null, tp = test ? (test.planned_days || R.rulesOf(p).plannedDays || 7) : 7;
+  const tday = test && ad.stage === 'testing' ? Math.max(0, R.testDay(test)) : null;
+  let bigV = big, bigL = bigl;
+  if (ad.stage === 'testing') {
+    bigV = lv ? lv.m.roas : null; bigL = 'ROAS so far';
+    kv = lv ? [['Spend', R.money0(lv.m.spend)], ['Buys', lv.m.purchases], ['CPA', R.money(lv.m.cpa)], ['CTR', R.pct(lv.m.ctr)], ['Add to cart', Math.round(sumRows(rowsForAd(ad, data.meta_days).filter((r) => r.day >= ((test.conditions || {}).spendFrom || test.start_date))).adds_to_cart)], ['CPM', R.money0(lv.m.cpm)], ['Hook', R.pct(lv.m.hookRate)], ['Freq', lv.m.frequency ? lv.m.frequency.toFixed(1) : '—']] : null;
+  }
+  const loan = props.product && ad.product_id !== props.product.id && ad.stage === 'testing';
+  return html`<div role="button" tabindex="0" class=${'skcard' + (selected ? ' sel' : '') + ' st-' + ad.stage} onClick=${click} onKeyDown=${(e) => (e.key === 'Enter' ? click() : null)}
+      draggable=${!select} onDragStart=${drag} onDragEnd=${() => props.onDragState && props.onDragState(false)}
+      onDragOver=${reorder ? (e) => { if ([...e.dataTransfer.types].includes('text/adlab')) { e.preventDefault(); e.stopPropagation(); } } : null}
+      onDrop=${reorder ? (e) => { e.preventDefault(); e.stopPropagation(); props.onReorder(e.dataTransfer.getData('text/adlab'), ad); } : null}>
+    <span class="skimg"><${Media} path=${ad.media_path} type=${ad.media_type} poster=${t.poster} />
+      ${gr && gr.g && html`<span class=${'gbadge t-' + gradeTone(gr.g)}>${gr.g}</span>`}
+      ${select && html`<span class=${'check' + (selected ? ' on' : '')}>${selected ? '✓' : ''}</span>`}</span>
+    <span class="skbody">
+      <b class="skname">${props.showStage ? html`<span class="tiny muted">${skName(ad.stage)} · </span>` : ''}${displayName(ad)}</b>
+      <span class="sigrow"><${SigChip} s=${sg} />${ci.chip && ad.stage !== 'testing' && ad.stage !== 'main' && !(sg && sg.k === 'dec') && html`<span class=${'chip t-' + (ci.tone || 'muted')}>${ci.chip}</span>`}</span>
+      ${loan && html`<span class="skloan">${p.name.toUpperCase()} · shared test slot</span>`}
+      ${ad.stage === 'testing' && lv && !lv.m.purchases ? html`<span class="skroas"><b class="skr r">0 buys</b><span class="tiny muted">${bigL}</span></span>`
+        : bigV != null && html`<span class="skroas"><b class=${'skr ' + toneX(bigV, be0)}>${R.xroas(bigV)}</b><span class="tiny muted">${bigL}</span>${has7 && ad.stage !== 'testing' && html`<${Spark} vals=${adDaily(ad, data)} be=${be0} />`}</span>`}
+      ${tday != null && html`<span class="skprog2"><span class="row tiny muted"><span>Day ${Math.min(tday, tp)} of ${tp}</span><span class="spacer"></span><span>decide day ${tp}</span></span><span class="skbar"><i style=${`width:${Math.min(100, tday / tp * 100).toFixed(0)}%;background:var(--ins,#4A8CFF)`}></i></span></span>`}
+      ${ad.stage !== 'testing' && ci.line && html`<span class="small">${ci.line}</span>`}${ad.stage !== 'testing' && ci.line2 && html`<span class="small muted">${ci.line2}</span>`}
+      ${sg && sg.why && html`<span class="tiny muted">Why: ${sg.why}</span>`}
+      ${kv && html`<span class="skkv">${kv.map(([a, b]) => html`<span><small>${a}</small><b>${b}</b></span>`)}</span>`}
+      ${btns.length > 0 && html`<span class="skbtns">${btns.map(([l, fn, c]) => html`<button class=${'btn sm ' + c} onClick=${fn}>${l}</button>`)}</span>`}
+    </span></div>`;
+}
+
+// Moving ticker under the top bar: yesterday's profit, MER and each live ad's 7-day ROAS vs the week before.
+function Ticker({ data }) {
+  const items = useMemo(() => {
+    const last = lastMetaDay(data); if (!last) return [];
+    const out = [];
+    const crew = data.products.find((p) => p.kind === 'crew') || data.products[0], econ = R.econOf(crew);
+    const y = periodTotals(data, last, last, econ), y0 = periodTotals(data, R.addDays(last, -1), R.addDays(last, -1), econ);
+    if (y.profit != null) out.push(['PROFIT', signMoney(y.profit), y0.profit != null ? (y.profit >= y0.profit ? '▲ ' : '▼ ') + R.money0(Math.abs(y.profit - y0.profit)) : '', y.profit >= 0]);
+    if (y.mer != null) out.push(['MER', R.xroas(y.mer), '', y.mer >= 2.62]);
+    const live = data.ads.filter((a) => a.stage === 'main' || a.stage === 'testing');
+    for (const ad of live) {
+      const c = adRange(ad, data, R.addDays(last, -6), last), pv = adRange(ad, data, R.addDays(last, -13), R.addDays(last, -7));
+      if (!c.spend) continue;
+      const d = pv.spend ? c.roas - pv.roas : null;
+      out.push([ad.base_name.toUpperCase().slice(0, 22), c.purchases ? R.xroas(c.roas) : '0 buys', d == null ? 'new' : (d >= 0 ? '▲ +' : '▼ ') + d.toFixed(2) + 'x', d == null ? c.roas >= 2.85 : d >= 0]);
+    }
+    return out;
+  }, [data]);
+  if (!items.length) return null;
+  const one = items.map(([a, b, c, up], i) => html`<span key=${i}><span class="tk-n">${a}</span> <span class=${up ? 'pos' : 'neg'}>${b} ${c}</span></span>`);
+  return html`<div class="tape" aria-label="Ticker"><div class="run">${one}${one}</div></div>`;
+}
+
+// Numbers for an ad over several periods side by side.
+function PeriodTable({ ad, data, product }) {
+  const be0 = R.econOf(product).opBE || 2.85, last = lastMetaDay(data); if (!last) return null;
+  const rows = rowsForAd(ad, data.meta_days); if (!rows.length) return null;
+  const first = rows.reduce((m, r) => (r.day < m ? r.day : m), last);
+  const P = [['Yesterday · ' + mdLabel(last), last, last], ['Last 7 days', R.addDays(last, -6), last], ['Last 14 days', R.addDays(last, -13), last], ['Last 30 days', R.addDays(last, -29), last],
+    ['This month', last.slice(0, 8) + '01', last], [`All time · ${R.daysBetween(first, last) + 1} days`, first, last]];
+  const gl = (r) => (r == null ? '—' : GRADES[gradeIdx(r / be0)]);
+  return html`<section class="panel"><h2>Numbers by period</h2><div class="tscroll"><table class="t sktable"><thead><tr><th>Period</th><th>Spend</th><th>Buys</th><th>ROAS</th><th>CPA</th><th>Link CTR</th><th>Grade</th></tr></thead><tbody>
+    ${P.map(([l, a, b], i) => { const t = sumRows(rows.filter((r) => r.day >= a && r.day <= b)); const g = t.spend ? gl(t.roas) : '—';
+      return html`<tr class=${i === 1 ? 'hl' : ''}><td><b>${l}</b></td><td>${R.money0(t.spend)}</td><td>${Math.round(t.purchases)}</td><td class=${'skr ' + toneX(t.spend ? t.roas : null, be0)}>${t.spend ? R.xroas(t.roas) : '—'}</td><td>${R.money(t.cpa)}</td><td>${R.pct(t.ctr)}</td><td>${g === '—' ? '—' : html`<span class=${'gbadge t-' + gradeTone(g)}>${g}</span>`}</td></tr>`; })}
+  </tbody></table></div><div class="tiny muted">From your Ads Manager files. Grade = ROAS against break-even ${R.xroas(be0)}.</div></section>`;
+}
+
+// =================== Stocks look: quote page (ad detail) ===================
+function StockQuote(p) {
+  const { ad, data, product, actions, tests, decisions, family, active, move, setModal, setLightbox, reload, say, close, confirmDel, setConfirmDel, del, rules, econ } = p;
+  const tags = ad.tags || {}, hist = ad.history || {};
+  const be0 = econ.opBE || 2.85, last = lastMetaDay(data);
+  const c = last ? adRange(ad, data, R.addDays(last, -6), last) : null, pv = last ? adRange(ad, data, R.addDays(last, -13), R.addDays(last, -7)) : null;
+  const sg = adSignal(ad, data), gr = adGrade(ad, data, product);
+  const d = c && c.spend && pv && pv.spend ? c.roas - pv.roas : null;
+  const rows = rowsForAd(ad, data.meta_days);
+  const byDay = new Map(); rows.forEach((r) => { const g = byDay.get(r.day) || []; g.push(r); byDay.set(r.day, g); });
+  const days = [...byDay.entries()].map(([day, rs]) => ({ day, t: sumRows(rs) })).filter((x) => x.t.spend > 0);
+  const best = days.reduce((m, x) => (x.t.purchases && (!m || x.t.roas > m.t.roas) ? x : m), null);
+  const above = days.filter((x) => x.t.roas >= be0).length;
+  const keys = c && c.spend ? [['Spend', R.money0(c.spend)], ['Buys', Math.round(c.purchases)], ['ROAS', R.xroas(c.roas)], ['CPA', R.money(c.cpa)], ['Link CTR', R.pct(c.ctr)], ['CPM', c.impressions ? R.money(c.spend / c.impressions * 1000) : '—'], ['Hook rate', c.impressions && c.hook_plays ? R.pct(c.hook_plays / c.impressions * 100) : '—'], ['Frequency', c.frequency ? c.frequency.toFixed(2) : '—']] : null;
+  const h = ad.stage === 'main' ? mainHealth(ad, data, product) : null;
+  const wear = tags.fatiguing ? ['Fatiguing', 85, 'fail'] : h && h.creative === 'fatigue' ? ['Possible fatigue', 60, 'mid'] : h ? ['Fresh', 25, 'pass'] : null;
+  const [al, setAl] = useState(tags.alertBelow != null ? String(tags.alertBelow) : '');
+  const saveAlert = async () => { const v = R.num(al); await be.update('ads', ad.id, { tags: { ...tags, alertBelow: v == null ? null : v } }); await reload(); say(v == null ? 'Price alert off' : `Alert set: below ${R.xroas(v)}`); };
+  const alertHit = tags.alertBelow != null && c && c.spend && c.roas < tags.alertBelow;
+  return html`<${Modal} wide title=${displayName(ad)} sub=${`${product.name} · ${skName(ad.stage)} · ${ad.format || 'image'}`} onClose=${close}>
+    <div class="skq">
+      <div class="skq-main">
+        <div class="row" style="gap:8px;flex-wrap:wrap"><${SigChip} s=${sg} />${gr && gr.g && html`<span class=${'gbadge t-' + gradeTone(gr.g)}>${gr.g}</span>`}<span class="chip t-muted">${skName(ad.stage)}</span>${ad.launched_on && html`<span class="chip t-muted">Live ${ad.launched_on}</span>`}</div>
+        <div class="skq-big"><span class="skbig">${c && c.spend ? R.xroas(c.roas) : '—'}</span>${d != null && html`<span class=${'skq-d ' + (d >= 0 ? 'pos' : 'neg')}>${d >= 0 ? '+' : ''}${d.toFixed(2)}x this week</span>`}<span class="small muted">ROAS, last 7 days · break-even ${R.xroas(be0)}</span></div>
+        ${ad.setup_era === 'era1' && html`<div class="status warn small">${R.ERAS.era1.note}</div>`}
+        ${ad.stage !== 'testing' && html`<${VerdictPanel} ad=${ad} data=${data} product=${product} />`}
+        <${TrendPanel} ad=${ad} data=${data} product=${product} />
+        ${keys && html`<section class="panel"><h2>Key statistics · last 7 days</h2><div class="skkeys">${keys.map(([a, b]) => html`<div><small>${a}</small><b>${b}</b></div>`)}</div>
+          ${c.purchases > 0 && ad.stage !== 'testing' && html`<${ProfitLine} econ=${econ} m=${{ purchases: c.purchases, roas: c.roas, cpa: c.cpa, aov: c.revenue / c.purchases }} product=${product} />`}</section>`}
+        <${PeriodTable} ad=${ad} data=${data} product=${product} />
+        ${ad.stage === 'main' && html`<${HealthPanel} ad=${ad} data=${data} product=${product} />`}
+        <${PhaseCompare} ad=${ad} data=${data} product=${product} />
+        <div class="grid2">
+          <section class="panel"><h2>Record</h2>${[['Days run', days.length], ['Days over break-even', `${above}${days.length ? ' · ' + Math.round(above / days.length * 100) + '%' : ''}`], ['Best day', best ? `${R.xroas(best.t.roas)} · ${mdLabel(best.day)}` : '—'], ['Spend, all files', R.money0(sumRows(rows).spend)]].map(([a, b]) => html`<div class="li small"><span class="grow muted">${a}</span><b>${b}</b></div>`)}</section>
+          <section class="panel"><h2>About</h2>
+            <div class="li small"><span class="grow muted">Angle</span><b>${ad.angle || '—'}</b></div><div class="li small"><span class="grow muted">Concept</span><b>${ad.concept || '—'}</b></div>
+            <div class="li small"><span class="grow muted">Hook</span><b>${hookOf(ad)}</b></div><div class="li small"><span class="grow muted">Offer</span><b>${offerOf(ad)}</b></div>
+            ${ad.headline && html`<div class="small"><span class="muted">Headline:</span> ${ad.headline}</div>`}${ad.primary_text && html`<div class="small" style="white-space:pre-wrap"><span class="muted">Primary text:</span> ${ad.primary_text}</div>`}${ad.notes && html`<div class="small" style="white-space:pre-wrap"><span class="muted">Notes:</span> ${ad.notes}</div>`}</section>
+        </div>
+        <${ConceptPanel} key=${ad.id + (ad.concept || '')} ad=${ad} ...${p} />
+        ${hist.spend != null && html`<section class="panel"><h2>History (imported)</h2><div class="skkeys">${[['Spend', R.money0(hist.spend)], ['Buys', hist.purchases], ['CPA', R.money(hist.cpa)], ['ROAS', R.xroas(hist.roas)]].map(([a, b]) => html`<div><small>${a}</small><b>${b}</b></div>`)}</div>${hist.yourNote && html`<div class="status live">Your note: ${hist.yourNote}</div>`}</section>`}
+        ${tests.map((t) => html`<${TestPanel} key=${t.id} ...${p} test=${t} rules=${rules} econ=${econ} />`)}
+        ${decisions.length > 0 && html`<section class="panel"><h2>Filings · decisions</h2><div class="list">${decisions.map((dd) => html`<${DecisionRow} key=${dd.id} d=${dd} reload=${reload} say=${say} />`)}</div></section>`}
+      </div>
+      <div class="skq-side">
+        <${MediaGallery} ad=${ad} ...${p} />
+        <section class="panel"><div class="small muted">Signal</div><div><${SigChip} s=${sg} /></div><div class="small">${sg ? sg.why || SIG[sg.k][1] : 'No signal for this folder.'}</div>
+          ${actions.length > 0 && html`<div class="stack" style="gap:8px">${actions}</div>`}
+          <label class="f" style="flex-direction:row;align-items:center;gap:8px">Move to
+            <select class="inp" style="width:auto;min-height:36px" value=${ad.stage} onChange=${(e) => (e.target.value === 'testing' && !active ? setModal({ type: LaunchForm, props: { adId: ad.id } }) : move(e.target.value, 'Moved by hand'))}>
+              ${[...R.STAGES, ...R.SHELVES].map((s) => html`<option value=${s.key}>${skName(s.key)}</option>`)}</select></label>
+          <div class="tiny muted" style="text-align:center">Logs it here. You change it in Meta.</div></section>
+        <section class=${'panel' + (alertHit ? ' skalert' : '')}><div class="row"><b>🔔 Price alert</b><span class="spacer"></span>${alertHit && html`<span class="sig sig-sell">TRIGGERED</span>`}</div>
+          <div class="row small" style="gap:6px">Tell me if 7-day ROAS drops below <input class="inp" style="width:70px;min-height:32px" inputmode="decimal" placeholder=${be0.toFixed(2)} value=${al} onInput=${(e) => setAl(e.target.value)} />x <button class="btn sm" onClick=${saveAlert}>Save</button></div>
+          <div class="tiny muted">Shows on the Overview under News when it happens.</div></section>
+        ${wear && html`<section class="panel"><div class="small muted">Wear-out (fatigue)</div><div class="skwear"><i style=${`width:${wear[1]}%`}></i></div><div class=${'small t-' + wear[2]} style="background:none">${wear[0]}</div></section>`}
+        <div class="row" style="flex-wrap:wrap;gap:6px"><button class="btn sm" onClick=${() => setModal({ type: AdForm, props: { mode: 'edit', adId: ad.id } })}>Edit</button>
+          <button class="btn sm" onClick=${() => setModal({ type: AdForm, props: { mode: 'version', adId: ad.id } })}>+ New version</button>
+          ${confirmDel ? html`<button class="btn sm danger" onClick=${del}>Delete for good</button><button class="btn sm ghost" onClick=${() => setConfirmDel(false)}>Keep</button>` : html`<button class="btn sm ghost danger" onClick=${() => setConfirmDel(true)}>Delete</button>`}</div>
+        ${family.length > 0 && html`<section class="panel"><h2>Versions</h2>${family.map((f) => html`<button class="skrow" onClick=${() => setModal({ type: AdDetail, props: { adId: f.id } })}><${Media} path=${f.media_path} type=${f.media_type} cls="round" /><span class="grow small"><b>${displayName(f)}</b><br/><span class="muted">${skName(f.stage)}</span></span></button>`)}</section>`}
+      </div>
+    </div><//>`;
+}
+
+// =================== Stocks look: trophies ===================
+const TIER = { B: ['Bronze', '#E0A06A', '#8C5523', 15], S: ['Silver', '#F2F4F8', '#8E96A3', 30], G: ['Gold', '#FFE08A', '#C9971C', 90], P: ['Platinum', '#EAF6FF', '#7FA7CC', 300] };
+let cupId = 0;
+function Cup({ t, w = 44, got = true }) {
+  const [, a, b] = TIER[t]; const id = 'cup' + (++cupId);
+  return html`<svg role="img" aria-label=${TIER[t][0] + ' trophy' + (got ? '' : ', not won yet')} width=${w} height=${Math.round(w * 1.1)} viewBox="0 0 120 132" style=${got ? '' : 'opacity:.28'}><defs><linearGradient id=${id} x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color=${a} /><stop offset=".55" stop-color=${b} /><stop offset="1" stop-color=${a} /></linearGradient></defs>
+    <path d="M30 22 Q6 22 9 44 Q12 62 34 64" fill="none" stroke=${'url(#' + id + ')'} stroke-width="7" /><path d="M90 22 Q114 22 111 44 Q108 62 86 64" fill="none" stroke=${'url(#' + id + ')'} stroke-width="7" />
+    <path d="M28 12 L92 12 L88 58 Q84 84 60 88 Q36 84 32 58Z" fill=${'url(#' + id + ')'} /><path d="M40 18 L46 18 L44 56 Q42 70 52 78 Q38 72 38 56Z" fill="#fff" opacity=".35" />
+    <rect x="53" y="88" width="14" height="16" fill=${'url(#' + id + ')'} /><rect x="38" y="104" width="44" height="9" fill=${'url(#' + id + ')'} /><rect x="30" y="113" width="60" height="13" fill="#2A2A33" stroke=${'url(#' + id + ')'} stroke-width="3" /></svg>`;
+}
+// Trophies from your real numbers. Month ones reset each month; season ones run for the stage; store ones never reset.
+function trophySets({ data, dm, cm, months, stage, curYm, auto }) {
+  const crew = data.products.find((p) => p.kind === 'crew') || data.products[0], be0 = R.econOf(crew).opBE || 2.85;
+  const inMonth = (d, ym) => d && String(d).slice(0, 7) === ym;
+  const tests1 = data.tests.filter((t) => t.stage === 1 && !isDupTest(t));
+  const passed = (t) => t.result === 'pass' || t.result === 'strong_pass';
+  const metaDays = [...new Set(data.meta_days.map((r) => r.day))].sort();
+  const streakEnding = (end) => { let n = 0, d = end; const s = new Set(metaDays); while (s.has(d)) { n++; d = R.addDays(d, -1); } return n; };
+  const bestStreak = (() => { let b = 0, cur = 0, prev = null; for (const d of metaDays) { cur = prev && R.addDays(prev, 1) === d ? cur + 1 : 1; b = Math.max(b, cur); prev = d; } return b; })();
+  const month = (ym) => {
+    const a = ym + '-01', b = monthEnd(ym), y = R.addDays(R.today(), -1), end = b < y ? b : y;
+    const s = sumRange(dm, a, end), m = months.find((x) => x.ym === ym) || { lo: cm.lo, hi: cm.hi };
+    const weeks = []; for (let d = a; d <= end; d = R.addDays(d, 7)) { const e = R.addDays(d, 6) < end ? R.addDays(d, 6) : end; weeks.push(sumRange(dm, d, e)); }
+    const raises = data.decisions.filter((x) => x.kind === 'budget' && inMonth(x.day || x.created_at, ym) && /\+/.test(x.choice || '')).length;
+    const list = [
+      ['B', 'Test 4 new ads this month', tests1.filter((t) => inMonth(t.start_date, ym)).length, 4],
+      ['B', 'Add your Ads Manager file 7 days in a row', Math.min(7, metaDays.filter((d) => inMonth(d, ym)).reduce((mx, d) => Math.max(mx, streakEnding(d)), 0)), 7],
+      ['B', 'A green week (profit after everything)', weeks.some((w) => w.days >= 5 && w.profit > 0) ? 1 : 0, 1],
+      ['S', '2 ads pass their test', tests1.filter((t) => passed(t) && inMonth(t.end_date || t.updated_at || t.start_date, ym)).length, 2],
+      ['S', 'Raise the Main budget 2 times', raises, 2],
+      ['S', 'Store MER over 3.0x for the month', s.spend && s.rev / s.spend >= 3 ? 1 : 0, 1],
+      ['G', `Hit the ${R.money0(m.lo)} goal`, Math.max(0, Math.round(s.profit || 0)), m.lo],
+      ['G', 'Every week above break-even', weeks.filter((w) => w.spend && w.rev / w.spend >= be0).length, Math.max(1, weeks.length)],
+    ];
+    const won = list.filter((x) => x[2] >= x[3]).length;
+    list.push(['P', 'Win every other trophy this month', won, list.length]);
+    return list;
+  };
+  const tested = tests1.length, winners = data.ads.filter((a) => ['bench', 'main', 'exhausted'].includes(a.stage) || a.result === 'pass' || a.result === 'strong_pass').length;
+  const bestDay = [...dm.values()].reduce((mx, v) => Math.max(mx, v.profit), 0), bestMonth = Math.max(0, ...months.filter((x) => x.actual != null).map((x) => x.actual));
+  const five = tests1.some((t) => { const ad = data.ads.find((a) => a.id === t.ad_id); const r = ad && runsFor(t, ad, data); return r && r.d7 && r.d7.roas >= 5; });
+  const season = [
+    ['B', '10-day file streak', Math.min(10, bestStreak), 10], ['B', 'Found a 5x winner', five ? 1 : 0, 1], ['S', `${stage.ms.length > 1 ? '2 tested backups on the Bench' : 'Backup on the Bench'}`, auto.bench2 ? 2 : data.ads.filter((a) => a.product_id === crew.id && a.stage === 'bench').length, 2],
+    ['S', 'Main above break-even', auto.mainBE ? 1 : 0, 1], ['S', '3 green weeks in a row', (() => { let n = 0, bestN = 0; for (let d = stage.from; d <= R.today(); d = R.addDays(d, 7)) { const w = sumRange(dm, d, R.addDays(d, 6)); if (w.days >= 5 && w.profit > 0) { n++; bestN = Math.max(bestN, n); } else if (w.days >= 5) n = 0; } return bestN; })(), 3],
+    ['G', `A ${R.money0(stage.profit[1])} month (stretch)`, Math.round(Math.max(0, ...months.filter((x) => x.ym >= stage.from.slice(0, 7) && x.ym <= stage.to.slice(0, 7) && x.actual != null).map((x) => x.actual))), stage.profit[1]],
+  ];
+  stage.ms.filter(([, , how]) => how === 'manual').forEach(([k, l]) => season.push(['G', l, (R.storeEcon().goalChecks || {})[k] ? 1 : 0, 1]));
+  season.push(['P', `${stage.name} platinum: every ${stage.name} trophy`, season.filter((x) => x[2] >= x[3]).length, season.length]);
+  const store = [['B', 'First sale from an ad', data.meta_days.some((r) => +r.purchases > 0) ? 1 : 0, 1], ['B', '25 ads tested', tested, 25], ['S', '50 ads tested', tested, 50], ['S', 'First $100 profit day', Math.round(bestDay), 100],
+    ['S', '5 winners (passed tests)', winners, 5], ['G', 'First $5,000 month', Math.round(bestMonth), 5000], ['G', '100 ads tested', tested, 100], ['P', 'The target: a $12,000 month', Math.round(bestMonth), 12000]];
+  return { month, season, store };
+}
+function TrophyCard({ x: [t, name, a, b] }) {
+  const got = a >= b, pct = Math.max(0, Math.min(1, a / b)) * 100;
+  return html`<div class=${'sktro' + (got ? ' got' : '')}><${Cup} t=${t} w=${42} got=${got} /><div class="grow"><div class="tiny" style=${`font-weight:800;letter-spacing:.06em;color:${got ? TIER[t][1] : 'var(--muted)'}`}>${TIER[t][0].toUpperCase()}</div><b class="small">${name}</b>
+    ${got ? html`<div class="tiny pos">✓ won</div>` : html`<div class="skbar"><i style=${`width:${pct.toFixed(0)}%;background:${TIER[t][2]}`}></i></div><div class="tiny muted">${b >= 100 ? `${R.money0(a)} of ${R.money0(b)}` : `${a} of ${b}`}</div>`}</div></div>`;
+}
+
+// =================== Stocks look: Goals ===================
+function StocksGoal(g) {
+  const { data, products, cm, dm, months, periods, st, stage, msDone, auto, setModal, curYm, dimNow, elapsed, classicBody, crew, be, reload, say } = g;
+  const [tab, setTab0] = useState(() => lsGet('adlab-sk-gtab', 'month'));
+  const setTab = (k) => { setTab0(k); lsSet('adlab-sk-gtab', k); };
+  const [tset, setTset] = useState('month');
+  const sets = trophySets(g);
+  const nowSet = sets.month(curYm);
+  const all = [...nowSet, ...sets.season, ...sets.store], pts = all.filter((x) => x[2] >= x[3]).reduce((s, x) => s + TIER[x[0]][3], 0);
+  const level = Math.floor(pts / 100) + 1, lvlPct = pts % 100;
+  const count = (t) => all.filter((x) => x[0] === t && x[2] >= x[3]).length;
+  const tabs = html`<div class="row" style="gap:8px;flex-wrap:wrap"><h1 style="font-size:28px">Goals</h1><div class="skseg">${[['month', 'This month'], ['calendar', 'Calendar'], ['milestones', 'Milestones'], ['room', 'Trophy room'], ['how', 'How it works']].map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => setTab(k)}>${l}</button>`)}</div><span class="spacer"></span><button class="btn primary" onClick=${() => setModal({ type: PeriodForm, props: {} })}>+ Add numbers</button></div>`;
+  const levelBar = html`<section class="panel skrow2"><span class="small muted">Investor level</span><b style="font-size:28px">${level}</b><div class="skbar grow"><i style=${`width:${lvlPct}%`}></i></div><span class="small muted">${lvlPct}% to level ${level + 1}</span>${['P', 'G', 'S', 'B'].map((t) => html`<span class="row" style="gap:4px"><${Cup} t=${t} w=${22} /><b>${count(t)}</b></span>`)}</section>`;
+  if (tab === 'calendar') return html`${tabs}${classicBody}`;
+  if (tab === 'milestones') {
+    const list = tset === 'month' ? nowSet : tset === 'season' ? sets.season : sets.store;
+    const tsets = [['month', MON_LONG[+curYm.slice(5) - 1], 'resets on the 1st', nowSet, 'var(--pass)'], ['season', `Season · ${stage.name}`, stage.months, sets.season, 'var(--mid)'], ['store', 'Store · forever', 'never resets', sets.store, '#C084FC']];
+    return html`${tabs}${levelBar}<div class="skgrid3">${tsets.map(([k, l, s, it, c]) => html`<button class=${'panel sktset' + (tset === k ? ' on' : '')} style=${tset === k ? `border:1px solid ${c}` : ''} onClick=${() => setTset(k)}><b>${l}</b><span class="small muted">${s} · <b style="color:var(--ink)">${it.filter((x) => x[2] >= x[3]).length} of ${it.length}</b></span><div class="skbar"><i style=${`width:${it.filter((x) => x[2] >= x[3]).length / it.length * 100}%;background:${c}`}></i></div></button>`)}</div>
+      <div class="skgrid3">${list.map((x) => html`<${TrophyCard} x=${x} />`)}</div><div class="small muted">Bronze = habits · Silver = a solid week or month · Gold = the big money goals · Platinum = win every other one in the set.</div>`;
+  }
+  if (tab === 'room') {
+    const past = months.filter((m) => m.done).slice(-6).reverse();
+    return html`${tabs}${levelBar}
+      <section class="panel"><div class="row"><h2>Store cabinet · forever</h2><span class="spacer"></span><span class="small muted">${sets.store.filter((x) => x[2] >= x[3]).length} of ${sets.store.length}</span></div><div class="skshelf">${sets.store.map((x) => html`<div class=${'skplinth' + (x[2] >= x[3] ? '' : ' no')}><${Cup} t=${x[0]} w=${56} got=${x[2] >= x[3]} /><b class="tiny">${x[1]}</b></div>`)}</div></section>
+      <section class="panel"><div class="row"><h2>Season · ${stage.name} shelf</h2><span class="spacer"></span><span class="small muted">${stage.months} · framed here when the season ends</span></div><div class="skshelf">${sets.season.map((x) => html`<div class=${'skplinth' + (x[2] >= x[3] ? '' : ' no')}><${Cup} t=${x[0]} w=${56} got=${x[2] >= x[3]} /><b class="tiny">${x[1]}</b></div>`)}</div></section>
+      <section class="panel"><h2>Month by month</h2>${past.length ? past.map((m) => { const won = sets.month(m.ym).filter((x) => x[2] >= x[3]); return html`<div class="li"><b style="width:130px">${MON_LONG[+m.ym.slice(5) - 1]} ${m.ym.slice(0, 4)}</b><span class="row grow" style="gap:6px">${won.length ? won.map((x) => html`<span title=${x[1]}><${Cup} t=${x[0]} w=${30} /></span>`) : html`<span class="small muted">no trophies</span>`}</span><span class="small muted">${won.length} won · ${m.actual != null ? signMoney(m.actual) : '—'}</span></div>`; }) : html`<div class="empty">Finished months show here.</div>`}</section>`;
+  }
+  if (tab === 'how') return html`${tabs}<div class="skgrid3">
+    <section class="panel"><h2>Monthly trophies</h2><div class="small">Up to 9 each month, bronze to platinum. When the month ends, what you won stays on that month in the Trophy room. The list resets on the 1st.</div></section>
+    <section class="panel"><h2>Season trophies</h2><div class="small">A season is one stage of your plan (${STAGES_GOAL.map((s) => s.name).join(', ')}). Win them any day in the season. When it ends they're framed in the Trophy room; missed ones get an empty spot.</div></section>
+    <section class="panel"><h2>Store trophies</h2><div class="small">Lifetime milestones that never reset: ads tested, best day, best month, the $12k target.</div></section></div>
+    <section class="panel"><h2>Levels</h2><div class="small">Bronze 15 points · Silver 30 · Gold 90 · Platinum 300. Every 100 points is a level.</div></section>`;
+  // ---- This month ----
+  const actual = cm.actual, hi = cm.hi, lo = cm.lo, left = Math.max(1, dimNow - elapsed);
+  const need = actual != null ? Math.max(0, (hi - actual) / left) : null, avg = actual != null && cm.days ? actual / cm.days : null;
+  const shouldBe = hi * elapsed / dimNow, ahead = actual != null ? actual - shouldBe : null;
+  const pct = actual != null ? Math.max(0, Math.min(100, actual / hi * 100)) : 0;
+  const daysArr = Array.from({ length: dimNow }, (_, i) => { const d = curYm + '-' + String(i + 1).padStart(2, '0'); const v = dm.get(d); return { d, v: v ? v.profit : null, today: d === R.today() }; });
+  const perDayNeed = hi / dimNow;
+  const s = cm.s || sumRange(dm, curYm + '-01', R.addDays(R.today(), -1));
+  const cps = []; for (let i = 1; i <= dimNow; i++) { const d = curYm + '-' + String(i).padStart(2, '0'); if (R.parseDay(d).getDay() === 0 || i === dimNow) cps.push({ d, t: Math.round(hi * i / dimNow) }); }
+  const up = cps.filter((x) => x.d >= R.today()).slice(0, 4);
+  // What would add the most profit: each $1 of ad spend makes (ROAS / break-even − 1) dollars.
+  const ways = []; const mp = crew ? mainPlan(data, crew) : null;
+  if (mp && mp.cur && mp.cur.spend) {
+    const perDay = mp.cur.spend / 7, r = mp.cur.roas, step = (R.rulesOf(crew).raiseStep || 20) / 100;
+    if (r > be) ways.push([`Raise the Main budget ${Math.round(step * 100)}%`, perDay * step * (r / be - 1)]);
+    const mains = data.ads.filter((a) => a.product_id === crew.id && a.stage === 'main').map((a) => ({ a, h: mainHealth(a, data, crew) })).filter((x) => x.h && x.h.cur.spend);
+    const worst = mains.filter((x) => x.h.cur.roas < be).sort((x, y) => x.h.cur.roas - y.h.cur.roas)[0];
+    const bench = data.ads.filter((a) => a.product_id === crew.id && a.stage === 'bench').map((a) => { const q = quickStats(a, data); return { a, r: q && q.roas }; }).filter((x) => x.r).sort((x, y) => y.r - x.r)[0];
+    if (worst && bench && bench.r > worst.h.cur.roas) ways.push([`Swap ${worst.a.base_name} (${R.xroas(worst.h.cur.roas)}) for ${bench.a.base_name}`, worst.h.cur.spend / 7 * (bench.r - worst.h.cur.roas) / be]);
+  }
+  if (s.orders && s.days) { const sb = R.storeBE(R.econOf(crew)); const keep = sb.missing ? 0.55 : 1 - sb.pct / 100 - (R.num(st.feePct) || 0) / 100; ways.push(['Bigger orders: +$5 average (push the 2-pack)', s.orders / s.days * 5 * keep]); }
+  ways.sort((a, b) => b[1] - a[1]);
+  const stIdx = STAGES_GOAL.indexOf(stage);
+  return html`${tabs}
+    <div class="skgoal">
+      <section class="panel skhero">
+        <div class="row" style="align-items:flex-start;gap:20px"><div><div class="small muted">${MON_LONG[+curYm.slice(5) - 1]} so far</div><div class="skhuge">${actual == null ? '—' : signMoney(actual)}</div>
+          <div class="small">of the <b>${R.money0(hi)}</b> stretch · <b>${actual == null ? '—' : R.money0(Math.max(0, hi - actual))} to go</b> · <b>${dimNow - elapsed} days left</b></div></div><span class="spacer"></span>
+          <div style="text-align:right"><div class="small muted">You need</div><div class="skper" style="color:var(--mid)">${need == null ? '—' : R.money0(need)}<small>/day</small></div><div class="small muted" style="margin-top:6px">You're averaging</div><div class="skper pos">${avg == null ? '—' : R.money0(avg)}<small>/day</small></div></div></div>
+        <div class="skprog"><div class="trk"><i style=${`width:${pct.toFixed(1)}%`}></i></div><b class="goal" style=${`left:${(lo / hi * 100).toFixed(1)}%`}></b><span class="lab" style=${`left:${(lo / hi * 100).toFixed(1)}%`}>GOAL ${R.money0(lo)}${actual != null ? ' · ' + Math.round(actual / lo * 100) + '%' : ''}</span>
+          <span class="ontrack" style=${`left:${Math.min(99, shouldBe / hi * 100).toFixed(1)}%`}></span><span class="str">STRETCH ${R.money0(hi)}</span></div>
+        <div class="row small" style="gap:16px;flex-wrap:wrap;margin-top:-6px"><span><b class="pos">■</b> you · <b>${signMoney(actual)}</b></span><span><b style="color:var(--mid)">┆</b> on track by today · <b>${R.money0(shouldBe)}</b></span><span><b>│</b> goal · <b>${R.money0(lo)}</b></span></div>
+        <div class="row small"><b>Every day this month</b><span class="spacer"></span><span class="muted"><b class="pos">■</b> made ${R.money0(perDayNeed)}+ · <b style="color:var(--mid)">■</b> under · <b class="neg">■</b> lost money · empty = to come</span></div>
+        <div class="skdays">${daysArr.map((x, i) => html`<div class=${'skday' + (x.v == null ? '' : x.v >= perDayNeed ? ' g' : x.v >= 0 ? ' a' : ' r') + (x.today ? ' today' : '')} title=${x.d}>${x.v == null ? i + 1 : signMoney(x.v)}</div>`)}</div>
+        <div class="skstrip" style="border-top:1px solid var(--line);padding-top:12px">${[['Sales', R.money0(s.rev)], ['Ad spend', R.money0(s.spend)], ['Profit', signMoney(actual)], ['MER', s.spend ? R.xroas(s.rev / s.spend) : '—'], ['Orders', Math.round(s.orders || 0)], ['Days with numbers', `${cm.days} of ${dimNow}`]].map(([a, b]) => html`<div><div class="small muted">${a}</div><div class="skv">${b}</div></div>`)}</div>
+      </section>
+      <div class="stack" style="gap:14px">
+        <section class=${'panel ' + (ahead != null && ahead >= 0 ? 'skok' : 'skbad')}><div class="row"><h2>Verdict</h2><span class="spacer"></span>${ahead != null && html`<span class=${'sig ' + (ahead >= 0 ? 'sig-buy' : 'sig-sell')}>${ahead >= 0 ? 'AHEAD BY ' : 'BEHIND BY '}${R.money0(Math.abs(ahead))}</span>`}</div>
+          <div class="small">${actual == null ? 'Add numbers for this month to see where you stand.' : `To be on track for ${R.money0(hi)} you should be at ${R.money0(shouldBe)} by now. You're at ${signMoney(actual)}. ${ahead >= 0 ? 'Keep it up.' : `You need ${R.money0(need)}/day from here.`}${R.daysBetween(R.today(), BF_DAY) >= 0 && R.daysBetween(R.today(), BF_DAY) <= 30 ? ' Black Friday can swing the month a lot either way.' : ''}`}</div></section>
+        <section class="panel"><h2>Checkpoints</h2>${up.map((x, i) => html`<div class="skcp"><div class="row small"><b>${mdLabel(x.d)}</b><span class="spacer"></span><b>${signMoney(actual)}</b><span class="muted"> of ${R.money0(x.t)}</span></div><div class="skbar"><i style=${`width:${Math.max(0, Math.min(100, (actual || 0) / x.t * 100)).toFixed(0)}%`}></i></div>${i === 0 && actual != null && html`<div class="tiny muted">need ${R.money0(Math.max(0, (x.t - actual) / Math.max(1, R.daysBetween(R.today(), x.d) + 1)))}/day until then</div>`}</div>`)}</section>
+        <section class="panel"><h2>What would add the most profit</h2><div class="tiny muted">Moves you could make, with the extra profit per day each would likely add, worked out from your own numbers.</div>${ways.length ? ways.map(([a, b]) => html`<div class="li small"><span class="grow">${a}</span><b class="pos">+${R.money0(b)}/day</b></div>`) : html`<div class="empty">Needs a few days of Main numbers.</div>`}</section>
+      </div>
+    </div>
+    <div class="grid2">
+      <section class="panel"><div class="row"><h2>Numbers you've entered</h2><span class="spacer"></span><button class="link small" onClick=${() => setModal({ type: PeriodForm, props: {} })}>+ Add numbers</button></div><div class="tiny muted">Profit here comes from these. Add a week, a month or custom dates.</div>
+        ${periods.length ? periods.slice().reverse().slice(0, 6).map((x) => { const pr = periodProfit(x, st); return html`<div class="li small"><b style="width:130px">${x.from === x.to ? mdLabel(x.from) : `${mdLabel(x.from)} to ${mdLabel(x.to)}`}</b><span class="grow muted">${x.revType === 'net' ? 'Shopify' : 'Triple Whale'}${x.costFinal ? ' · final Sada bill' : ''}</span><b class=${pr.value >= 0 ? 'pos' : 'neg'}>${signMoney(pr.value)}</b><button class="link small" onClick=${() => setModal({ type: PeriodForm, props: { id: x.id } })}>Edit</button></div>`; }) : html`<div class="empty">No numbers yet.</div>`}
+        <button class="link small" style="align-self:flex-start" onClick=${() => setTab('calendar')}>All numbers and the monthly report →</button></section>
+      <section class="panel"><h2>The long game · $12,000 / month by Sep 2027</h2>
+        <div class="skgrid4">${STAGES_GOAL.map((x, i) => html`<div class=${'skstage' + (x === stage ? ' on' : '')}><b>${x.name}${i > stIdx ? ' 🔒' : ''}</b><span class="tiny muted">${x.months}</span><b class="small">${R.money0(x.profit[0])}–${R.money0(x.profit[1])}/mo</b>${x === stage && html`<div class="skbar"><i style=${`width:${msDone.filter(Boolean).length / msDone.length * 100}%`}></i></div><span class="tiny muted">${msDone.filter(Boolean).length} of ${msDone.length} checks</span>`}</div>`)}</div></section>
+    </div>`;
+}
+
+// =================== Stocks look: Market data (Stats) ===================
+function StockStatsTop({ cur, prev, n, start, end, data, econ }) {
+  const sb = R.storeBE(econ), sto = R.storeEcon();
+  const shop = data.shop_days.filter((d) => d.day >= start && d.day <= end);
+  const ord = shop.reduce((s2, d) => s2 + (+d.orders || 0), 0), rev = cur.revenue || 0;
+  const prod = sb.missing ? null : rev * sb.pct / 100, ship = ord * (R.num(sto.ship) || 0), fees = rev * (R.num(sto.feePct) || 0) / 100 + ord * ((R.num(sto.feeFixed) || 0) + (R.num(sto.pack) || 0) + (R.num(sto.other) || 0));
+  const apps = (R.num(sto.fixedMonthly) || 0) * new Set(shop.map((d) => d.day)).size / 30.4;
+  const lines = [['Product cost', prod, '#8A6FD1'], ['Shipping labels', ship, '#4A8CFF'], ['Ad spend', cur.spend, 'var(--fail)'], ['Fees + packaging', fees, 'var(--muted)'], ['Apps', apps, '#555'], ['Profit', cur.profit, 'var(--pass)']].filter((x) => x[1] != null);
+  return html`<section class="panel"><h2>Where the money went</h2>${!rev ? html`<div class="empty">No Shopify sales in this range.</div>` : lines.map(([a, v, c]) => html`<div class="skmw"><div class="row small"><span>${a}</span><span class="spacer"></span><b>${signMoney(v)}</b></div><div class="skbar"><i style=${`width:${Math.max(0, Math.min(100, v / rev * 100)).toFixed(0)}%;background:${c}`}></i></div></div>`)}<div class="tiny muted">Estimate from Shopify, your store costs and Meta files.</div></section>`;
+}
+function MonthByMonth({ data }) {
+  const crew = data.products.find((p) => p.kind === 'crew') || data.products[0], econ = R.econOf(crew), st = R.storeEcon();
+  const dm = dayMap(goalPeriods(data), st);
+  const yms = [...new Set([...data.shop_days.map((d) => d.day.slice(0, 7)), ...goalPeriods(data).map((x) => x.from.slice(0, 7))])].sort().reverse().slice(0, 14);
+  const rows = yms.map((ym) => {
+    const a = ym + '-01', b = monthEnd(ym), y = R.addDays(R.today(), -1), e = b < y ? b : y;
+    const shop = data.shop_days.filter((d) => d.day >= a && d.day <= e), g = sumRange(dm, a, e);
+    const sales = shop.length ? shop.reduce((s, d) => s + (+d.gross || 0) - (+d.refunds || 0) - (+d.tax || 0), 0) : g.rev || null, orders = shop.length ? shop.reduce((s, d) => s + (+d.orders || 0), 0) : g.orders || null;
+    const days = Math.max(1, R.daysBetween(a, e) + 1);
+    return { ym, sales, orders, aov: sales && orders ? sales / orders : null, perDay: sales != null ? sales / days : null, opd: orders != null ? orders / days : null, profit: g.days ? g.profit : null, partial: e < b, days };
+  });
+  const arrow = (a, b2, good = true) => (a == null || b2 == null || !b2 ? '' : html`<span class=${'tiny ' + ((a >= b2) === good ? 'pos' : 'neg')}> ${a >= b2 ? '▲' : '▼'} ${Math.abs(Math.round((a / b2 - 1) * 100))}%</span>`);
+  const mx = Math.max(1, ...rows.map((r) => r.sales || 0));
+  return html`<section class="panel"><h2>Sales by month</h2><div class="skmbars">${rows.slice(0, 12).slice().reverse().map((r) => html`<div><span class="tiny">${r.sales != null ? '$' + (r.sales / 1000).toFixed(1) + 'k' : ''}</span><i style=${`height:${Math.round((r.sales || 0) / mx * 120)}px`}></i><span class="tiny muted">${MON_LONG[+r.ym.slice(5) - 1].slice(0, 3)}</span></div>`)}</div></section>
+    <section class="panel"><div class="tscroll"><table class="t sktable"><thead><tr><th>Month</th><th>Sales (no tax)</th><th>Orders</th><th>Avg order</th><th>Profit</th></tr></thead><tbody>
+      ${rows.map((r, i) => { const p2 = rows[i + 1]; return html`<tr><td><b>${MON_LONG[+r.ym.slice(5) - 1].slice(0, 3)} ${r.ym.slice(0, 4)}</b>${r.partial ? html` <span class="tiny muted">(${r.days} days)</span>` : ''}</td><td>${r.sales != null ? R.money0(r.sales) : '—'}${p2 && arrow(r.perDay, p2.perDay)}</td><td>${r.orders != null ? r.orders : '—'}${p2 && arrow(r.opd, p2.opd)}</td><td>${R.money(r.aov)}${p2 && arrow(r.aov, p2.aov)}</td><td class=${r.profit == null ? '' : r.profit >= 0 ? 'pos' : 'neg'}>${r.profit == null ? '—' : signMoney(r.profit)}</td></tr>`; })}
+    </tbody></table></div><div class="tiny muted">▲▼ vs the month before, per day, so a month in progress compares fairly. Profit from the numbers you entered on Goals.</div></section>`;
+}
+
+// =================== Stocks look: Closed positions (Archive) ===================
+function StockArchiveTop({ data, product, setFolder, folder }) {
+  const ads = data.ads.filter((a) => a.product_id === product.id);
+  const n = (k) => ads.filter((a) => a.stage === k).length;
+  const failed = ads.filter((a) => a.stage === 'failed'), judged = n('exhausted') + n('mid') + n('failed') + n('bench') + n('main');
+  const lost = failed.reduce((s, a) => { const q = quickStats(a, data); return s + (q ? q.spend : 0); }, 0);
+  const why = {}; for (const a of failed) { const t = lastStage1(a, data); const r = (t && t.result_reason) || ''; const k = /early|stop/i.test(r) ? 'Stopped early' : /0 buys|no buys|zero/i.test(r) ? 'No buys' : /click/i.test(r) ? 'Clicks, no buys' : /fail line|under|below/i.test(r) || a.result === 'fail' ? 'Under the fail line after the test' : 'Other / older result'; why[k] = (why[k] || 0) + 1; }
+  const whyL = Object.entries(why).sort((a, b) => b[1] - a[1]), mxw = Math.max(1, ...whyL.map((x) => x[1]));
+  const relist = [...ads.filter((a) => a.stage === 'exhausted' && (a.tags || {}).offOn && R.daysBetween(a.tags.offOn, R.today()) >= 45).map((a) => ({ a, d: `Matured · rested ${R.daysBetween(a.tags.offOn, R.today())} days` })), ...ads.filter((a) => a.stage === 'mid').map((a) => ({ a, d: 'Flat · try it with a change' }))].slice(0, 4);
+  return html`<div class="skstrip4">${[['Closed', n('exhausted') + n('mid') + n('failed') + n('seasonal') + n('retired')], ['Win rate', judged ? Math.round((n('exhausted') + n('bench') + n('main')) / judged * 100) + '%' : '—'], ['Spent on losers', R.money0(lost)], ['Waiting to relist', n('retest')]].map(([a, b]) => html`<section class="panel"><span class="small muted">${a}</span><b class="skv">${b}</b></section>`)}</div>
+    <div class="grid2"><section class="panel"><h2>Why they were sold</h2>${whyL.length ? whyL.map(([k, v]) => html`<div class="row small" style="gap:10px"><span style="width:230px">${k}</span><div class="skbar grow"><i style=${`width:${v / mxw * 100}%;background:var(--fail)`}></i></div><b>${v}</b></div>`) : html`<div class="empty">No failed ads yet.</div>`}</section>
+      <section class="panel"><h2>Relist candidates</h2>${relist.length ? relist.map(({ a, d }) => html`<div class="li small"><${Media} path=${a.media_path} type=${a.media_type} poster=${a.tags && a.tags.poster} cls="round" /><span class="grow"><b>${a.base_name}</b><br/><span class="muted">${d}</span></span></div>`) : html`<div class="empty">Nothing rested long enough yet.</div>`}</section></div>`;
+}
+
+// =================== Stocks look: Journal score ===================
+function StockScore({ data }) {
+  const done = data.tests.filter((t) => t.stage === 1 && t.status !== 'active' && guessCounts(t) && actualOf(t.result) && !isDupTest(t));
+  const open = data.tests.filter((t) => t.stage === 1 && t.status === 'active' && (t.conditions || {}).guess).length;
+  if (!done.length) return html`<section class="panel skscore"><h2>Your calls</h2><div class="small muted">When you launch a test, guess Pass, Mid or Fail. Once results are in, this shows how often your gut is right.${open ? ` ${open} waiting.` : ''}</div></section>`;
+  const right = done.filter((t) => t.conditions.guess === actualOf(t.result)), pct = right.length / done.length;
+  const by = GUESSES.map(([k, l]) => { const g = done.filter((t) => t.conditions.guess === k); return { l, n: g.length, ok: g.filter((t) => actualOf(t.result) === k).length }; }).filter((x) => x.n);
+  const recent = done.slice().sort((a, b) => String(b.start_date).localeCompare(String(a.start_date))).slice(0, 10);
+  const miss = recent.find((t) => t.conditions.guess !== actualOf(t.result)), mad = miss && data.ads.find((a) => a.id === miss.ad_id);
+  const C = 2 * Math.PI * 46;
+  return html`<section class="panel skscore"><h2>Your calls · prediction score</h2><div class="tiny muted">Guess Pass, Mid or Fail when you launch a test.</div>
+    <div class="row" style="gap:14px"><svg width="110" height="110" viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="46" fill="none" stroke="var(--panel2)" stroke-width="12" /><circle cx="60" cy="60" r="46" fill="none" stroke="var(--pass)" stroke-width="12" stroke-linecap="round" stroke-dasharray=${`${(C * pct).toFixed(0)} ${C.toFixed(0)}`} transform="rotate(-90 60 60)" /><text x="60" y="67" text-anchor="middle" font-size="24" font-weight="800" fill="var(--ink)">${Math.round(pct * 100)}%</text></svg>
+      <div class="small">Right <b>${right.length} of ${done.length}</b><div class="tiny muted">a coin flip is 50%</div>${open > 0 && html`<div class="tiny muted">${open} waiting for results</div>`}</div></div>
+    ${by.map((x) => html`<div class="row small" style="gap:8px"><span style="width:80px">${x.l} calls</span><div class="skbar grow"><i style=${`width:${x.ok / x.n * 100}%`}></i></div><b>${x.ok} of ${x.n}</b></div>`)}
+    <div class="tiny muted">Last ${recent.length} guesses · green right, red wrong</div><div class="row" style="gap:6px">${recent.map((t) => html`<span class=${'skdotb ' + (t.conditions.guess === actualOf(t.result) ? 'g' : 'r')} title=${(data.ads.find((a) => a.id === t.ad_id) || {}).base_name}></span>`)}</div>
+    ${mad && html`<div class="sksurp"><${Media} path=${mad.media_path} type=${mad.media_type} poster=${mad.tags && mad.tags.poster} cls="sm" /><span><span class="tiny muted">Biggest surprise lately</span><br/><b>${mad.base_name}</b><br/><span class="tiny muted">you guessed ${miss.conditions.guess} · it was ${actualOf(miss.result)}</span></span></div>`}</section>`;
+}
+
+// =================== Stocks look: More ===================
+function SignalGlossary() {
+  const names = [['Portfolio value', 'total profit over the days with numbers'], ['Buy more', 'raise the Main campaign budget (Main only)'], ['Holdings', 'Main ads'], ['IPO', 'an ad in its test'], ['Reserve', 'Bench (passed, waiting)'], ['Watchlist', 'Up next'],
+    ['Closed positions', 'History / Archive'], ['Outperform', 'strong ad · make more like it'], ['Sell', 'turn it off'], ['Price target', 'your monthly profit goal'], ['Market data', 'Stats'], ['Journal', 'Learnings'], ['Earnings calendar', 'this week’s dates'], ['Filings', 'the ad’s history']];
+  return html`<div class="grid2"><section class="panel"><h2>What the signals mean</h2><div class="small muted">One signal per ad. Buttons only show when there's a real decision. Suggestions from your numbers; nothing changes in Meta.</div>
+    ${Object.entries(SIG).map(([k, [l, d]]) => html`<div class="li"><span class=${'sig sig-' + k} style="min-width:104px;justify-content:center">${l}</span><span class="small grow">${d}</span></div>`)}
+    <div class="small"><b class="pos">Buy more</b> only shows for the whole Main campaign: "Buy more? (raise the Main budget)" on Portfolio, when all checks pass.</div></section>
+    <section class="panel"><h2>Stock word = real word</h2>${names.map(([a, b]) => html`<div class="li small"><b style="width:140px">${a}</b><span class="muted grow">${b}</span></div>`)}</section></div>`;
 }
 
 // ---------- overview helpers ----------
@@ -2521,13 +2974,13 @@ function MainPlan({ data, product, setModal, reload, say }) {
   const open = (ad) => setModal({ type: AdDetail, props: { adId: ad.id } });
   const head = p.head;
   return html`<section class="panel mainplan">
-    <div class="row" style="gap:10px;flex-wrap:wrap"><h2 style="margin:0">Main plan</h2><span class=${'chip t-' + (p.budget.tone === 'good' ? 'pass' : p.budget.tone === 'bad' ? 'fail' : p.budget.tone === 'warn' ? 'mid' : 'live')}>${p.budget.call}</span><span class="small"><b>${head}</b></span></div>
+    <div class="row" style="gap:10px;flex-wrap:wrap"><h2 style="margin:0">${LOOK === 'stocks' ? 'Portfolio manager’s note' : 'Main plan'}</h2><span class=${'chip t-' + (p.budget.tone === 'good' ? 'pass' : p.budget.tone === 'bad' ? 'fail' : p.budget.tone === 'warn' ? 'mid' : 'live')}>${p.budget.call}</span><span class="small"><b>${head}</b></span></div>
     <div class="mp-tiles">
       <div class="mp-tile"><small>Main · last 7 days</small><b class=${p.nowB === 'above' ? 'good' : p.nowB === 'below' ? 'bad' : ''}>${R.xroas(p.cur.roas)}</b><span>${R.shortDate(p.w.a)} to ${R.shortDate(p.w.end)} · break-even ${R.xroas(p.be)}</span>
         <span>${p.thisWk && p.thisWk.spend ? html`This week so far <b class=${p.thisB === 'below' ? 'bad' : p.thisB ? 'good' : ''}>${R.xroas(p.thisWk.roas)}</b> · ` : ''}Last week (Mon–Sun) ${R.xroas(p.lastWk.roas)}${p.lastWk.to > p.w.end ? ` (files through ${R.shortDate(p.w.end)})` : ''}</span></div>
       <div class="mp-tile"><small>Main ads</small>${p.ads.length ? p.ads.map((x) => html`<button class="link mp-ad" onClick=${() => open(x.ad)}><i class=${'dot ' + (x.band === 'above' ? 'good' : x.band === 'below' ? 'bad' : 'warn')}></i>${displayName(x.ad).replace(/^(IMG|VID|Image|Video)\s*[|–-]\s*/i, '').slice(0, 26)} <b>${R.xroas(x.roas)}</b></button>${(() => { const f = fatigueForecast(x.ad, data, product); return f && (f.state === 'soon' || f.state === 'fading' || f.state === 'at') ? html`<span class="tiny" style=${'margin:-2px 0 2px 14px;white-space:normal;color:var(--' + (f.state === 'fading' ? 'mid' : 'fail') + ')'}>${f.state === 'at' ? 'at break-even, falling' : `~${f.lo}–${f.hi} days until under break-even`}</span>` : ''; })()}`) : html`<span>No spend this week</span>`}${p.market && html`<span>All fell together → likely Meta</span>`}</div>
       <div class="mp-tile"><small>Backup ready</small>${p.best ? html`<button class="link mp-ad" onClick=${() => open(p.best.a)}>${displayName(p.best.a).replace(/^(IMG|VID|Image|Video)\s*[|–-]\s*/i, '').replace(/\s*\|\s*\d{1,2}-\d{1,2}$/, '').slice(0, 26)} <b>${R.xroas(p.best.r && p.best.r.full.roas)}</b></button><span>${p.swapNow ? 'Swap it in now' : 'Swap only if next week is also bad'}</span>` : html`<b class="bad">None</b><span>Bench is empty</span>`}</div>
-      <div class="mp-tile"><small>Testing</small><b>${p.used}/${p.slots}</b><span>${p.free ? `${p.free} free · Up Next ${p.next}${p.free > p.next ? ` · make ${p.free - p.next}` : ''}` : `in use${p.usedBy.length ? ': ' + p.usedBy.join(', ') : ''}`}${p.daysLeft >= 0 ? ` · Black Friday batch by ${R.shortDate(p.lastLaunch)}` : ''}</span></div>
+      ${LOOK === 'stocks' && p.scale ? (() => { const f = p.scale.checks.find((c) => !c[0] && c[2]); return html`<div class="mp-tile"><small>Buy more? (raise the Main budget)</small><b class=${p.scale.ok ? 'good' : ''}>${p.scale.ok ? `Yes · +${p.scale.step}%` : `Not today · ${p.scale.mustOk} of ${p.scale.mustN}`}</b><span>${p.scale.ok ? `${R.money0(p.scale.perDay)} → ${R.money0(p.scale.to)}/day` : f ? f[1] : ''}</span></div>`; })() : html`<div class="mp-tile"><small>Testing</small><b>${p.used}/${p.slots}</b><span>${p.free ? `${p.free} free · Up Next ${p.next}${p.free > p.next ? ` · make ${p.free - p.next}` : ''}` : `in use${p.usedBy.length ? ': ' + p.usedBy.join(', ') : ''}`}${p.daysLeft >= 0 ? ` · Black Friday batch by ${R.shortDate(p.lastLaunch)}` : ''}</span></div>`}
     </div>
     ${p.scale && html`<${ScaleRow} s=${p.scale} product=${product} reload=${reload} say=${say} setModal=${setModal} />`}
     <button class="link small" style="align-self:flex-start" onClick=${() => setMore(!more)}>${more ? 'Hide details' : 'Show details'}</button>
@@ -2693,6 +3146,7 @@ function Stats(ctx) {
   const { data, product, setModal } = ctx;
   const [rk, setRk] = useState(() => { try { return localStorage.getItem('adlab-range') || '7'; } catch (e) { return '7'; } });
   const [tab, setTab] = useState('ads');
+  const [skTab, setSkTab0] = useState(() => lsGet('adlab-sk-stab', 'ov')); const setSkTab = (k) => { setSkTab0(k); lsSet('adlab-sk-stab', k); };
   const [all, setAll] = useState(false);
   useEffect(() => { try { localStorage.setItem('adlab-range', rk); } catch (e) {} }, [rk]);
   const [cr, setCr] = useState(() => { try { return JSON.parse(localStorage.getItem('adlab-range-custom')) || { from: R.addDays(R.today(), -29), to: R.today() }; } catch (e) { return { from: R.addDays(R.today(), -29), to: R.today() }; } });
@@ -2720,8 +3174,10 @@ function Stats(ctx) {
   const tone = (t, ad) => { const p = ad && data.products.find((x) => x.id === ad.product_id); const v = R.vsBreakEven(R.econOf(p || product), { purchases: t.purchases, roas: t.roas, cpa: t.cpa, aov: t.purchases ? t.revenue / t.purchases : null }); return !v || v.missing ? '' : v.band === 'above' ? 'good' : v.band === 'below' ? 'bad' : ''; };
   const shown = all ? adRows : adRows.slice(0, 10);
   const noData = !data.shop_days.length && !data.meta_days.length;
+  const skTabs = LOOK === 'stocks' && html`<div class="skseg">${[['ov', 'Overview'], ['mbm', 'Month by month']].map(([k, l]) => html`<button class=${skTab === k ? 'on' : ''} onClick=${() => setSkTab(k)}>${l}</button>`)}</div>`;
+  if (LOOK === 'stocks' && skTab === 'mbm') return html`<div class="row"><h1 style="font-size:28px">Market data</h1>${skTabs}</div><${MonthByMonth} data=${data} />`;
   return html`
-    <div class="row"><h1 style="font-size:30px">Stats</h1><span class="small muted">${(() => { const f = (d) => MON_LONG[+d.slice(5, 7) - 1].slice(0, 3) + ' ' + +d.slice(8); return start === end ? `${f(start)}${end === R.today() ? ' (today)' : ''}` : `${f(start)} to ${f(end)} (${n} days${end === R.today() ? ', today included' : ''})`; })()}</span><span class="spacer"></span>
+    <div class="row"><h1 style="font-size:30px">${LOOK === 'stocks' ? 'Market data' : 'Stats'}</h1>${skTabs}<span class="small muted">${(() => { const f = (d) => MON_LONG[+d.slice(5, 7) - 1].slice(0, 3) + ' ' + +d.slice(8); return start === end ? `${f(start)}${end === R.today() ? ' (today)' : ''}` : `${f(start)} to ${f(end)} (${n} days${end === R.today() ? ', today included' : ''})`; })()}</span><span class="spacer"></span>
       <div class="seg wide" role="group" aria-label="Date range">${RANGES.map(([k, l]) => html`<button class=${rk === k ? 'on' : ''} onClick=${() => setRk(k)}>${l}</button>`)}</div></div>
     ${rk === 'custom' && html`<div class="row" style="gap:8px;flex-wrap:wrap;align-items:center"><span class="small muted">From</span><input type="date" class="inp" style="max-width:170px" max=${R.today()} value=${cr.from} onInput=${(e) => e.target.value && setCr({ ...cr, from: e.target.value })} /><span class="small muted">to</span><input type="date" class="inp" style="max-width:170px" max=${R.today()} value=${cr.to} onInput=${(e) => e.target.value && setCr({ ...cr, to: e.target.value })} /><span class="tiny muted">Both days included. Compared with the same number of days right before.</span></div>`}
     <div class="grid2"><${ShopSync} ...${ctx} /><${MetaDrop} ...${ctx} /></div>
@@ -2734,6 +3190,7 @@ function Stats(ctx) {
       <div class="tile"><div class="k">Orders · AOV</div><div class="v">${cur.hasShop ? cur.orders : '—'} <small>· ${R.money(cur.aov)}</small></div><div class="s"><${Delta} now=${cur.orders} prev=${prev.orders} /> orders</div></div>
       <div class="tile"><div class="k">Meta ROAS · CPA</div><div class="v">${R.xroas(cur.roas)} <small>· ${R.money(cur.cpa)}</small></div><div class="s">${Math.round(cur.metaBuys)} Meta-reported buys</div></div>
     </section>
+    ${LOOK === 'stocks' && html`<div class="grid2"><${StockStatsTop} cur=${cur} start=${start} end=${end} data=${data} econ=${econ} /><section class="panel"><h2>Positions · signals</h2>${adRows.filter((r) => r.ad && ['main', 'testing'].includes(r.ad.stage)).slice(0, 8).map((r) => html`<button class="skrow" onClick=${() => setModal({ type: AdDetail, props: { adId: r.ad.id } })}><${Media} path=${r.ad.media_path} type=${r.ad.media_type} poster=${r.ad.tags && r.ad.tags.poster} cls="round" /><span class="grow"><b class="ell">${r.ad.base_name}</b><span class="sigrow"><${SigChip} s=${adSignal(r.ad, data)} /></span></span><span class="small muted">${R.money0(r.t.spend)}</span>${roasPill(r.t.spend ? r.t.roas : null)}</button>`)}${!adRows.some((r) => r.ad && ['main', 'testing'].includes(r.ad.stage)) && html`<div class="empty">No live ads in this range.</div>`}</section></div>`}
     <div class="grid2">
       <section class="panel"><h2>Sales and ad spend</h2><${LineChart} labels=${labels} marks=${labels.map((d) => marksOn(calendarOf(data), d))} fmt=${(v, ax) => (ax ? '$' + Math.round(v) : R.money0(v))} series=${[{ name: 'Sales, no tax (Shopify)', color: '#3D8BFF', values: revS }, { name: 'Ad spend (Meta)', color: '#C2669E', values: spS }]} /></section>
       <section class="panel"><h2>MER by day</h2><${LineChart} labels=${labels} marks=${labels.map((d) => marksOn(calendarOf(data), d))} fmt=${(v) => v.toFixed(2) + 'x'} refLine=${bev.roas ? { value: bev.roas, label: 'Store break-even ' + R.xroas(bev.roas) + (bev.estimated ? ' (est.)' : '') } : null} series=${[{ name: 'MER', color: '#3D8BFF', values: merS }]} /></section>
@@ -2971,15 +3428,15 @@ function Goal(ctx) {
   const pct = cm.actual == null ? 0 : Math.max(0, Math.min(100, cm.actual / (cm.hi * 1.1) * 100));
   const heroTone = cm.actual == null ? 'live' : crushNow ? 'good' : hitNow ? 'good' : cm.actual >= paceLo ? 'good' : cm.actual >= paceLo * 0.8 ? 'warn' : 'bad';
   const heroHead = cm.actual == null ? `${MON_LONG[+curYm.slice(5) - 1]}: no numbers yet` : crushNow ? 'Crushed it 🎉' : hitNow ? 'Goal hit 🎉' : cm.actual >= paceLo ? 'On track' : cm.actual >= paceLo * 0.8 ? 'Slightly behind' : 'Behind';
-  return html`
-    <div class="row"><h1 style="font-size:30px">Goal</h1><span class="spacer"></span><button class="btn primary" onClick=${() => setModal({ type: PeriodForm, props: {} })}>Add numbers</button></div>
-    <section class=${'panel goalhero g-' + heroTone}>
+  const classicBody = html`
+    ${LOOK !== 'stocks' && html`<div class="row"><h1 style="font-size:30px">Goal</h1><span class="spacer"></span><button class="btn primary" onClick=${() => setModal({ type: PeriodForm, props: {} })}>Add numbers</button></div>`}
+    ${LOOK !== 'stocks' && html`<section class=${'panel goalhero g-' + heroTone}>
       <div class="row" style="gap:10px;flex-wrap:wrap"><span class="tiny muted" style="letter-spacing:.12em">${MON_LONG[+curYm.slice(5) - 1].toUpperCase()} · ${stage.name.toUpperCase()} STAGE</span><span class="spacer"></span>${streak > 0 && html`<span class="chip t-pass">${streak} month${streak > 1 ? 's' : ''} in a row on target</span>`}</div>
       <div class="gh-head row" style="gap:10px">${heroHead}${cm.actual != null && (hitNow || cm.days >= 3) && (() => { const g = monthGrade(Math.max(cm.actual, cm.proj || 0), cm.lo, cm.hi); return html`<span class=${'chip t-' + gradeTone(g)} style="font-size:13px">On pace for ${g}</span>`; })()}</div>
       <div class="gh-num"><b>${cm.actual == null ? '—' : R.money0(cm.actual)}</b> <span>of ${R.money0(cm.lo)} goal this month${cm.hi > cm.lo ? ` · stretch ${R.money0(cm.hi)}` : ''}</span></div>
       <div class="gh-bar"><i style=${`width:${pct}%`}></i><b title="Goal" style=${`left:${cm.lo / (cm.hi * 1.1) * 100}%`}></b><b class="s" title="Stretch" style=${`left:${cm.hi / (cm.hi * 1.1) * 100}%`}></b>${cm.actual != null && !hitNow && html`<em title="Where you should be by now" style=${`left:${Math.min(100, paceLo / (cm.hi * 1.1) * 100)}%`}></em>`}</div>
       <div class="small muted">${cm.actual == null ? 'Add numbers for this month to see your progress.' : hitNow ? `${crushNow ? 'Past your stretch goal' : 'Goal reached'} with ${dimNow - elapsed} day${dimNow - elapsed === 1 ? '' : 's'} left.` : `By today you'd want about ${R.money0(paceLo)}. At this pace the month ends near ${R.money0(cm.proj)}.`}${cm.actual != null && cm.days < elapsed ? ` Counted ${cm.days} of ${elapsed} days so far.` : ''}${lastMonth ? ` Last month (${MON_LONG[+lastMonth.ym.slice(5) - 1]}): ${R.money0(lastMonth.actual)}${lastMonth.status === 'hit' || lastMonth.status === 'crushed' ? ', goal hit.' : '.'}` : ''}${cm.actual != null && provisional(curYm) ? ' Product cost is still an estimate until the Sada bill at month end.' : ''}</div>
-    </section>
+    </section>`}
     <section class="panel"><div class="row"><h2 style="margin:0">Road to $12,000 a month</h2><span class="spacer"></span>${before.length > 0 && html`<button class="link small" onClick=${togglePast}>${showPast ? 'Hide before the plan' : 'Show before the plan'}</button>`}<span class="tiny muted">Oct 2026 to Sep 2027</span></div>
       <${RoadChart} months=${months} before=${showPast ? before : []} />
       ${!before.length && html`<div class="tiny muted">Want your months before October as a baseline? <button class="link tiny" onClick=${() => setModal({ type: PastMonthsForm, props: {} })}>Add past months</button></div>`}
@@ -3027,6 +3484,8 @@ function Goal(ctx) {
           </div>
         </div></div>`}
     </section>`;
+  if (LOOK === 'stocks') return html`<${StocksGoal} data=${data} products=${products} cm=${cm} dm=${dm} months=${months} periods=${periods} st=${st} stage=${stage} msDone=${msDone} auto=${auto} setModal=${setModal} curYm=${curYm} dimNow=${dimNow} elapsed=${elapsed} classicBody=${classicBody} crew=${crew} be=${be} reload=${reload} say=${say} />`;
+  return classicBody;
 }
 // Add numbers for any dates: this week, last week, a month or custom.
 // Monthly report card: one finished month at a glance, with the month before for comparison.
@@ -3404,7 +3863,7 @@ function Rules(ctx) {
   return html`
     <div class="row"><h1 style="font-size:30px">Rules · ${product.name}</h1><span class="spacer"></span><button class="btn primary" disabled=${busy} onClick=${save}>${busy ? 'Saving…' : 'Save changes'}</button></div>
     <p class="muted small" style="margin:-8px 0 0">Every product keeps its own copy. Every number is yours to change.</p>
-    <div class="grid2">
+    <div class=${LOOK === 'stocks' ? 'skrules' : 'grid2'}>
       <section class="panel accent"><h2>${product.name} economics</h2>
         ${pv.opBE && html`<div class="tiles"><div class="tile"><div class="k">Break-even used to judge ads</div><div class="v" style="color:var(--accent2)">${R.xroas(pv.opBE)}</div><div class="s">${pv.opBEOwn ? 'Set by you' : product.kind === 'crew' ? 'Estimate: store average order with your bundle discounts' : 'Single-pack estimate until you set it'}</div></div></div>`}
         <div class="rulerow" key="e-opbe"><label for="e-opbe">Break-even ROAS used to judge ads (blank = estimate)</label><input id="e-opbe" inputmode="decimal" value=${pe.opBE} placeholder=${product.kind === 'crew' ? '2.85' : '—'} onInput=${setP('opBE')} />${unit('x')}</div>
@@ -3497,8 +3956,9 @@ function Learn(ctx) {
   const addE = async () => { if (!ev.all && ev.part === 'ads' && !ev.ads.length) { say('Pick at least one ad.'); return; }
     await be.insert('events', { product_id: ev.all ? null : (ev.pid || product.id), day: ev.day, kind: ev.kind, note: evNote([timeText, ev.note].filter(Boolean).join(' · '), ev.all ? 'all' : ev.part, ev.ads) }); setEv({ ...ev, note: '', t1: '', t2: '', part: 'all', ads: [] }); await reload(); say('Change logged'); };
   return html`
-    <h1 style="font-size:30px">Learnings · ${product.name}</h1>
-    <${Scoreboard} data=${data} />
+    <h1 style="font-size:30px">${LOOK === 'stocks' ? 'Journal' : 'Learnings'} · ${product.name}</h1>
+    ${LOOK !== 'stocks' && html`<${Scoreboard} data=${data} />`}
+    <div class=${LOOK === 'stocks' ? 'skjournal' : 'jwrap'}><div class="jmain">
     <div class="grid2">
       <section class="panel"><h2>Add a learning</h2><div class="form">
         <${Field} full label="One statement you can test"><textarea value=${text} onInput=${(e) => setText(e.target.value)} placeholder="Person wearing it in the first frame beat packaging-first"></textarea><//>
@@ -3516,7 +3976,8 @@ function Learn(ctx) {
         ${ev.part === 'ads' && html`<${AdPicks} data=${data} pid=${ev.pid || product.id} value=${ev.ads} onChange=${(ads) => setEv({ ...ev, ads })} />`}`}</div>
         <div class="row"><button class="btn" onClick=${addE}>Log change</button></div></section>
     </div>
-    <section class="panel"><h2>History</h2>${items.length ? html`<div class="list">${items.map((it) => html`<${HistoryRow} key=${(it.t || 'd') + (it.id || it.day + it.text)} it=${it} data=${data} reload=${reload} say=${say} />`)}</div>` : html`<div class="empty">Nothing yet</div>`}</section>`;
+    <section class="panel"><h2>History</h2>${items.length ? html`<div class="list">${items.map((it) => html`<${HistoryRow} key=${(it.t || 'd') + (it.id || it.day + it.text)} it=${it} data=${data} reload=${reload} say=${say} />`)}</div>` : html`<div class="empty">Nothing yet</div>`}</section>
+    </div>${LOOK === 'stocks' && html`<div class="stack skjrail"><${StockScore} data=${data} /></div>`}</div>`;
 }
 
 // ---------- more ----------
@@ -3573,7 +4034,7 @@ function More(ctx) {
       <section class="panel"><h2>Angles</h2><p class="small muted" style="margin:0">How each angle and concept has done, with every ad that ran it.</p><div class="row"><button class="btn" onClick=${() => setView('angles')}>Open Angles</button></div></section>
       <${ZipAll} data=${data} />
       <section class="panel"><h2>Rules</h2><p class="small muted" style="margin:0">Testing rules, break-even and costs per product.</p><div class="row"><button class="btn" onClick=${() => setView('rules')}>Open Rules</button></div></section>
-      <section class="panel"><h2>Learnings</h2><p class="small muted" style="margin:0">Learnings, changes and every decision, per product.</p><div class="row"><button class="btn" onClick=${() => setView('learn')}>Open Learnings</button></div></section>
+      <section class="panel"><h2>${navName('learn', 'Learnings')}</h2><p class="small muted" style="margin:0">Learnings, changes and every decision, per product.</p><div class="row"><button class="btn" onClick=${() => setView('learn')}>Open ${navName('learn', 'Learnings')}</button></div></section>
       <section class="panel"><h2>Import your ad history</h2>
         <p class="small muted" style="margin:0">Load the history file from Claude once: your past ads, images, verdicts and notes.</p>
         ${already && html`<div class="status good">History is imported. Importing a newer history file re-sorts ads you have not moved yourself.</div>`}
@@ -3584,7 +4045,8 @@ function More(ctx) {
       <section class="panel"><h2>Install on your phone</h2><p class="small muted" style="margin:0">iPhone: open this page in Safari, tap Share, then Add to Home Screen. Android: Chrome menu, then Add to Home screen.</p></section>
       ${be.mock && html`<section class="panel"><h2>Test mode</h2><p class="small muted" style="margin:0">Test data lives only in this browser. Clearing it does not touch your real database.</p><div class="row"><button class="btn danger" onClick=${async () => { if (!confirm('Clear all test data in this browser?')) return; await be.reset(); location.reload(); }}>Clear test data</button></div></section>`}
       <section class="panel"><h2>Account</h2><div class="row"><button class="btn" onClick=${() => be.signOut()}>Sign out</button></div></section>
-    </div>`;
+    </div>
+    ${look === 'stocks' && html`<${SignalGlossary} />`}`;
 }
 
 render(html`<${App} />`, document.getElementById('app'));
