@@ -388,3 +388,8 @@ html[data-look=stocks] .brand{display:flex;align-items:center;gap:8px;white-spac
 html[data-look=stocks] .brand .skmark{width:30px;height:30px}
 /* the card is what you drag, never the picture inside it */
 .skcard img,.skcard video,.tcard img,.tcard video{-webkit-user-drag:none;user-drag:none;pointer-events:none;user-select:none}
+.skmbars>div{gap:3px}
+.skmb2{display:flex;align-items:flex-end;gap:3px;width:100%;max-width:56px;justify-content:center}
+.skmb2 i{flex:1;max-width:24px;border-radius:4px 4px 0 0;min-height:2px;background:var(--pass)}
+.skmb2 i.neg{background:var(--fail)}
+.skmbars{height:200px}

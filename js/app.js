@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=163';
-import * as R from './rules.js?v=163';
-import { importHistory } from './importer.js?v=163';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=163';
+import { createBackend } from './data.js?v=164';
+import * as R from './rules.js?v=164';
+import { importHistory } from './importer.js?v=164';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=164';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2246,23 +2246,16 @@ function StockStatsTop({ cur, prev, n, start, end, data, econ }) {
   const lines = [['Product cost', prod, '#8A6FD1'], ['Shipping labels', ship, '#4A8CFF'], ['Ad spend', cur.spend, 'var(--fail)'], ['Fees + packaging', fees, 'var(--muted)'], ['Apps', apps, '#555'], ['Profit', cur.profit, 'var(--pass)']].filter((x) => x[1] != null);
   return html`<section class="panel"><h2>Where the money went</h2>${!rev ? html`<div class="empty">No Shopify sales in this range.</div>` : lines.map(([a, v, c]) => html`<div class="skmw"><div class="row small"><span>${a}</span><span class="spacer"></span><b>${signMoney(v)}</b></div><div class="skbar"><i style=${`width:${Math.max(0, Math.min(100, v / rev * 100)).toFixed(0)}%;background:${c}`}></i></div></div>`)}<div class="tiny muted">Estimate from Shopify, your store costs and Meta files.</div></section>`;
 }
-function MonthByMonth({ data }) {
-  const crew = data.products.find((p) => p.kind === 'crew') || data.products[0], econ = R.econOf(crew), st = R.storeEcon();
-  const dm = dayMap(goalPeriods(data), st);
-  const yms = [...new Set([...data.shop_days.map((d) => d.day.slice(0, 7)), ...goalPeriods(data).map((x) => x.from.slice(0, 7))])].sort().reverse().slice(0, 14);
-  const rows = yms.map((ym) => {
-    const a = ym + '-01', b = monthEnd(ym), y = R.addDays(R.today(), -1), e = b < y ? b : y;
-    const shop = data.shop_days.filter((d) => d.day >= a && d.day <= e), g = sumRange(dm, a, e);
-    const sales = shop.length ? shop.reduce((s, d) => s + (+d.gross || 0) - (+d.refunds || 0) - (+d.tax || 0), 0) : g.rev || null, orders = shop.length ? shop.reduce((s, d) => s + (+d.orders || 0), 0) : g.orders || null;
-    const days = Math.max(1, R.daysBetween(a, e) + 1);
-    return { ym, sales, orders, aov: sales && orders ? sales / orders : null, perDay: sales != null ? sales / days : null, opd: orders != null ? orders / days : null, profit: g.days ? g.profit : null, partial: e < b, days };
-  });
-  const arrow = (a, b2, good = true) => (a == null || b2 == null || !b2 ? '' : html`<span class=${'tiny ' + ((a >= b2) === good ? 'pos' : 'neg')}> ${a >= b2 ? '▲' : '▼'} ${Math.abs(Math.round((a / b2 - 1) * 100))}%</span>`);
-  const mx = Math.max(1, ...rows.map((r) => r.sales || 0));
-  return html`<section class="panel"><h2>Sales by month</h2><div class="skmbars">${rows.slice(0, 12).slice().reverse().map((r) => html`<div><span class="tiny">${r.sales != null ? '$' + (r.sales / 1000).toFixed(1) + 'k' : ''}</span><i style=${`height:${Math.round((r.sales || 0) / mx * 120)}px`}></i><span class="tiny muted">${MON_LONG[+r.ym.slice(5) - 1].slice(0, 3)}</span></div>`)}</div></section>
-    <section class="panel"><div class="tscroll"><table class="t sktable"><thead><tr><th>Month</th><th>Sales (no tax)</th><th>Orders</th><th>Avg order</th><th>Profit</th></tr></thead><tbody>
-      ${rows.map((r, i) => { const p2 = rows[i + 1]; return html`<tr><td><b>${MON_LONG[+r.ym.slice(5) - 1].slice(0, 3)} ${r.ym.slice(0, 4)}</b>${r.partial ? html` <span class="tiny muted">(${r.days} days)</span>` : ''}</td><td>${r.sales != null ? R.money0(r.sales) : '—'}${p2 && arrow(r.perDay, p2.perDay)}</td><td>${r.orders != null ? r.orders : '—'}${p2 && arrow(r.opd, p2.opd)}</td><td>${R.money(r.aov)}${p2 && arrow(r.aov, p2.aov)}</td><td class=${r.profit == null ? '' : r.profit >= 0 ? 'pos' : 'neg'}>${r.profit == null ? '—' : signMoney(r.profit)}</td></tr>`; })}
-    </tbody></table></div><div class="tiny muted">▲▼ vs the month before, per day, so a month in progress compares fairly. Profit from the numbers you entered on Goals.</div></section>`;
+function MonthByMonth({ data, reload, say }) {
+  const periods = goalPeriods(data), rows = costRows(periods, R.storeEcon()).filter((r) => r.month);
+  if (!rows.length) return html`<section class="panel"><div class="empty">Add your Shopify numbers on Goals (Add numbers) to see each month here.</div></section>`;
+  const last12 = rows.slice(-12), mx = Math.max(1, ...last12.map((r) => r.rev)), mxp = Math.max(1, ...last12.map((r) => Math.abs(r.profit || 0)));
+  const yr = (r) => (last12.some((z) => z.key.slice(5) === r.key.slice(5) && z.key !== r.key) ? ` ’${r.key.slice(2, 4)}` : '');
+  return html`<section class="panel"><div class="row"><h2>Sales and profit by month</h2><span class="spacer"></span><span class="small muted"><b style="color:#4A8CFF">■</b> sales · <b class="pos">■</b> profit</span></div>
+      <div class="skmbars">${last12.map((r) => html`<div title=${`${r.label}: sales ${R.money0(r.rev)}, profit ${r.profit == null ? '—' : signMoney(r.profit)}`}><span class="tiny">${'$' + (r.rev / 1000).toFixed(1) + 'k'}</span>
+        <span class="skmb2"><i style=${`height:${Math.round(r.rev / mx * 120)}px;background:#4A8CFF`}></i><i class=${r.profit != null && r.profit < 0 ? 'neg' : ''} style=${`height:${Math.round(Math.abs(r.profit || 0) / mxp * 60)}px`}></i></span>
+        <span class=${'tiny ' + (r.profit == null ? 'muted' : r.profit >= 0 ? 'pos' : 'neg')}>${r.profit == null ? '—' : signMoney(r.profit)}</span><span class="tiny muted">${r.label.slice(0, 3)}${yr(r)}</span></div>`)}</div></section>
+    <${CostTrend} periods=${periods} reload=${reload} say=${say} />`;
 }
 
 // =================== Stocks look: Closed positions (Archive) ===================
@@ -3322,7 +3315,7 @@ function Stats(ctx) {
   const shown = all ? adRows : adRows.slice(0, 10);
   const noData = !data.shop_days.length && !data.meta_days.length;
   const skTabs = LOOK === 'stocks' && html`<div class="skseg">${[['ov', 'Overview'], ['mbm', 'Month by month']].map(([k, l]) => html`<button class=${skTab === k ? 'on' : ''} onClick=${() => setSkTab(k)}>${l}</button>`)}</div>`;
-  if (LOOK === 'stocks' && skTab === 'mbm') return html`<div class="row"><h1 style="font-size:28px">Market data</h1>${skTabs}</div><${MonthByMonth} data=${data} />`;
+  if (LOOK === 'stocks' && skTab === 'mbm') return html`<div class="row"><h1 style="font-size:28px">Market data</h1>${skTabs}</div><${MonthByMonth} data=${data} reload=${ctx.reload} say=${ctx.say} />`;
   return html`
     <div class="row"><h1 style="font-size:30px">${LOOK === 'stocks' ? 'Market data' : 'Stats'}</h1>${skTabs}<span class="small muted">${(() => { const f = (d) => MON_LONG[+d.slice(5, 7) - 1].slice(0, 3) + ' ' + +d.slice(8); return start === end ? `${f(start)}${end === R.today() ? ' (today)' : ''}` : `${f(start)} to ${f(end)} (${n} days${end === R.today() ? ', today included' : ''})`; })()}</span><span class="spacer"></span>
       <div class="seg wide" role="group" aria-label="Date range">${RANGES.map(([k, l]) => html`<button class=${rk === k ? 'on' : ''} onClick=${() => setRk(k)}>${l}</button>`)}</div></div>
@@ -3718,10 +3711,8 @@ function ReportCard({ data, dm, months, before }) {
 }
 // Month by month: your sales, orders and real costs per order, one row per month (entries in the same month added together).
 // Up/down compares each month's daily rate with the month before, so a month in progress compares fairly.
-function CostTrend({ periods, reload, say }) {
-  const st = R.storeEcon();
-  const [open, setOpen] = useState(() => { try { return localStorage.getItem('adlab-costs') !== '0'; } catch (e) { return true; } });
-  const flip = () => { setOpen(!open); try { localStorage.setItem('adlab-costs', open ? '0' : '1'); } catch (e) {} };
+// One row per month from the numbers you entered (a multi-month entry stays one row). Used by Goals and Market data.
+function costRows(periods, st) {
   const groups = new Map(), dmAll = dayMap(periods, st);
   for (const x of periods.filter((p) => p.revType === 'net' && p.orders > 0 && p.exact == null)) {
     const same = monthKey(x.from) === monthKey(x.to), key = same ? monthKey(x.from) : `${x.from}..${x.to}`;
@@ -3738,6 +3729,13 @@ function CostTrend({ periods, reload, say }) {
     const pr = sumRange(dmAll, g.from, g.to), profit = pr.days ? pr.profit : null;
     return { ...g, label, profit, profDay: profit != null ? profit / pr.days : null, perDay: g.rev / g.days, ordDay: g.orders / g.days, aov: g.rev / g.orders, ship: g.shipOrd ? g.shipLab / g.shipOrd : null, fee: g.feeSales ? (g.fees - g.feeOrd * (R.num(st.feeFixed) || 0.3)) / g.feeSales * 100 : null };
   });
+  return rows;
+}
+function CostTrend({ periods, reload, say }) {
+  const st = R.storeEcon();
+  const [open, setOpen] = useState(() => { try { return localStorage.getItem('adlab-costs') !== '0'; } catch (e) { return true; } });
+  const flip = () => { setOpen(!open); try { localStorage.setItem('adlab-costs', open ? '0' : '1'); } catch (e) {} };
+  const rows = costRows(periods, st);
   if (!rows.length) return null;
   const avg = (k, wk) => { const r = rows.filter((z) => z[k] != null).slice(-3); if (!r.length) return null; const w = r.reduce((t, z) => t + z[wk], 0); return { v: r.reduce((t, z) => t + z[k] * z[wk], 0) / w, n: r.length }; };
   const sug = [];
