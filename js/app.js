@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=160';
-import * as R from './rules.js?v=160';
-import { importHistory } from './importer.js?v=160';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=160';
+import { createBackend } from './data.js?v=161';
+import * as R from './rules.js?v=161';
+import { importHistory } from './importer.js?v=161';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=161';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -367,7 +367,8 @@ function adSignal(ad, data) {
     const st = R.testStatus(t, data.checkpoints.filter((c) => c.test_id === t.id), rules, R.econOf(p).aov, liveFor(t, ad, data));
     if (st.early) return { k: 'sell', why: 'Hit your early-stop rule.' };
     if (st.final) return { k: 'dec', why: 'The test is done. Record the result.' };
-    return { k: 'wait', date: R.addDays(t.start_date, (t.planned_days || rules.plannedDays) - 1) };
+    // You decide on the day after the last test day, once that day's numbers are in (day 8 of a 7-day test).
+    return { k: 'wait', date: R.addDays(t.start_date, t.planned_days || rules.plannedDays) };
   }
   if (ad.stage === 'main') {
     if (t && t.stage === 2) { const end = R.addDays(t.start_date, rules.stage2Min); return end <= R.today() ? { k: 'dec', why: 'The trial in Main is done. Keep it or send it back.' } : { k: 'wait', date: end }; }
@@ -1921,7 +1922,7 @@ function StockCard(props) {
       ${loan && html`<span class="skloan">${p.name.toUpperCase()} · shared test slot</span>`}
       ${ad.stage === 'testing' && lv && !lv.m.purchases ? html`<span class="skroas"><b class="skr r">0 buys</b><span class="tiny muted">${bigL}</span></span>`
         : bigV != null && html`<span class="skroas"><b class=${'skr ' + toneX(bigV, be0)}>${R.xroas(bigV)}</b><span class="tiny muted">${bigL}</span>${has7 && ad.stage !== 'testing' && html`<${Spark} vals=${adDaily(ad, data)} be=${be0} />`}</span>`}
-      ${tday != null && html`<span class="skprog2"><span class="row tiny muted"><span>Day ${Math.min(tday, tp)} of ${tp}</span><span class="spacer"></span><span>decide day ${tp}</span></span><span class="skbar"><i style=${`width:${Math.min(100, tday / tp * 100).toFixed(0)}%;background:var(--ins,#4A8CFF)`}></i></span></span>`}
+      ${tday != null && html`<span class="skprog2"><span class="row tiny muted"><span>Day ${Math.min(tday, tp)} of ${tp}</span><span class="spacer"></span><span>decide day ${tp + 1}</span></span><span class="skbar"><i style=${`width:${Math.min(100, tday / tp * 100).toFixed(0)}%;background:var(--ins,#4A8CFF)`}></i></span></span>`}
       ${ad.stage !== 'testing' && ci.line && html`<span class="small">${ci.line}</span>`}${ad.stage !== 'testing' && ci.line2 && html`<span class="small muted">${ci.line2}</span>`}
       ${sg && sg.why && html`<span class="tiny muted">Why: ${sg.why}</span>`}
       ${kv && html`<span class="skkv">${kv.map(([a, b]) => html`<span><small>${a}</small><b>${b}</b></span>`)}</span>`}
@@ -1940,7 +1941,8 @@ function Ticker({ data }) {
     if (y.mer != null) out.push(['MER', R.xroas(y.mer), '', y.mer >= 2.62]);
     const live = data.ads.filter((a) => a.stage === 'main' || a.stage === 'testing');
     for (const ad of live) {
-      const c = adRange(ad, data, R.addDays(last, -6), last), pv = adRange(ad, data, R.addDays(last, -13), R.addDays(last, -7));
+      const t = ad.stage === 'testing' ? data.tests.find((x) => x.ad_id === ad.id && x.status === 'active' && x.stage === 1) : null, tf = t ? ((t.conditions || {}).spendFrom || t.start_date) : null;
+      const a0 = R.addDays(last, -6), c = adRange(ad, data, tf && tf > a0 ? tf : a0, last), pv = tf ? { spend: 0 } : adRange(ad, data, R.addDays(last, -13), R.addDays(last, -7));
       if (!c.spend) continue;
       const d = pv.spend ? c.roas - pv.roas : null;
       out.push([ad.base_name.toUpperCase().slice(0, 22), c.purchases ? R.xroas(c.roas) : '0 buys', d == null ? 'new' : (d >= 0 ? '▲ +' : '▼ ') + d.toFixed(2) + 'x', d == null ? c.roas >= 2.85 : d >= 0]);
@@ -1953,9 +1955,9 @@ function Ticker({ data }) {
 }
 
 // Numbers for an ad over several periods side by side.
-function PeriodTable({ ad, data, product }) {
+function PeriodTable({ ad, data, product, from }) {
   const be0 = R.econOf(product).opBE || 2.85, last = lastMetaDay(data); if (!last) return null;
-  const rows = rowsForAd(ad, data.meta_days); if (!rows.length) return null;
+  const rows = rowsForAd(ad, data.meta_days).filter((r) => !from || r.day >= from); if (!rows.length) return null;
   const first = rows.reduce((m, r) => (r.day < m ? r.day : m), last);
   const P = [['Yesterday · ' + mdLabel(last), last, last], ['Last 7 days', R.addDays(last, -6), last], ['Last 14 days', R.addDays(last, -13), last], ['Last 30 days', R.addDays(last, -29), last],
     ['This month', last.slice(0, 8) + '01', last], [`All time · ${R.daysBetween(first, last) + 1} days`, first, last]];
@@ -1963,7 +1965,7 @@ function PeriodTable({ ad, data, product }) {
   return html`<section class="panel"><h2>Numbers by period</h2><div class="tscroll"><table class="t sktable"><thead><tr><th>Period</th><th>Spend</th><th>Buys</th><th>ROAS</th><th>CPA</th><th>Link CTR</th><th>Grade</th></tr></thead><tbody>
     ${P.map(([l, a, b], i) => { const t = sumRows(rows.filter((r) => r.day >= a && r.day <= b)); const g = t.spend ? gl(t.roas) : '—';
       return html`<tr class=${i === 1 ? 'hl' : ''}><td><b>${l}</b></td><td>${R.money0(t.spend)}</td><td>${Math.round(t.purchases)}</td><td class=${'skr ' + toneX(t.spend ? t.roas : null, be0)}>${t.spend ? R.xroas(t.roas) : '—'}</td><td>${R.money(t.cpa)}</td><td>${R.pct(t.ctr)}</td><td>${g === '—' ? '—' : html`<span class=${'gbadge t-' + gradeTone(g)}>${g}</span>`}</td></tr>`; })}
-  </tbody></table></div><div class="tiny muted">From your Ads Manager files. Grade = ROAS against break-even ${R.xroas(be0)}.</div></section>`;
+  </tbody></table></div><div class="tiny muted">From your Ads Manager files${from ? `, only since the test started ${mdLabel(from)}` : ''}. Grade = ROAS against break-even ${R.xroas(be0)}.</div></section>`;
 }
 
 // =================== Stocks look: quote page (ad detail) ===================
@@ -1971,10 +1973,14 @@ function StockQuote(p) {
   const { ad, data, product, actions, tests, decisions, family, active, move, setModal, setLightbox, reload, say, close, confirmDel, setConfirmDel, del, rules, econ } = p;
   const tags = ad.tags || {}, hist = ad.history || {};
   const be0 = econ.opBE || 2.85, last = lastMetaDay(data);
-  const c = last ? adRange(ad, data, R.addDays(last, -6), last) : null, pv = last ? adRange(ad, data, R.addDays(last, -13), R.addDays(last, -7)) : null;
+  // During a test, only the test's own days count (from Day 1, or the partial day before it).
+  const liveT = ad.stage === 'testing' ? tests.find((t) => t.status === 'active' && t.stage === 1) : null;
+  const tFrom = liveT ? ((liveT.conditions || {}).spendFrom || liveT.start_date) : null;
+  const inTest = (a) => (tFrom && a < tFrom ? tFrom : a);
+  const c = last ? adRange(ad, data, inTest(R.addDays(last, -6)), last) : null, pv = last && !tFrom ? adRange(ad, data, R.addDays(last, -13), R.addDays(last, -7)) : null;
   const sg = adSignal(ad, data), gr = adGrade(ad, data, product);
   const d = c && c.spend && pv && pv.spend ? c.roas - pv.roas : null;
-  const rows = rowsForAd(ad, data.meta_days);
+  const rows = rowsForAd(ad, data.meta_days).filter((r) => !tFrom || r.day >= tFrom);
   const byDay = new Map(); rows.forEach((r) => { const g = byDay.get(r.day) || []; g.push(r); byDay.set(r.day, g); });
   const days = [...byDay.entries()].map(([day, rs]) => ({ day, t: sumRows(rs) })).filter((x) => x.t.spend > 0);
   const best = days.reduce((m, x) => (x.t.purchases && (!m || x.t.roas > m.t.roas) ? x : m), null);
@@ -1989,13 +1995,14 @@ function StockQuote(p) {
     <div class="skq">
       <div class="skq-main">
         <div class="row" style="gap:8px;flex-wrap:wrap"><${SigChip} s=${sg} />${gr && gr.g && html`<span class=${'gbadge t-' + gradeTone(gr.g)}>${gr.g}</span>`}<span class="chip t-muted">${skName(ad.stage)}</span>${ad.launched_on && html`<span class="chip t-muted">Live ${ad.launched_on}</span>`}</div>
-        <div class="skq-big"><span class="skbig">${c && c.spend ? R.xroas(c.roas) : '—'}</span>${d != null && html`<span class=${'skq-d ' + (d >= 0 ? 'pos' : 'neg')}>${d >= 0 ? '+' : ''}${d.toFixed(2)}x this week</span>`}<span class="small muted">ROAS, last 7 days · break-even ${R.xroas(be0)}</span></div>
+        <div class="skq-big"><span class="skbig">${c && c.spend ? R.xroas(c.roas) : '—'}</span>${d != null && html`<span class=${'skq-d ' + (d >= 0 ? 'pos' : 'neg')}>${d >= 0 ? '+' : ''}${d.toFixed(2)}x this week</span>`}<span class="small muted">${tFrom ? `ROAS since the test started ${mdLabel(tFrom)}` : 'ROAS, last 7 days'} · break-even ${R.xroas(be0)}</span></div>
         ${ad.setup_era === 'era1' && html`<div class="status warn small">${R.ERAS.era1.note}</div>`}
         ${ad.stage !== 'testing' && html`<${VerdictPanel} ad=${ad} data=${data} product=${product} />`}
         <${TrendPanel} ad=${ad} data=${data} product=${product} />
-        ${keys && html`<section class="panel"><h2>Key statistics · last 7 days</h2><div class="skkeys">${keys.map(([a, b]) => html`<div><small>${a}</small><b>${b}</b></div>`)}</div>
+        ${tFrom && !(c && c.spend) && html`<section class="panel"><div class="small muted">No numbers since the test started ${mdLabel(tFrom)} yet. Earlier days don't count toward this test.</div></section>`}
+        ${keys && html`<section class="panel"><h2>Key statistics · ${tFrom ? 'since the test started' : 'last 7 days'}</h2><div class="skkeys">${keys.map(([a, b]) => html`<div><small>${a}</small><b>${b}</b></div>`)}</div>
           ${c.purchases > 0 && ad.stage !== 'testing' && html`<${ProfitLine} econ=${econ} m=${{ purchases: c.purchases, roas: c.roas, cpa: c.cpa, aov: c.revenue / c.purchases }} product=${product} />`}</section>`}
-        <${PeriodTable} ad=${ad} data=${data} product=${product} />
+        <${PeriodTable} ad=${ad} data=${data} product=${product} from=${tFrom} />
         ${ad.stage === 'main' && html`<${HealthPanel} ad=${ad} data=${data} product=${product} />`}
         <${PhaseCompare} ad=${ad} data=${data} product=${product} />
         <div class="grid2">
