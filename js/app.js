@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=162';
-import * as R from './rules.js?v=162';
-import { importHistory } from './importer.js?v=162';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=162';
+import { createBackend } from './data.js?v=163';
+import * as R from './rules.js?v=163';
+import { importHistory } from './importer.js?v=163';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=163';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2215,6 +2215,27 @@ function GoalLine({ days, lo, hi, dim }) {
   </div>`;
 }
 
+// Live ads in the Stats range with their signal; sort and filter them however you want.
+const POS_SORT = [['spend', 'Highest spend'], ['spendAsc', 'Lowest spend'], ['best', 'Best ROAS'], ['worst', 'Worst ROAS'], ['buys', 'Most buys'], ['cpa', 'Lowest CPA'], ['new', 'Newest'], ['old', 'Oldest'], ['signal', 'Needs a decision first']];
+function Positions({ rows, data, setModal }) {
+  const [sort, setSort0] = useState(() => lsGet('adlab-pos-sort', 'spend')); const [only, setOnly0] = useState(() => lsGet('adlab-pos-only', 'live')); const [all, setAll] = useState(false);
+  const setSort = (v) => { setSort0(v); lsSet('adlab-pos-sort', v); }, setOnly = (v) => { setOnly0(v); lsSet('adlab-pos-only', v); };
+  const SIGO = { dec: 0, sell: 1, buy: 2, wait: 3, hold: 4 };
+  const roas = (r) => (r.t.spend ? (r.t.purchases ? r.t.roas : 0) : null), when = (a) => a.launched_on || String(a.created_at || '').slice(0, 10);
+  let list = rows.filter((r) => r.ad && (only === 'all' ? r.t.spend > 0 : only === 'live' ? ['main', 'testing'].includes(r.ad.stage) : r.ad.stage === only)).map((r) => ({ ...r, sg: adSignal(r.ad, data) }));
+  const cmp = { spend: (a, b) => b.t.spend - a.t.spend, spendAsc: (a, b) => a.t.spend - b.t.spend, best: (a, b) => (roas(b) ?? -1) - (roas(a) ?? -1), worst: (a, b) => (roas(a) ?? 1e9) - (roas(b) ?? 1e9),
+    buys: (a, b) => b.t.purchases - a.t.purchases, cpa: (a, b) => (a.t.purchases ? a.t.spend / a.t.purchases : 1e9) - (b.t.purchases ? b.t.spend / b.t.purchases : 1e9),
+    new: (a, b) => when(b.ad).localeCompare(when(a.ad)), old: (a, b) => when(a.ad).localeCompare(when(b.ad)), signal: (a, b) => (SIGO[(a.sg || {}).k] ?? 9) - (SIGO[(b.sg || {}).k] ?? 9) || b.t.spend - a.t.spend }[sort] || ((a, b) => b.t.spend - a.t.spend);
+  list.sort(cmp);
+  const shown = all ? list : list.slice(0, 8);
+  return html`<section class="panel"><div class="row" style="gap:8px;flex-wrap:wrap"><h2 style="margin:0">Positions · signals</h2><span class="spacer"></span>
+      <select class="inp" style="width:auto;min-height:34px" aria-label="Which ads" value=${only} onChange=${(e) => setOnly(e.target.value)}><option value="live">Live (Main + Testing)</option><option value="main">Main</option><option value="testing">Testing</option><option value="all">Every ad that spent</option></select>
+      <select class="inp" style="width:auto;min-height:34px" aria-label="Sort by" value=${sort} onChange=${(e) => setSort(e.target.value)}>${POS_SORT.map(([k, l]) => html`<option value=${k}>${l}</option>`)}</select></div>
+    ${shown.map((r) => html`<button class="skrow" onClick=${() => setModal({ type: AdDetail, props: { adId: r.ad.id } })}><${Media} path=${r.ad.media_path} type=${r.ad.media_type} poster=${r.ad.tags && r.ad.tags.poster} cls="round" /><span class="grow"><b class="ell">${r.ad.base_name}</b><span class="sigrow"><${SigChip} s=${r.sg} />${sort === 'new' || sort === 'old' ? html`<span class="tiny muted">live ${mdLabel(when(r.ad))}</span>` : ''}</span></span><span class="small muted">${R.money0(r.t.spend)}${sort === 'buys' || sort === 'cpa' ? ` · ${Math.round(r.t.purchases)} buys` : ''}</span>${roasPill(r.t.spend ? r.t.roas : null)}</button>`)}
+    ${!list.length && html`<div class="empty">No ads like that in this range.</div>`}
+    ${list.length > 8 && html`<button class="link small" style="align-self:flex-start" onClick=${() => setAll(!all)}>${all ? 'Show less' : `Show all ${list.length}`}</button>`}</section>`;
+}
+
 // =================== Stocks look: Market data (Stats) ===================
 function StockStatsTop({ cur, prev, n, start, end, data, econ }) {
   const sb = R.storeBE(econ), sto = R.storeEcon();
@@ -3316,7 +3337,7 @@ function Stats(ctx) {
       <div class="tile"><div class="k">Orders · AOV</div><div class="v">${cur.hasShop ? cur.orders : '—'} <small>· ${R.money(cur.aov)}</small></div><div class="s"><${Delta} now=${cur.orders} prev=${prev.orders} /> orders</div></div>
       <div class="tile"><div class="k">Meta ROAS · CPA</div><div class="v">${R.xroas(cur.roas)} <small>· ${R.money(cur.cpa)}</small></div><div class="s">${Math.round(cur.metaBuys)} Meta-reported buys</div></div>
     </section>
-    ${LOOK === 'stocks' && html`<div class="grid2"><${StockStatsTop} cur=${cur} start=${start} end=${end} data=${data} econ=${econ} /><section class="panel"><h2>Positions · signals</h2>${adRows.filter((r) => r.ad && ['main', 'testing'].includes(r.ad.stage)).slice(0, 8).map((r) => html`<button class="skrow" onClick=${() => setModal({ type: AdDetail, props: { adId: r.ad.id } })}><${Media} path=${r.ad.media_path} type=${r.ad.media_type} poster=${r.ad.tags && r.ad.tags.poster} cls="round" /><span class="grow"><b class="ell">${r.ad.base_name}</b><span class="sigrow"><${SigChip} s=${adSignal(r.ad, data)} /></span></span><span class="small muted">${R.money0(r.t.spend)}</span>${roasPill(r.t.spend ? r.t.roas : null)}</button>`)}${!adRows.some((r) => r.ad && ['main', 'testing'].includes(r.ad.stage)) && html`<div class="empty">No live ads in this range.</div>`}</section></div>`}
+    ${LOOK === 'stocks' && html`<div class="grid2"><${StockStatsTop} cur=${cur} start=${start} end=${end} data=${data} econ=${econ} /><${Positions} rows=${adRows} data=${data} setModal=${setModal} /></div>`}
     <div class="grid2">
       <section class="panel"><h2>Sales and ad spend</h2><${LineChart} labels=${labels} marks=${labels.map((d) => marksOn(calendarOf(data), d))} fmt=${(v, ax) => (ax ? '$' + Math.round(v) : R.money0(v))} series=${[{ name: 'Sales, no tax (Shopify)', color: '#3D8BFF', values: revS }, { name: 'Ad spend (Meta)', color: '#C2669E', values: spS }]} /></section>
       <section class="panel"><h2>MER by day</h2><${LineChart} labels=${labels} marks=${labels.map((d) => marksOn(calendarOf(data), d))} fmt=${(v) => v.toFixed(2) + 'x'} refLine=${bev.roas ? { value: bev.roas, label: 'Store break-even ' + R.xroas(bev.roas) + (bev.estimated ? ' (est.)' : '') } : null} series=${[{ name: 'MER', color: '#3D8BFF', values: merS }]} /></section>
