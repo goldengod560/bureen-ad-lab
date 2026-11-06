@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=161';
-import * as R from './rules.js?v=161';
-import { importHistory } from './importer.js?v=161';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=161';
+import { createBackend } from './data.js?v=162';
+import * as R from './rules.js?v=162';
+import { importHistory } from './importer.js?v=162';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=162';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -3701,7 +3701,7 @@ function CostTrend({ periods, reload, say }) {
   const st = R.storeEcon();
   const [open, setOpen] = useState(() => { try { return localStorage.getItem('adlab-costs') !== '0'; } catch (e) { return true; } });
   const flip = () => { setOpen(!open); try { localStorage.setItem('adlab-costs', open ? '0' : '1'); } catch (e) {} };
-  const groups = new Map();
+  const groups = new Map(), dmAll = dayMap(periods, st);
   for (const x of periods.filter((p) => p.revType === 'net' && p.orders > 0 && p.exact == null)) {
     const same = monthKey(x.from) === monthKey(x.to), key = same ? monthKey(x.from) : `${x.from}..${x.to}`;
     const g = groups.get(key) || { key, month: same, from: x.from, to: x.to, days: 0, rev: 0, orders: 0, shipLab: 0, shipOrd: 0, fees: 0, feeSales: 0, feeOrd: 0 };
@@ -3713,7 +3713,9 @@ function CostTrend({ periods, reload, say }) {
   const rows = [...groups.values()].sort((a, b) => a.from.localeCompare(b.from)).map((g) => {
     const dim = g.month ? R.daysBetween(g.key + '-01', monthEnd(g.key)) + 1 : g.days;
     const label = g.month ? `${MON_LONG[+g.key.slice(5) - 1].slice(0, 3)} ${g.key.slice(0, 4)}${g.days < dim ? ` (${g.days} days)` : ''}` : `${MON_LONG[+g.from.slice(5, 7) - 1].slice(0, 3)}–${MON_LONG[+g.to.slice(5, 7) - 1].slice(0, 3)} ${g.to.slice(0, 4)}`;
-    return { ...g, label, perDay: g.rev / g.days, ordDay: g.orders / g.days, aov: g.rev / g.orders, ship: g.shipOrd ? g.shipLab / g.shipOrd : null, fee: g.feeSales ? (g.fees - g.feeOrd * (R.num(st.feeFixed) || 0.3)) / g.feeSales * 100 : null };
+    // Profit: from every entry you made for those days (exact profits included), same as Goals.
+    const pr = sumRange(dmAll, g.from, g.to), profit = pr.days ? pr.profit : null;
+    return { ...g, label, profit, profDay: profit != null ? profit / pr.days : null, perDay: g.rev / g.days, ordDay: g.orders / g.days, aov: g.rev / g.orders, ship: g.shipOrd ? g.shipLab / g.shipOrd : null, fee: g.feeSales ? (g.fees - g.feeOrd * (R.num(st.feeFixed) || 0.3)) / g.feeSales * 100 : null };
   });
   if (!rows.length) return null;
   const avg = (k, wk) => { const r = rows.filter((z) => z[k] != null).slice(-3); if (!r.length) return null; const w = r.reduce((t, z) => t + z[wk], 0); return { v: r.reduce((t, z) => t + z[k] * z[wk], 0) / w, n: r.length }; };
@@ -3727,20 +3729,21 @@ function CostTrend({ periods, reload, say }) {
   const chg = (now, prev, goodUp, pct = true) => { if (now == null || prev == null || !prev) return ''; const d = (now - prev) / Math.abs(prev); if (Math.abs(d) < 0.01) return html` <span class="tiny muted">same</span>`; const good = (d > 0) === goodUp; return html` <span class=${'tiny ' + (good ? 'good' : 'bad')}>${d > 0 ? '↑' : '↓'}${pct ? ' ' + Math.round(Math.abs(d) * 100) + '%' : ''}</span>`; };
   const last = rows[rows.length - 1], prev = rows.length > 1 ? rows[rows.length - 2] : null;
   return html`<section class="panel"><div class="row"><h2 style="margin:0">Month by month</h2><span class="spacer"></span><button class="link small" onClick=${flip}>${open ? 'Hide' : 'Show'}</button></div>
-    ${prev && html`<div class="small">${last.label}: sales ${last.perDay >= prev.perDay ? html`<b class="good">up ${Math.round((last.perDay / prev.perDay - 1) * 100)}%</b>` : html`<b class="bad">down ${Math.round((1 - last.perDay / prev.perDay) * 100)}%</b>`} vs ${prev.label.replace(/ \(.*\)$/, '')} (${R.money0(last.perDay)}/day vs ${R.money0(prev.perDay)}/day), orders ${last.ordDay >= prev.ordDay ? 'up' : 'down'} ${Math.round(Math.abs(last.ordDay / prev.ordDay - 1) * 100)}%, average order ${R.money(last.aov)}.</div>`}
+    ${prev && html`<div class="small">${last.label}: sales ${last.perDay >= prev.perDay ? html`<b class="good">up ${Math.round((last.perDay / prev.perDay - 1) * 100)}%</b>` : html`<b class="bad">down ${Math.round((1 - last.perDay / prev.perDay) * 100)}%</b>`} vs ${prev.label.replace(/ \(.*\)$/, '')} (${R.money0(last.perDay)}/day vs ${R.money0(prev.perDay)}/day), orders ${last.ordDay >= prev.ordDay ? 'up' : 'down'} ${Math.round(Math.abs(last.ordDay / prev.ordDay - 1) * 100)}%, average order ${R.money(last.aov)}${last.profDay != null ? html`, profit <b class=${last.profit >= 0 ? 'good' : 'bad'}>${signMoney(last.profit)}</b> (${signMoney(last.profDay)}/day${prev.profDay != null ? ` vs ${signMoney(prev.profDay)}/day` : ''})` : ''}.</div>`}
     ${!open ? '' : html`
       ${sug.map((x) => html`<div class="status live small row" style="gap:8px;flex-wrap:wrap"><span class="grow">${x.text}</span><button class="btn sm" onClick=${() => apply(x)}>Update Rules to ${x.k === 'feePct' ? x.v + '%' : R.money(x.v)}</button></div>`)}
       <div class="tiny muted">↑ ↓ = change vs the month before · <span style="cursor:help;text-decoration:underline dotted" title="Same = moved less than 1% from the month before (up or down). That's normal noise, so it gets no arrow." onClick=${() => say('Same = moved less than 1% from the month before (up or down). That is normal noise, so it gets no arrow.')}>same*</span></div>
-      <div class="tscroll"><table class="t"><thead><tr><th>Month</th><th>Sales</th><th>Orders</th><th>Avg order</th><th>Shipping / order</th><th>Fees</th></tr></thead><tbody>
+      <div class="tscroll"><table class="t"><thead><tr><th>Month</th><th>Sales</th><th>Profit</th><th>Orders</th><th>Avg order</th><th>Shipping / order</th><th>Fees</th></tr></thead><tbody>
         ${rows.slice().reverse().map((r) => { const i = rows.indexOf(r); return html`<tr><td class="mono">${r.label}</td>
           <td class="mono">${R.money0(r.rev)}${chg(r.perDay, i && r.month && rows[i - 1].month ? rows[i - 1].perDay : null, true)}</td>
+          <td class="mono">${r.profit == null ? html`<span class="muted">—</span>` : html`<span class=${r.profit >= 0 ? 'good' : 'bad'}>${signMoney(r.profit)}</span>`}${chg(r.profDay, i && r.month && rows[i - 1].month ? rows[i - 1].profDay : null, true)}</td>
           <td class="mono">${r.orders}${chg(r.ordDay, i && r.month && rows[i - 1].month ? rows[i - 1].ordDay : null, true)}</td>
           <td class="mono">${R.money(r.aov)}${chg(r.aov, i && r.month && rows[i - 1].month ? rows[i - 1].aov : null, true)}</td>
           <td class="mono">${r.ship == null ? html`<span class="muted">—</span>` : R.money(r.ship)}${chg(r.ship, prevOf(i, 'ship'), false, false)}</td>
           <td class="mono">${r.fee == null ? html`<span class="muted">—</span>` : r.fee.toFixed(2) + '%'}${chg(r.fee, prevOf(i, 'fee'), false, false)}</td></tr>`; })}
-        <tr><td class="muted">Rules use</td><td></td><td></td><td></td><td class="mono muted">${R.money(R.num(st.ship) || 7.6)}</td><td class="mono muted">${(R.num(st.feePct) || 2.9).toFixed(2)}%</td></tr>
+        <tr><td class="muted">Rules use</td><td></td><td></td><td></td><td></td><td class="mono muted">${R.money(R.num(st.ship) || 7.6)}</td><td class="mono muted">${(R.num(st.feePct) || 2.9).toFixed(2)}%</td></tr>
       </tbody></table></div>
-      <div class="tiny muted">Shopify net sales. ↑/↓ compares with the month before, per day, so a month in progress compares fairly. Green = good direction. Fees: the % part after 30¢ an order.</div>`}
+      <div class="tiny muted">Shopify net sales. Profit is after ads and every cost, from the numbers you entered (same as Goals). ↑/↓ compares with the month before, per day, so a month in progress compares fairly. Green = good direction. Fees: the % part after 30¢ an order.</div>`}
   </section>`;
 }
 function PeriodForm(ctx) {
