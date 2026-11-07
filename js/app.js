@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=164';
-import * as R from './rules.js?v=164';
-import { importHistory } from './importer.js?v=164';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=164';
+import { createBackend } from './data.js?v=165';
+import * as R from './rules.js?v=165';
+import { importHistory } from './importer.js?v=165';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=165';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1930,6 +1930,14 @@ function StockCard(props) {
     </span></div>`;
 }
 
+// Ticker name: just the idea and variation, e.g. "IMG | Long | $8 Each | Light Timber Lineup | V1 | 11-06" → "$8 Each | Light Timber Lineup".
+function tickName(n) {
+  let parts = String(n || '').split(/\s*\|\s*/).filter(Boolean);
+  if (parts.length === 1) parts = parts[0].split(/\s+[–-]\s+/);
+  parts = parts.filter((x, i) => !(i === 0 && /^(img|image|vid|video|pic|carousel)$/i.test(x)))
+    .filter((x) => !/^(long|crew|v-?neck|thermal|tank|ls)$/i.test(x) && !/^v\d+$/i.test(x) && !/^\d{1,2}[-/]\d{1,2}$/.test(x) && !/^(oct|nov|dec|jan|feb|mar|apr|may|jun|jul|aug|sep)\s+\d{1,2}$/i.test(x));
+  return parts.join(' | ') || String(n || '');
+}
 // Moving ticker under the top bar: yesterday's profit, MER and each live ad's 7-day ROAS vs the week before.
 function Ticker({ data }) {
   const items = useMemo(() => {
@@ -1945,12 +1953,12 @@ function Ticker({ data }) {
       const a0 = R.addDays(last, -6), c = adRange(ad, data, tf && tf > a0 ? tf : a0, last), pv = tf ? { spend: 0 } : adRange(ad, data, R.addDays(last, -13), R.addDays(last, -7));
       if (!c.spend) continue;
       const d = pv.spend ? c.roas - pv.roas : null;
-      out.push([ad.base_name.toUpperCase().slice(0, 22), c.purchases ? R.xroas(c.roas) : '0 buys', d == null ? 'new' : (d >= 0 ? '▲ +' : '▼ ') + d.toFixed(2) + 'x', d == null ? c.roas >= 2.85 : d >= 0]);
+      out.push([tickName(ad.base_name), c.purchases ? R.xroas(c.roas) : '0 buys', d == null ? 'new' : (d >= 0 ? '▲ +' : '▼ ') + d.toFixed(2) + 'x', d == null ? c.roas >= 2.85 : d >= 0, (data.products.find((p) => p.id === ad.product_id) || {}).kind]);
     }
     return out;
   }, [data]);
   if (!items.length) return null;
-  const one = items.map(([a, b, c, up], i) => html`<span key=${i}><span class="tk-n">${a}</span> <span class=${up ? 'pos' : 'neg'}>${b} ${c}</span></span>`);
+  const one = items.map(([a, b, c, up, kind], i) => html`<span key=${i}>${kind && html`<i class=${'tdot k-' + kind}></i> `}<span class="tk-n">${a}</span> <span class=${up ? 'pos' : 'neg'}>${b} ${c}</span></span>`);
   return html`<div class="tape" aria-label="Ticker"><div class="run">${one}${one}</div></div>`;
 }
 
