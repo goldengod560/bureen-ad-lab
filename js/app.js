@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=169';
-import * as R from './rules.js?v=169';
-import { importHistory } from './importer.js?v=169';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=169';
+import { createBackend } from './data.js?v=170';
+import * as R from './rules.js?v=170';
+import { importHistory } from './importer.js?v=170';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=170';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1883,6 +1883,9 @@ const skName = (k) => (['next', 'testing', 'bench', 'main'].includes(k) ? SK_STA
 // The last full day with Meta numbers: never today, since today isn't finished (matches Ads Manager's "Last 7 days").
 const lastMetaCache = new WeakMap();
 function lastMetaDay(data) { let m = lastMetaCache.get(data.meta_days); if (m == null) { m = data.meta_days.reduce((a, r) => (r.day > a ? r.day : a), ''); lastMetaCache.set(data.meta_days, m); } const y = R.addDays(R.today(), -1); return m && m > y ? y : m; }
+// Today's numbers so far (today isn't finished, so they're shown separately, never mixed into the main numbers).
+function todaySoFar(ad, data) { const t = sumRows(rowsForAd(ad, data.meta_days).filter((r) => r.day === R.today())); return t.spend ? t : null; }
+const shortStat = (t) => `${R.money0(t.spend)} · ${Math.round(t.purchases)} buy${Math.round(t.purchases) === 1 ? '' : 's'} · ${t.purchases ? R.xroas(t.roas) : '0.00x'}`;
 function adRange(ad, data, a, b) { return sumRows(rowsForAd(ad, data.meta_days).filter((r) => r.day >= a && r.day <= b)); }
 function adDaily(ad, data, n = 7) {
   const last = lastMetaDay(data) || R.today(), rows = rowsForAd(ad, data.meta_days);
@@ -1946,6 +1949,10 @@ function StockCard(props) {
       ${tday != null && html`<span class="skprog2"><span class="row tiny muted"><span>Day ${Math.min(tday, tp)} of ${tp}</span><span class="spacer"></span><span>decide day ${tp + 1}</span></span><span class="skbar"><i style=${`width:${Math.min(100, tday / tp * 100).toFixed(0)}%;background:var(--ins,#4A8CFF)`}></i></span></span>`}
       ${ad.stage !== 'testing' && ci.line && html`<span class="small">${ci.line}</span>`}${ad.stage !== 'testing' && ci.line2 && html`<span class="small muted">${ci.line2}</span>`}
       ${sg && sg.why && html`<span class="tiny muted">Why: ${sg.why}</span>`}
+      ${(() => { const td = todaySoFar(ad, data); if (!td) return null;
+        const from = ad.stage === 'testing' && test ? ((test.conditions || {}).spendFrom || test.start_date) : R.addDays(R.today(), -7);
+        const w2 = sumRows(rowsForAd(ad, data.meta_days).filter((r) => r.day >= from && r.day <= R.today()));
+        return html`<span class="sktoday tiny"><span class="muted">Today so far</span> <b>${shortStat(td)}</b><br/><span class="muted">${ad.stage === 'testing' ? 'Test incl. today' : '7 days + today'}</span> <b>${shortStat(w2)}</b></span>`; })()}
       ${kv && html`<span class="skkv">${kv.map(([a, b]) => html`<span><small>${a}</small><b>${b}</b></span>`)}</span>`}
       ${btns.length > 0 && html`<span class="skbtns">${btns.map(([l, fn, c]) => html`<button class=${'btn sm ' + c} onClick=${fn}>${l}</button>`)}</span>`}
     </span></div>`;
@@ -1988,12 +1995,13 @@ function PeriodTable({ ad, data, product, from }) {
   const be0 = R.econOf(product).opBE || 2.85, last = lastMetaDay(data); if (!last) return null;
   const rows = rowsForAd(ad, data.meta_days).filter((r) => !from || r.day >= from); if (!rows.length) return null;
   const first = rows.reduce((m, r) => (r.day < m ? r.day : m), last);
-  const P = [['Yesterday · ' + mdLabel(last), last, last], ['Last 7 days', R.addDays(last, -6), last], ['Last 14 days', R.addDays(last, -13), last], ['Last 30 days', R.addDays(last, -29), last],
+  const td = R.today(), hasToday = rows.some((r) => r.day === td);
+  const P = [...(hasToday ? [['Today so far · ' + mdLabel(td), td, td]] : []), ['Yesterday · ' + mdLabel(last), last, last], ['Last 7 days', R.addDays(last, -6), last], ...(hasToday ? [['Last 7 days + today', R.addDays(last, -6), td]] : []), ['Last 14 days', R.addDays(last, -13), last], ['Last 30 days', R.addDays(last, -29), last],
     ['This month', last.slice(0, 8) + '01', last], [`All time · ${R.daysBetween(first, last) + 1} days`, first, last]];
   const gl = (r) => (r == null ? '—' : GRADES[gradeIdx(r / be0)]);
   return html`<section class="panel"><h2>Numbers by period</h2><div class="tscroll"><table class="t sktable"><thead><tr><th>Period</th><th>Spend</th><th>Buys</th><th>ROAS</th><th>CPA</th><th>Link CTR</th><th>Grade</th></tr></thead><tbody>
     ${P.map(([l, a, b], i) => { const t = sumRows(rows.filter((r) => r.day >= a && r.day <= b)); const g = t.spend ? gl(t.roas) : '—';
-      return html`<tr class=${i === 1 ? 'hl' : ''}><td><b>${l}</b></td><td>${R.money0(t.spend)}</td><td>${Math.round(t.purchases)}</td><td class=${'skr ' + toneX(t.spend ? t.roas : null, be0)}>${t.spend ? R.xroas(t.roas) : '—'}</td><td>${R.money(t.cpa)}</td><td>${R.pct(t.ctr)}</td><td>${g === '—' ? '—' : html`<span class=${'gbadge t-' + gradeTone(g)}>${g}</span>`}</td></tr>`; })}
+      return html`<tr class=${l === 'Last 7 days' ? 'hl' : l.startsWith('Today') || l.includes('+ today') ? 'sktr' : ''}><td><b>${l}</b></td><td>${R.money0(t.spend)}</td><td>${Math.round(t.purchases)}</td><td class=${'skr ' + toneX(t.spend ? t.roas : null, be0)}>${t.spend ? R.xroas(t.roas) : '—'}</td><td>${R.money(t.cpa)}</td><td>${R.pct(t.ctr)}</td><td>${g === '—' ? '—' : html`<span class=${'gbadge t-' + gradeTone(g)}>${g}</span>`}</td></tr>`; })}
   </tbody></table></div><div class="tiny muted">From your Ads Manager files${from ? `, only since the test started ${mdLabel(from)}` : ''}. Grade = ROAS against break-even ${R.xroas(be0)}.</div></section>`;
 }
 
@@ -2025,6 +2033,9 @@ function StockQuote(p) {
       <div class="skq-main">
         <div class="row" style="gap:8px;flex-wrap:wrap"><${SigChip} s=${sg} />${gr && gr.g && html`<span class=${'gbadge t-' + gradeTone(gr.g)}>${gr.g}</span>`}<span class="chip t-muted">${skName(ad.stage)}</span>${ec && html`<span class="chip t-ins">Day ${Math.min(ec.day, ec.planned)} of ${ec.planned}${ec.day > ec.planned ? ' · done' : ''}</span>`}${md && html`<span class="chip t-ins">Day ${md.day} in Main · since ${mdLabel(md.since)}</span>`}${ad.launched_on && html`<span class="chip t-muted">Live ${mdLabel(ad.launched_on)}</span>`}</div>
         <div class="skq-big"><span class="skbig">${c && c.spend ? R.xroas(c.roas) : '—'}</span>${d != null && html`<span class=${'skq-d ' + (d >= 0 ? 'pos' : 'neg')}>${d >= 0 ? '+' : ''}${d.toFixed(2)}x this week</span>`}<span class="small muted">${tFrom ? `ROAS since the test started ${mdLabel(tFrom)}` : 'ROAS, last 7 days'} · break-even ${R.xroas(be0)}</span></div>
+        ${(() => { const td = todaySoFar(ad, data); if (!td) return null; const from = tFrom || R.addDays(R.today(), -7);
+          const w2 = sumRows(rowsForAd(ad, data.meta_days).filter((r) => r.day >= from && r.day <= R.today()));
+          return html`<div class="small sktodayq"><span><span class="muted">Today so far (${mdLabel(R.today())}, not finished):</span> <b>${shortStat(td)}</b></span><span><span class="muted">${tFrom ? 'Test incl. today' : 'Last 7 days + today'}:</span> <b>${shortStat(w2)}</b></span></div>`; })()}
         ${ad.setup_era === 'era1' && html`<div class="status warn small">${R.ERAS.era1.note}</div>`}
         ${ec && ec.state !== 'done' && html`<${EarlyCheckPanel} ec=${ec} ad=${ad} setModal=${setModal} reload=${reload} say=${say} />`}
         ${ad.stage !== 'testing' && html`<${VerdictPanel} ad=${ad} data=${data} product=${product} />`}

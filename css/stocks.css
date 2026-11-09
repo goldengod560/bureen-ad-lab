@@ -393,3 +393,6 @@ html[data-look=stocks] .brand .skmark{width:30px;height:30px}
 .skmb2 i{flex:1;max-width:24px;border-radius:4px 4px 0 0;min-height:2px;background:var(--pass)}
 .skmb2 i.neg{background:var(--fail)}
 .skmbars{height:200px}
+.sktoday{border-top:1px solid var(--line);padding-top:6px;line-height:1.6}
+.sktodayq{display:flex;flex-wrap:wrap;gap:4px 18px;margin-top:-6px}
+.sktable tr.sktr td{color:var(--muted)}
