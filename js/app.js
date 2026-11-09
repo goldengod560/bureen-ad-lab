@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=180';
-import * as R from './rules.js?v=180';
-import { importHistory } from './importer.js?v=180';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=180';
+import { createBackend } from './data.js?v=181';
+import * as R from './rules.js?v=181';
+import { importHistory } from './importer.js?v=181';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=181';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2135,7 +2135,8 @@ function trophySets({ data, dm, cm, months, stage, curYm, auto }) {
   // Also any ad that ran in a test campaign (name has "Test") from Sep 1 on, per your Ads Manager files.
   // Counting starts Sep 24 2026, when the one-ad $17 ABO test campaign started. An ad counts if its first day in a test campaign is on or after that.
   const SINCE = '2026-09-24';
-  const inTestCamp = data.ads.filter((a) => { if (straight(a)) return false; const d = rowsForAd(a, data.meta_days).filter((r) => /test/i.test(r.campaign || '') && +r.spend > 0).reduce((m, r) => (!m || r.day < m ? r.day : m), null); return d && d >= SINCE; }).map((a) => a.id);
+  // Any spend in a test campaign from then on counts, so a retest of an older ad counts too.
+  const inTestCamp = data.ads.filter((a) => !straight(a) && rowsForAd(a, data.meta_days).some((r) => r.day >= SINCE && /test/i.test(r.campaign || '') && +r.spend > 0)).map((a) => a.id);
   const testedIds = new Set([...inTestCamp, ...tests1.filter((t) => t.start_date >= SINCE && !/straight/i.test((t.conditions || {}).method || '')).map((t) => t.ad_id),
     ...data.ads.filter((a) => a.launched_on && a.launched_on >= SINCE && (['testing', 'bench', 'main', 'exhausted', 'mid', 'failed', 'retired'].includes(a.stage) || a.result)
       && !straight(a)).map((a) => a.id)]), tested = testedIds.size, winners = data.ads.filter((a) => ['bench', 'main', 'exhausted'].includes(a.stage) || a.result === 'pass' || a.result === 'strong_pass').length;
