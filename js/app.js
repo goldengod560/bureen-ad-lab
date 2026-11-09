@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=178';
-import * as R from './rules.js?v=178';
-import { importHistory } from './importer.js?v=178';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=178';
+import { createBackend } from './data.js?v=179';
+import * as R from './rules.js?v=179';
+import { importHistory } from './importer.js?v=179';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=179';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2133,9 +2133,11 @@ function trophySets({ data, dm, cm, months, stage, curYm, auto }) {
   const era3 = (a) => (a.setup_era || R.eraOf(a.launched_on)) === 'era3';
   const straight = (a) => data.tests.some((t) => t.ad_id === a.id && /straight/i.test((t.conditions || {}).method || '')) || data.decisions.some((d) => d.ad_id === a.id && /straight to main/i.test(d.choice || ''));
   // Also any ad that ran in a test campaign (name has "Test") from Sep 1 on, per your Ads Manager files.
-  const inTestCamp = data.ads.filter((a) => !straight(a) && rowsForAd(a, data.meta_days).some((r) => r.day >= '2026-09-01' && /test/i.test(r.campaign || '') && +r.spend > 0)).map((a) => a.id);
-  const testedIds = new Set([...inTestCamp, ...tests1.filter((t) => t.start_date >= '2026-09-01' && !/straight/i.test((t.conditions || {}).method || '')).map((t) => t.ad_id),
-    ...data.ads.filter((a) => era3(a) && a.launched_on && (['testing', 'bench', 'main', 'exhausted', 'mid', 'failed', 'retired'].includes(a.stage) || a.result)
+  // Counting starts Oct 1 2026 (Oct 2 = first one-ad, $17 ABO tests). An ad counts if its first day in a test campaign is on or after that.
+  const SINCE = '2026-10-01';
+  const inTestCamp = data.ads.filter((a) => { if (straight(a)) return false; const d = rowsForAd(a, data.meta_days).filter((r) => /test/i.test(r.campaign || '') && +r.spend > 0).reduce((m, r) => (!m || r.day < m ? r.day : m), null); return d && d >= SINCE; }).map((a) => a.id);
+  const testedIds = new Set([...inTestCamp, ...tests1.filter((t) => t.start_date >= SINCE && !/straight/i.test((t.conditions || {}).method || '')).map((t) => t.ad_id),
+    ...data.ads.filter((a) => a.launched_on && a.launched_on >= SINCE && (['testing', 'bench', 'main', 'exhausted', 'mid', 'failed', 'retired'].includes(a.stage) || a.result)
       && !straight(a)).map((a) => a.id)]), tested = testedIds.size, winners = data.ads.filter((a) => ['bench', 'main', 'exhausted'].includes(a.stage) || a.result === 'pass' || a.result === 'strong_pass').length;
   const bestDay = [...dm.values()].reduce((mx, v) => Math.max(mx, v.profit), 0), bestMonth = Math.max(0, ...months.filter((x) => x.actual != null).map((x) => x.actual));
   const five = tests1.some((t) => { const ad = data.ads.find((a) => a.id === t.ad_id); const r = ad && runsFor(t, ad, data); return r && r.d7 && r.d7.roas >= 5; });
@@ -2211,7 +2213,7 @@ function StocksGoal(g) {
     const tsets = [['month', MON_LONG[+curYm.slice(5) - 1], 'resets on the 1st', nowSet, 'var(--pass)'], ['season', `Season · ${stage.name}`, stage.months, sets.season, 'var(--mid)'], ['store', 'Store · forever', 'never resets', sets.store, '#C084FC']];
     return html`${tabs}${levelBar}<div class="skgrid3">${tsets.map(([k, l, s, it, c]) => html`<button class=${'panel sktset' + (tset === k ? ' on' : '')} style=${tset === k ? `border:1px solid ${c}` : ''} onClick=${() => setTset(k)}><b>${l}</b><span class="small muted">${s} · <b style="color:var(--ink)">${it.filter((x) => x[2] >= x[3]).length} of ${it.length}</b></span><div class="skbar"><i style=${`width:${it.filter((x) => x[2] >= x[3]).length / it.length * 100}%;background:${c}`}></i></div></button>`)}</div>
       <div class="skgrid3">${list.map((x) => html`<${TrophyCard} x=${x} />`)}</div>
-      ${tset === 'store' && html`<details class="panel"><summary class="small" style="cursor:pointer"><b>Which ads count as tested (${sets.testedAds.length})</b> <span class="muted">· from Sep 1 on, not Straight to Main</span></summary>
+      ${tset === 'store' && html`<details class="panel"><summary class="small" style="cursor:pointer"><b>Which ads count as tested (${sets.testedAds.length})</b> <span class="muted">· one-ad tests from Oct 1 on, not Straight to Main</span></summary>
         <div class="sktestedlist">${sets.testedAds.slice().sort((a, b) => String(b.launched_on || '').localeCompare(String(a.launched_on || ''))).map((a) => html`<button class="skrow" onClick=${() => setModal({ type: AdDetail, props: { adId: a.id } })}><${Media} path=${a.media_path} type=${a.media_type} poster=${a.tags && a.tags.poster} cls="round" /><span class="grow small"><b>${displayName(a)}</b><br/><span class="muted">${(data.products.find((p) => p.id === a.product_id) || {}).name || ''} · ${skName(a.stage)}${a.launched_on ? ' · live ' + mdLabel(a.launched_on) : ''}</span></span></button>`)}</div></details>`}
       <div class="small muted">Bronze = habits · Silver = a solid week or month · Gold = the big money goals · Platinum = win every other one in the set.</div>`;
   }
