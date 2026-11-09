@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=166';
-import * as R from './rules.js?v=166';
-import { importHistory } from './importer.js?v=166';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=166';
+import { createBackend } from './data.js?v=167';
+import * as R from './rules.js?v=167';
+import { importHistory } from './importer.js?v=167';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=167';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2674,9 +2674,12 @@ function PhaseCompare({ ad, data, product }) {
   const tR = T.spend ? T.revenue / T.spend : null, mR = M.spend ? M.revenue / M.spend : null;
   const mRan = byDay(mRows).length;
   const verdict = !M.spend || M.spend < 100 || mRan < 5 ? { tone: 'live', text: `Too early to compare: ${mRan} day${mRan === 1 ? '' : 's'} and ${R.money0(M.spend)} in Main so far. Give it at least 5 days and $100 (your Stage 2 window is 5–7 days).` }
-    : mR >= tR * 0.9 ? { tone: 'good', text: `Holding up in Main: ${R.xroas(mR)} vs ${R.xroas(tR)} in testing.` }
-    : mR >= tR * 0.7 ? { tone: mR >= (be || 0) ? 'live' : 'warn', text: `A bit weaker in Main: ${R.xroas(mR)} vs ${R.xroas(tR)} in testing (${Math.round((1 - mR / tR) * 100)}% lower)${be && mR < be ? ', and under break-even' : ''}.` }
-    : { tone: 'bad', text: `Much weaker in Main: ${R.xroas(mR)} vs ${R.xroas(tR)} in testing (${Math.round((1 - mR / tR) * 100)}% lower)${be && mR < be ? ', under break-even' : ''}. Tested well but isn't carrying over.` };
+    // Judge Main by break-even. A drop from testing is normal: Main spends more and reaches colder people.
+    : (() => { const drop = Math.round((1 - mR / tR) * 100), vs = `${R.xroas(mR)} vs ${R.xroas(tR)} in testing`;
+      if (be && mR < be) return { tone: 'bad', text: `Under break-even in Main: ${vs}, break-even ${R.xroas(be)}. It tested well but isn't paying off at Main's budget.` };
+      if (mR >= tR * 0.9) return { tone: 'good', text: `Holding up in Main: ${vs}${be ? `, well above break-even ${R.xroas(be)}` : ''}.` };
+      if (!be || mR >= be * 1.3) return { tone: 'good', text: `Doing its job: ${vs} (${drop}% lower). A drop like this is normal, because Main spends more and reaches colder people. It's still well above break-even${be ? ` (${R.xroas(be)})` : ''}, so it's making money.` };
+      return { tone: 'warn', text: `Making money but close to break-even: ${vs} (${drop}% lower), break-even ${R.xroas(be)}. Watch it; a little more drop and it starts losing.` }; })();
   return html`<div class="panel"><div class="row"><h2 style="margin:0">Testing vs Main</h2><span class="spacer"></span><button class="link small" onClick=${() => setCharts(!charts)}>${charts ? 'Hide charts' : 'Show charts'}</button></div>
     <div class=${'status small ' + verdict.tone}>${verdict.text}</div>
     <div class="grid2">
