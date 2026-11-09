@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=165';
-import * as R from './rules.js?v=165';
-import { importHistory } from './importer.js?v=165';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=165';
+import { createBackend } from './data.js?v=166';
+import * as R from './rules.js?v=166';
+import { importHistory } from './importer.js?v=166';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=166';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -360,6 +360,24 @@ function cardInfo(ad, ctx) {
 // One signal per ad (shown in the Stocks look). Suggestions only: nothing is sent to Meta.
 const SIG = { buy: ['OUTPERFORM', 'Beating break-even by a lot. Keep it running and make new versions of it.'], hold: ['HOLD', 'Running fine. Nothing to do.'],
   sell: ['SELL', 'Losing money. Turn it off in Meta, or swap in a Bench ad.'], dec: ['DECIDE TODAY', 'Its test or trial ends. Keep it or cut it.'], wait: ['WAIT', 'Test still running. No decision until its last day.'] };
+// How many days an ad has been in Main (from when you moved it there).
+function mainDay(ad, data) {
+  if (ad.stage !== 'main') return null;
+  const t2 = data.tests.filter((t) => t.ad_id === ad.id && t.stage === 2).sort((a, b) => String(b.start_date).localeCompare(String(a.start_date)))[0];
+  // Fallback: the first day it ran outside a test campaign in your Ads Manager files.
+  const firstMain = () => rowsForAd(ad, data.meta_days).filter((r) => !/test/i.test(r.campaign || '')).reduce((m, r) => (!m || r.day < m ? r.day : m), null);
+  const since = (ad.tags || {}).mainSince || (t2 && t2.start_date) || firstMain() || ad.launched_on;
+  return since ? { since, day: Math.max(1, R.daysBetween(since, R.today()) + 1) } : null;
+}
+// The early check during a test: from your early-stop day on, did it hit the stop rule? (status only, you decide)
+function earlyCheck(ad, data) {
+  const t = data.tests.find((x) => x.ad_id === ad.id && x.status === 'active' && x.stage === 1); if (!t || ad.stage !== 'testing') return null;
+  const p = data.products.find((x) => x.id === ad.product_id); const rules = R.rulesOf(p);
+  const st = R.testStatus(t, data.checkpoints.filter((c) => c.test_id === t.id), rules, R.econOf(p).aov, liveFor(t, ad, data));
+  const day = R.testDay(t), planned = t.planned_days || rules.plannedDays, ed = rules.earlyDay;
+  const state = st.final ? 'done' : st.early ? 'flag' : st.kept ? 'kept' : day > ed ? 'passed' : 'pending';
+  return { t, st, day, planned, ed, state, rules };
+}
 function adSignal(ad, data) {
   const p = data.products.find((x) => x.id === ad.product_id); if (!p) return null;
   const rules = R.rulesOf(p), t = data.tests.find((x) => x.ad_id === ad.id && x.status === 'active');
@@ -1922,6 +1940,8 @@ function StockCard(props) {
       ${loan && html`<span class="skloan">${p.name.toUpperCase()} · shared test slot</span>`}
       ${ad.stage === 'testing' && lv && !lv.m.purchases ? html`<span class="skroas"><b class="skr r">0 buys</b><span class="tiny muted">${bigL}</span></span>`
         : bigV != null && html`<span class="skroas"><b class=${'skr ' + toneX(bigV, be0)}>${R.xroas(bigV)}</b><span class="tiny muted">${bigL}</span>${has7 && ad.stage !== 'testing' && html`<${Spark} vals=${adDaily(ad, data)} be=${be0} />`}</span>`}
+      ${(() => { const ec = ad.stage === 'testing' ? earlyCheck(ad, data) : null; return ec && (ec.state === 'passed' || ec.state === 'kept') ? html`<span class="tiny" style=${ec.state === 'passed' ? 'color:var(--pass)' : 'color:var(--mid)'}>${ec.state === 'passed' ? `✓ Passed the day-${ec.ed} check` : `Kept running past the day-${ec.ed} check`}</span>` : null; })()}
+      ${ad.stage === 'main' && (() => { const md = mainDay(ad, data); return md ? html`<span class="tiny muted">Day ${md.day} in Main</span>` : null; })()}
       ${tday != null && html`<span class="skprog2"><span class="row tiny muted"><span>Day ${Math.min(tday, tp)} of ${tp}</span><span class="spacer"></span><span>decide day ${tp + 1}</span></span><span class="skbar"><i style=${`width:${Math.min(100, tday / tp * 100).toFixed(0)}%;background:var(--ins,#4A8CFF)`}></i></span></span>`}
       ${ad.stage !== 'testing' && ci.line && html`<span class="small">${ci.line}</span>`}${ad.stage !== 'testing' && ci.line2 && html`<span class="small muted">${ci.line2}</span>`}
       ${sg && sg.why && html`<span class="tiny muted">Why: ${sg.why}</span>`}
@@ -1986,7 +2006,7 @@ function StockQuote(p) {
   const tFrom = liveT ? ((liveT.conditions || {}).spendFrom || liveT.start_date) : null;
   const inTest = (a) => (tFrom && a < tFrom ? tFrom : a);
   const c = last ? adRange(ad, data, inTest(R.addDays(last, -6)), last) : null, pv = last && !tFrom ? adRange(ad, data, R.addDays(last, -13), R.addDays(last, -7)) : null;
-  const sg = adSignal(ad, data), gr = adGrade(ad, data, product);
+  const sg = adSignal(ad, data), gr = adGrade(ad, data, product), ec = earlyCheck(ad, data), md = mainDay(ad, data);
   const d = c && c.spend && pv && pv.spend ? c.roas - pv.roas : null;
   const rows = rowsForAd(ad, data.meta_days).filter((r) => !tFrom || r.day >= tFrom);
   const byDay = new Map(); rows.forEach((r) => { const g = byDay.get(r.day) || []; g.push(r); byDay.set(r.day, g); });
@@ -2002,9 +2022,10 @@ function StockQuote(p) {
   return html`<${Modal} wide title=${displayName(ad)} sub=${`${product.name} · ${skName(ad.stage)} · ${ad.format || 'image'}`} onClose=${close}>
     <div class="skq">
       <div class="skq-main">
-        <div class="row" style="gap:8px;flex-wrap:wrap"><${SigChip} s=${sg} />${gr && gr.g && html`<span class=${'gbadge t-' + gradeTone(gr.g)}>${gr.g}</span>`}<span class="chip t-muted">${skName(ad.stage)}</span>${ad.launched_on && html`<span class="chip t-muted">Live ${ad.launched_on}</span>`}</div>
+        <div class="row" style="gap:8px;flex-wrap:wrap"><${SigChip} s=${sg} />${gr && gr.g && html`<span class=${'gbadge t-' + gradeTone(gr.g)}>${gr.g}</span>`}<span class="chip t-muted">${skName(ad.stage)}</span>${ec && html`<span class="chip t-ins">Day ${Math.min(ec.day, ec.planned)} of ${ec.planned}${ec.day > ec.planned ? ' · done' : ''}</span>`}${md && html`<span class="chip t-ins">Day ${md.day} in Main · since ${mdLabel(md.since)}</span>`}${ad.launched_on && html`<span class="chip t-muted">Live ${mdLabel(ad.launched_on)}</span>`}</div>
         <div class="skq-big"><span class="skbig">${c && c.spend ? R.xroas(c.roas) : '—'}</span>${d != null && html`<span class=${'skq-d ' + (d >= 0 ? 'pos' : 'neg')}>${d >= 0 ? '+' : ''}${d.toFixed(2)}x this week</span>`}<span class="small muted">${tFrom ? `ROAS since the test started ${mdLabel(tFrom)}` : 'ROAS, last 7 days'} · break-even ${R.xroas(be0)}</span></div>
         ${ad.setup_era === 'era1' && html`<div class="status warn small">${R.ERAS.era1.note}</div>`}
+        ${ec && ec.state !== 'done' && html`<${EarlyCheckPanel} ec=${ec} ad=${ad} setModal=${setModal} reload=${reload} say=${say} />`}
         ${ad.stage !== 'testing' && html`<${VerdictPanel} ad=${ad} data=${data} product=${product} />`}
         <${TrendPanel} ad=${ad} data=${data} product=${product} />
         ${tFrom && !(c && c.spend) && html`<section class="panel"><div class="small muted">No numbers since the test started ${mdLabel(tFrom)} yet. Earlier days don't count toward this test.</div></section>`}
@@ -2043,6 +2064,21 @@ function StockQuote(p) {
         ${family.length > 0 && html`<section class="panel"><h2>Versions</h2>${family.map((f) => html`<button class="skrow" onClick=${() => setModal({ type: AdDetail, props: { adId: f.id } })}><${Media} path=${f.media_path} type=${f.media_type} cls="round" /><span class="grow small"><b>${displayName(f)}</b><br/><span class="muted">${skName(f.stage)}</span></span></button>`)}</section>`}
       </div>
     </div><//>`;
+}
+
+function EarlyCheckPanel({ ec, ad, setModal, reload, say }) {
+  const { st, day, ed, state, rules, t } = ec, m = st.m;
+  const stop = () => setModal({ type: StopForm, props: { adId: ad.id, testId: t.id } });
+  const keep = async () => { await be.update('tests', t.id, { conditions: { ...(t.conditions || {}), keepRunning: R.today() } }); await reload(); say('Kept running'); };
+  const rule = `Stop rule: $${rules.earlySpend}+ spent with ${rules.earlyMaxPurchases} or fewer buys, or $${rules.underSpend ?? rules.earlySpend}+ spent under the ${rules.failRoas}x fail line.`;
+  const now = m ? `${R.money0(m.spend)} spent, ${m.purchases} buy${m.purchases === 1 ? '' : 's'}, ${R.xroas(m.roas)}` : 'no numbers yet';
+  if (state === 'flag') return html`<section class="panel skbad"><div class="row"><h2>Day-${ed} check · hit the stop rule</h2><span class="spacer"></span><span class="sig sig-sell">PAUSE?</span></div><div class="small">${st.text}</div><div class="tiny muted">${rule}</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn sm danger" onClick=${stop}>Stop early</button><button class="btn sm" onClick=${keep}>Keep it running (override)</button></div></section>`;
+  if (state === 'kept') return html`<section class="panel"><div class="row"><h2>Day-${ed} check · you kept it running</h2><span class="spacer"></span><span class="sig sig-hold">OVERRIDE</span></div><div class="small">It hit the stop rule and you chose to keep going (${mdLabel((t.conditions || {}).keepRunning)}). Now: ${now}.</div>
+    <div class="row"><button class="btn sm danger" onClick=${stop}>Stop early now</button></div></section>`;
+  if (state === 'passed') return html`<section class="panel skok"><div class="row"><h2>✓ Passed the day-${ed} check</h2><span class="spacer"></span><span class="chip t-ins">Day ${day} of ${ec.planned}</span></div><div class="small">It didn't hit your stop rule, so it keeps running to decision day. Now: ${now}.</div><div class="tiny muted">${rule} The app keeps checking every time you add a file.</div>
+    <div class="row"><button class="btn sm ghost danger" onClick=${stop}>Stop early anyway (override)</button></div></section>`;
+  return html`<section class="panel"><div class="row"><h2>Day-${ed} check · coming up</h2><span class="spacer"></span><span class="chip t-ins">Day ${day} of ${ec.planned}</span></div><div class="small">From day ${ed} the app checks it against your stop rule every time you add a file. Now: ${now}.</div><div class="tiny muted">${rule}</div></section>`;
 }
 
 // =================== Stocks look: trophies ===================
