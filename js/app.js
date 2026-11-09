@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=171';
-import * as R from './rules.js?v=171';
-import { importHistory } from './importer.js?v=171';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=171';
+import { createBackend } from './data.js?v=172';
+import * as R from './rules.js?v=172';
+import { importHistory } from './importer.js?v=172';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=172';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1949,10 +1949,6 @@ function StockCard(props) {
       ${tday != null && html`<span class="skprog2"><span class="row tiny muted"><span>Day ${Math.min(tday, tp)} of ${tp}</span><span class="spacer"></span><span>decide day ${tp + 1}</span></span><span class="skbar"><i style=${`width:${Math.min(100, tday / tp * 100).toFixed(0)}%;background:var(--ins,#4A8CFF)`}></i></span></span>`}
       ${ad.stage !== 'testing' && ci.line && html`<span class="small">${ci.line}</span>`}${ad.stage !== 'testing' && ci.line2 && html`<span class="small muted">${ci.line2}</span>`}
       ${sg && sg.why && html`<span class="tiny muted">Why: ${sg.why}</span>`}
-      ${(() => { const td = todaySoFar(ad, data); if (!td) return null;
-        const from = ad.stage === 'testing' && test ? ((test.conditions || {}).spendFrom || test.start_date) : R.addDays(R.today(), -7);
-        const w2 = sumRows(rowsForAd(ad, data.meta_days).filter((r) => r.day >= from && r.day <= R.today()));
-        return html`<span class="sktoday tiny"><span class="muted">Today so far</span> <b>${shortStat(td)}</b><br/><span class="muted">${ad.stage === 'testing' ? 'Test with today' : '7 days with today'}</span> <b>${shortStat(w2)}</b></span>`; })()}
       ${kv && html`<span class="skkv">${kv.map(([a, b]) => html`<span><small>${a}</small><b>${b}</b></span>`)}</span>`}
       ${btns.length > 0 && html`<span class="skbtns">${btns.map(([l, fn, c]) => html`<button class=${'btn sm ' + c} onClick=${fn}>${l}</button>`)}</span>`}
     </span></div>`;
