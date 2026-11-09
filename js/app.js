@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=181';
-import * as R from './rules.js?v=181';
-import { importHistory } from './importer.js?v=181';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=181';
+import { createBackend } from './data.js?v=182';
+import * as R from './rules.js?v=182';
+import { importHistory } from './importer.js?v=182';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=182';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1612,6 +1612,11 @@ function Today(ctx) {
     if (st.final) items.push({ ad, kind: 'todo', tone: 'blue', title: `Finalize: ${displayName(ad)}`, sub: `${p.name} · the 7 days are done. Record the result when you turn it off.`, tag: 'FINALIZE', go: () => setModal({ type: FinalizeForm, props: { testId: t.id } }) });
     else if (st.due.length) items.push({ ad, kind: 'todo', tone: 'amber', title: `Day ${st.due[st.due.length - 1]} results: ${displayName(ad)}`, sub: `${p.name} · add an Ads Manager file that covers day ${st.due[st.due.length - 1]}, or type the numbers.`, tag: 'RESULTS', go: () => setModal({ type: CheckinForm, props: { testId: t.id } }) });
   }
+  // Month close: from the 1st, ask for last month's numbers as one whole-month entry; then for the final Sada bill once it's paid.
+  { const ym = monthKey(R.addDays(R.today().slice(0, 8) + '01', -1)), a = ym + '-01', b = monthEnd(ym), mn = MON_LONG[+ym.slice(5) - 1];
+    const whole = goalPeriods(data).find((x) => x.revType === 'net' && x.exact == null && x.from <= a && x.to >= b && x.from >= R.addDays(a, -31));
+    if (!whole) items.push({ kind: 'todo', tone: 'blue', title: `Add ${mn}'s numbers for the whole month`, sub: `${mn} is over. Put in its full-month numbers from Shopify (Analytics → Reports → Finance summary, ${mdLabel(a)} to ${mdLabel(b)}) so shipping, fees and returns are exact. Product cost stays an estimate until you pay the Sada bill.`, tag: 'NUMBERS', go: () => setModal({ type: PeriodForm, props: { from: a, to: b } }) });
+    else if (!whole.costFinal) items.push({ kind: 'todo', tone: 'amber', title: `${mn}: put in the final Sada bill when you pay it`, sub: `${mn}'s profit still uses Shopify's estimated product cost. When you pay Sada for ${mn}, open that entry, put the bill in Product cost and tick "final Sada bill".`, tag: 'SADA', go: () => setModal({ type: PeriodForm, props: { id: whole.id } }) }); }
   for (const t of data.tests.filter((x) => x.stage === 1 && x.status === 'complete')) {
     const ad = data.ads.find((a) => a.id === t.ad_id); if (!ad) continue;
     const rr = runsFor(t, ad, data), lc = lateChange(t, rr);
@@ -1654,7 +1659,7 @@ function Today(ctx) {
   const [headsOpen, setHeadsOpen] = useState(() => lsGet('adlab-ov-heads', '0') === '1');
   const [weekOpen, setWeekOpen] = useState(() => lsGet('adlab-ov-week', '0') === '1');
   const flip = (k, v, set) => { set(v); lsSet(k, v ? '1' : '0'); };
-  const VERB = { DECIDE: 'Open ad', RESULTS: 'Add results', FINALIZE: 'Finalize', DAILY: 'Add file', RECORD: 'Record', REVIEW: 'Review', ACT: 'Open', SPEND: 'Check' };
+  const VERB = { NUMBERS: 'Add numbers', SADA: 'Update', DECIDE: 'Open ad', RESULTS: 'Add results', FINALIZE: 'Finalize', DAILY: 'Add file', RECORD: 'Record', REVIEW: 'Review', ACT: 'Open', SPEND: 'Check' };
   const row = (list, btn) => html`<div class="list">${list.map((it) => html`<button class="li ovli" onClick=${it.go}><span class=${'bar ' + it.tone}></span>${it.ad && html`<${Media} path=${it.ad.media_path} type=${it.ad.media_type} poster=${it.ad.tags && it.ad.tags.poster} cls="sm" />`}<span class="grow"><b>${it.title}</b><br/><span class="small muted">${it.sub}</span></span>${btn ? html`<span class="btn sm">${VERB[it.tag] || 'Open'}</span>` : html`<span class="mono tiny" style="color:var(--accent2)">${it.tag}</span>`}</button>`)}</div>`;
   // ---- numbers: the last full day with Shopify + Meta (normally yesterday) ----
   const crewP = products.find((p) => p.kind === 'crew') || products[0];
