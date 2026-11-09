@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=168';
-import * as R from './rules.js?v=168';
-import { importHistory } from './importer.js?v=168';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=168';
+import { createBackend } from './data.js?v=169';
+import * as R from './rules.js?v=169';
+import { importHistory } from './importer.js?v=169';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=169';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -257,7 +257,8 @@ function quickStats(ad, data) {
 function liveFor(t, ad, data) {
   if (!ad || !t || !t.start_date || t.status !== 'active') return null;
   const from = (t.conditions || {}).spendFrom || t.start_date;
-  const rows = rowsForAd(ad, data.meta_days || []).filter((r) => r.day >= from);
+  // Through yesterday only: today isn't finished, same as every other number in the app.
+  const y = R.addDays(R.today(), -1), rows = rowsForAd(ad, data.meta_days || []).filter((r) => r.day >= from && r.day <= y);
   if (!rows.length) return null;
   const s = sumRows(rows), through = rows.reduce((a, r) => (r.day > a ? r.day : a), '');
   return { m: R.metrics({ spend: s.spend, purchases: s.purchases, revenue: s.revenue, impressions: s.impressions || null, link_clicks: s.link_clicks || null, adds_to_cart: s.adds_to_cart || null, hook_plays: s.hook_plays || null, frequency: s.frequency }), day: R.daysBetween(t.start_date, through) + 1, through };
@@ -1924,7 +1925,7 @@ function StockCard(props) {
   let bigV = big, bigL = bigl;
   if (ad.stage === 'testing') {
     bigV = lv ? lv.m.roas : null; bigL = 'ROAS so far';
-    kv = lv ? [['Spend', R.money0(lv.m.spend)], ['Buys', lv.m.purchases], ['CPA', R.money(lv.m.cpa)], ['CTR', R.pct(lv.m.ctr)], ['Add to cart', Math.round(sumRows(rowsForAd(ad, data.meta_days).filter((r) => r.day >= ((test.conditions || {}).spendFrom || test.start_date))).adds_to_cart)], ['CPM', R.money0(lv.m.cpm)], ['Hook', R.pct(lv.m.hookRate)], ['Freq', lv.m.frequency ? lv.m.frequency.toFixed(1) : '—']] : null;
+    kv = lv ? [['Spend', R.money0(lv.m.spend)], ['Buys', lv.m.purchases], ['CPA', R.money(lv.m.cpa)], ['CTR', R.pct(lv.m.ctr)], ['Add to cart', Math.round(sumRows(rowsForAd(ad, data.meta_days).filter((r) => r.day >= ((test.conditions || {}).spendFrom || test.start_date) && r.day <= R.addDays(R.today(), -1))).adds_to_cart)], ['CPM', R.money0(lv.m.cpm)], ['Hook', R.pct(lv.m.hookRate)], ['Freq', lv.m.frequency ? lv.m.frequency.toFixed(1) : '—']] : null;
   }
   const loan = props.product && ad.product_id !== props.product.id && ad.stage === 'testing';
   return html`<div role="button" tabindex="0" class=${'skcard' + (selected ? ' sel' : '') + ' st-' + ad.stage + (props.product && ad.product_id !== props.product.id && ad.stage === 'testing' ? ' loan' : '')} onClick=${click} onKeyDown=${(e) => (e.key === 'Enter' ? click() : null)}
