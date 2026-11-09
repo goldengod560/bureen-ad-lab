@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=173';
-import * as R from './rules.js?v=173';
-import { importHistory } from './importer.js?v=173';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=173';
+import { createBackend } from './data.js?v=174';
+import * as R from './rules.js?v=174';
+import { importHistory } from './importer.js?v=174';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=174';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -180,6 +180,7 @@ function App() {
       </div>
     </header>
     ${look === 'stocks' && html`<${Ticker} data=${data} />`}
+    ${look === 'stocks' && html`<${TrophyWatcher} data=${data} setView=${setView} />`}
     <main class="wrap">
       ${data.missingTables && data.missingTables.length > 0 && html`<div class="banner"><b>One setup step left.</b> Stats needs two new database tables. In Supabase, open SQL Editor, paste <code>schema.sql</code> from the repo and press Run.</div>`}
       ${R.isWeekendLock() && html`<div class="banner"><b>Weekend lock.</b> Your rule: no new ads, reactivations or budget changes Friday night through Sunday.</div>`}
@@ -2146,6 +2147,42 @@ function TrophyCard({ x: [t, name, a, b] }) {
   const got = a >= b, pct = Math.max(0, Math.min(1, a / b)) * 100;
   return html`<div class=${'sktro' + (got ? ' got' : '')}><${Cup} t=${t} w=${42} got=${got} /><div class="grow"><div class="tiny" style=${`font-weight:800;letter-spacing:.06em;color:${got ? TIER[t][1] : 'var(--muted)'}`}>${TIER[t][0].toUpperCase()}</div><b class="small">${name}</b>
     ${got ? html`<div class="tiny pos">✓ won</div>` : html`<div class="skbar"><i style=${`width:${pct.toFixed(0)}%;background:${TIER[t][2]}`}></i></div><div class="tiny muted">${/\$/.test(name) ? `${R.money0(a)} of ${R.money0(b)}` : `${a} of ${b}`}</div>`}</div></div>`;
+}
+
+// The same inputs Goals uses, worked out on their own so trophies can be checked from any page.
+function trophyInputs(data) {
+  const st = R.storeEcon(), stage = stageNow(), y = R.addDays(R.today(), -1), dm = dayMap(goalPeriods(data), st), curYm = monthKey(R.today());
+  const months = []; for (let d = '2026-10-01'; d <= GOAL.by; d = R.addDays(monthEnd(monthKey(d)), 1)) { const ym = monthKey(d), g = stageFor(ym + '-01'), a = ym + '-01', e = monthEnd(ym), last = e < y ? e : y;
+    const s0 = a > y ? null : sumRange(dm, a, last), dim = R.daysBetween(a, e) + 1;
+    months.push({ ym, lo: g.profit[0], hi: g.profit[1], actual: s0 && s0.days ? s0.profit : null, done: e <= y && s0 && s0.days === dim, current: ym === curYm }); }
+  const cm = months.find((m) => m.current) || { lo: stage.profit[0], hi: stage.profit[1], actual: null };
+  const crew = data.products.find((p) => p.kind === 'crew') || data.products[0], be0 = R.econOf(crew).opBE || 2.85, mp = crew ? mainPlan(data, crew) : null;
+  const auto = { mainBE: !!(mp && mp.cur.spend && mp.cur.roas >= be0), bench2: data.ads.filter((a) => crew && a.product_id === crew.id && a.stage === 'bench').length >= 2 };
+  return { data, dm, cm, months, stage, curYm, auto };
+}
+// PlayStation-style pop-ups: a corner card for bronze/silver/gold, the whole screen for platinum. Each trophy pops once.
+function TrophyWatcher({ data, setView }) {
+  const [queue, setQueue] = useState([]);
+  useEffect(() => {
+    if (!data || !data.ads.length) return;
+    let sets; try { sets = trophySets(trophyInputs(data)); } catch (e) { return; }
+    const ym = monthKey(R.today());
+    const won = [...sets.month(ym).map((x) => ['m' + ym, x]), ...sets.season.map((x) => ['s' + stageNow().name, x]), ...sets.store.map((x) => ['store', x])].filter(([, x]) => x[2] >= x[3]).map(([k, x]) => ({ id: k + '|' + x[1], x }));
+    let seen = null; try { seen = JSON.parse(localStorage.getItem('adlab-tro-seen') || 'null'); } catch (e) {}
+    if (!seen) { try { localStorage.setItem('adlab-tro-seen', JSON.stringify(won.map((w) => w.id))); } catch (e) {} return; } // first time: don't flood with old trophies
+    const fresh = won.filter((w) => !seen.includes(w.id));
+    if (!fresh.length) return;
+    try { localStorage.setItem('adlab-tro-seen', JSON.stringify([...seen, ...fresh.map((w) => w.id)])); } catch (e) {}
+    setQueue((q) => [...q, ...fresh.sort((a, b) => 'BSGP'.indexOf(a.x[0]) - 'BSGP'.indexOf(b.x[0]))]);
+  }, [data]);
+  const cur = queue[0], next = () => setQueue((q) => q.slice(1));
+  useEffect(() => { if (!cur) return; if (cur.x[0] === 'P') { confetti(); return; } const t = setTimeout(next, 6000); return () => clearTimeout(t); }, [cur]);
+  if (!cur) return null;
+  const [t, name] = cur.x;
+  if (t === 'P') return html`<div class="tro-full" role="dialog" aria-label="Platinum trophy earned" onClick=${next}>
+    <div class="tro-fullin"><${Cup} t="P" w=${200} /><div class="tro-tag">PLATINUM TROPHY</div><h1>${name}</h1><div class="small muted">You won every other trophy in this set.</div>
+      <div class="row" style="gap:10px;justify-content:center;margin-top:14px"><button class="btn primary" onClick=${(e) => { e.stopPropagation(); next(); setView('goal'); }}>See the Trophy room</button><button class="btn" onClick=${next}>Close</button></div></div></div>`;
+  return html`<button class="tro-pop" aria-live="polite" onClick=${() => { next(); setView('goal'); }}><${Cup} t=${t} w=${46} /><span><span class="tiny muted">You earned a trophy</span><br/><b style=${'color:' + TIER[t][1]}>${TIER[t][0]}</b> · <b>${name}</b></span><span class="tro-x" onClick=${(e) => { e.stopPropagation(); next(); }}>×</span></button>`;
 }
 
 // =================== Stocks look: Goals ===================
