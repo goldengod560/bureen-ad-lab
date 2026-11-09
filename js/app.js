@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=167';
-import * as R from './rules.js?v=167';
-import { importHistory } from './importer.js?v=167';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=167';
+import { createBackend } from './data.js?v=168';
+import * as R from './rules.js?v=168';
+import { importHistory } from './importer.js?v=168';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=168';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -374,8 +374,8 @@ function earlyCheck(ad, data) {
   const t = data.tests.find((x) => x.ad_id === ad.id && x.status === 'active' && x.stage === 1); if (!t || ad.stage !== 'testing') return null;
   const p = data.products.find((x) => x.id === ad.product_id); const rules = R.rulesOf(p);
   const st = R.testStatus(t, data.checkpoints.filter((c) => c.test_id === t.id), rules, R.econOf(p).aov, liveFor(t, ad, data));
-  const day = R.testDay(t), planned = t.planned_days || rules.plannedDays, ed = rules.earlyDay;
-  const state = st.final ? 'done' : st.early ? 'flag' : st.kept ? 'kept' : day > ed ? 'passed' : 'pending';
+  const day = R.testDay(t), planned = t.planned_days || rules.plannedDays, ed = rules.earlyDay + 1; // check day = the morning after that many full days
+  const state = st.final ? 'done' : st.early ? 'flag' : st.kept ? 'kept' : day >= ed ? 'passed' : 'pending';
   return { t, st, day, planned, ed, state, rules };
 }
 function adSignal(ad, data) {
@@ -2078,7 +2078,7 @@ function EarlyCheckPanel({ ec, ad, setModal, reload, say }) {
     <div class="row"><button class="btn sm danger" onClick=${stop}>Stop early now</button></div></section>`;
   if (state === 'passed') return html`<section class="panel skok"><div class="row"><h2>✓ Passed the day-${ed} check</h2><span class="spacer"></span><span class="chip t-ins">Day ${day} of ${ec.planned}</span></div><div class="small">It didn't hit your stop rule, so it keeps running to decision day. Now: ${now}.</div><div class="tiny muted">${rule} The app keeps checking every time you add a file.</div>
     <div class="row"><button class="btn sm ghost danger" onClick=${stop}>Stop early anyway (override)</button></div></section>`;
-  return html`<section class="panel"><div class="row"><h2>Day-${ed} check · coming up</h2><span class="spacer"></span><span class="chip t-ins">Day ${day} of ${ec.planned}</span></div><div class="small">From day ${ed} the app checks it against your stop rule every time you add a file. Now: ${now}.</div><div class="tiny muted">${rule}</div></section>`;
+  return html`<section class="panel"><div class="row"><h2>Day-${ed} check · coming up</h2><span class="spacer"></span><span class="chip t-ins">Day ${day} of ${ec.planned}</span></div><div class="small">On day ${ed}, once day ${ed - 1}'s numbers are in, the app checks it against your stop rule, then again every time you add a file. Now: ${now}.</div><div class="tiny muted">${rule}</div></section>`;
 }
 
 // =================== Stocks look: trophies ===================
@@ -4010,7 +4010,7 @@ const RULE_ROWS = [
   ['Budgets', [['stage1Budget', 'Stage 1 budget per ad set', '$/day'], ['boostedBudget', 'Boosted budget', '$/day'], ['boostAt', 'Boost when 30-day blended ROAS is at least', 'x']]],
   ['Test window', [['plannedDays', 'Test window', 'days'], ['checkins', 'Check-in days', 'day']]],
   ['Testing target (your rule, not break-even)', [['minPurchases', 'Minimum purchases', 'buys'], ['passARoas', 'Pass A: ROAS at least', 'x'], ['passACpa', 'Pass A: CPA at most', '$'], ['passBRoas', 'Pass B: ROAS at least', 'x'], ['passBCpa', 'Pass B: CPA at most', '$'], ['failRoas', 'Fail below ROAS', 'x'], ['strongPct', 'Strong pass: CPA at most', '% of line'], ['collapseDays', 'Back-half collapse window', 'days']]],
-  ['Early stop (Pause? alerts)', [['earlyDay', 'After this many full days (alert shows the next day)', 'days'], ['earlySpend', '0–1 sales: spend at least', '$'], ['earlyMaxPurchases', '0–1 sales: purchases at most', 'buys'], ['underSpend', 'Under the fail line: spend at least', '$']]],
+  ['Early stop (Pause? alerts)', [['earlyDay', 'Full days before the check (the check is the next morning: 3 = day-4 check)', 'days'], ['earlySpend', '0–1 sales: spend at least', '$'], ['earlyMaxPurchases', '0–1 sales: purchases at most', 'buys'], ['underSpend', 'Under the fail line: spend at least', '$']]],
   ['Capacity & timing', [['slots', 'Test slots at once', 'slots'], ['testingCap', 'Testing cap, all products', '$/day'], ['stage2Min', 'Stage 2 minimum', 'days'], ['stage2Max', 'Stage 2 maximum', 'days'], ['raiseStep', 'Budget raise step', '%'], ['budgetWait', 'Wait after a Main budget change', 'days'], ['mainAdWait', 'Wait after adding an ad to Main', 'days'], ['benchTarget', 'Tested backups to keep on the Bench', 'ads']]],
 ];
 
