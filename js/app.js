@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=175';
-import * as R from './rules.js?v=175';
-import { importHistory } from './importer.js?v=175';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=175';
+import { createBackend } from './data.js?v=176';
+import * as R from './rules.js?v=176';
+import { importHistory } from './importer.js?v=176';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=176';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2129,9 +2129,9 @@ function trophySets({ data, dm, cm, months, stage, curYm, auto }) {
     return list;
   };
   // Ads tested: every ad with a test logged, plus older ads you judged before the app had tests (Bench, Main, Failed, Mid-Tier, Exhausted, Retest, Archived).
-  // Ads tested with the current setup (Era 3, from Sep 1 2026: one ad per Stage 1 test). Older batch-era tests don't count.
+  // Ads tested from Sep 1 2026 on (the current setup era). A batch (CBO) test from then on counts too; Straight to Main never does.
   const era3 = (a) => (a.setup_era || R.eraOf(a.launched_on)) === 'era3';
-  const tested = new Set([...tests1.filter((t) => t.start_date >= '2026-09-01' && !/batch|straight/i.test((t.conditions || {}).method || '')).map((t) => t.ad_id),
+  const tested = new Set([...tests1.filter((t) => t.start_date >= '2026-09-01' && !/straight/i.test((t.conditions || {}).method || '')).map((t) => t.ad_id),
     ...data.ads.filter((a) => era3(a) && a.launched_on && (['testing', 'bench', 'main', 'exhausted', 'mid', 'failed', 'retired'].includes(a.stage) || a.result)).map((a) => a.id)]).size, winners = data.ads.filter((a) => ['bench', 'main', 'exhausted'].includes(a.stage) || a.result === 'pass' || a.result === 'strong_pass').length;
   const bestDay = [...dm.values()].reduce((mx, v) => Math.max(mx, v.profit), 0), bestMonth = Math.max(0, ...months.filter((x) => x.actual != null).map((x) => x.actual));
   const five = tests1.some((t) => { const ad = data.ads.find((a) => a.id === t.ad_id); const r = ad && runsFor(t, ad, data); return r && r.d7 && r.d7.roas >= 5; });
