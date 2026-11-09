@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=182';
-import * as R from './rules.js?v=182';
-import { importHistory } from './importer.js?v=182';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=182';
+import { createBackend } from './data.js?v=183';
+import * as R from './rules.js?v=183';
+import { importHistory } from './importer.js?v=183';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=183';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2164,6 +2164,12 @@ function TrophyCard({ x: [t, name, a, b] }) {
     ${got ? html`<div class="tiny pos">✓ won</div>` : html`<div class="skbar"><i style=${`width:${pct.toFixed(0)}%;background:${TIER[t][2]}`}></i></div><div class="tiny muted">${/\$/.test(name) ? `${R.money0(a)} of ${R.money0(b)}` : `${a} of ${b}`}</div>`}</div></div>`;
 }
 
+// Month close: is last month in as one whole-month entry, and is its Sada bill final?
+function monthClose(data, ym) {
+  const a = ym + '-01', b = monthEnd(ym);
+  const whole = goalPeriods(data).find((x) => x.revType === 'net' && x.exact == null && x.from <= a && x.to >= b && x.from >= R.addDays(a, -31));
+  return { ym, a, b, mn: MON_LONG[+ym.slice(5) - 1], whole, final: !!(whole && whole.costFinal) };
+}
 // The same inputs Goals uses, worked out on their own so trophies can be checked from any page.
 function trophyInputs(data) {
   const st = R.storeEcon(), stage = stageNow(), y = R.addDays(R.today(), -1), dm = dayMap(goalPeriods(data), st), curYm = monthKey(R.today());
@@ -2258,7 +2264,13 @@ function StocksGoal(g) {
   if (s.orders && s.days) { const sb = R.storeBE(R.econOf(crew)); const keep = sb.missing ? 0.55 : 1 - sb.pct / 100 - (R.num(st.feePct) || 0) / 100; ways.push(['Bigger orders: +$5 average (push the 2-pack)', s.orders / s.days * 5 * keep]); }
   ways.sort((a, b) => b[1] - a[1]);
   const stIdx = STAGES_GOAL.indexOf(stage);
+  const lc = monthClose(data, monthKey(R.addDays(curYm + '-01', -1))), cc = monthClose(data, curYm);
+  const closeBanner = !lc.whole ? html`<section class="panel skclose"><div class="row" style="gap:10px;flex-wrap:wrap"><span class="sig sig-dec">MONTH CLOSE</span><b>Add ${lc.mn}'s numbers for the whole month</b><span class="spacer"></span><button class="btn sm primary" onClick=${() => setModal({ type: PeriodForm, props: { from: lc.a, to: lc.b } })}>Add ${lc.mn} numbers</button></div>
+      <div class="small muted">${lc.mn} is over. Put in the full month from Shopify (Analytics → Reports → Finance summary, ${mdLabel(lc.a)} to ${mdLabel(lc.b)}) so shipping, fees and returns are exact.</div></section>`
+    : !lc.final ? html`<section class="panel skclose"><div class="row" style="gap:10px;flex-wrap:wrap"><span class="sig sig-hold">SADA BILL</span><b>${lc.mn}: put in the final Sada bill when you pay it</b><span class="spacer"></span><button class="btn sm" onClick=${() => setModal({ type: PeriodForm, props: { id: lc.whole.id } })}>Update ${lc.mn}</button></div>
+      <div class="small muted">Everything else for ${lc.mn} is exact. Product cost is still Shopify's estimate until you put in the bill and tick "final Sada bill".</div></section>` : null;
   return html`${tabs}
+    ${closeBanner}
     <div class="skgoal">
       <section class="panel skhero">
         <div class="row" style="align-items:flex-start;gap:20px"><div><div class="small muted">${MON_LONG[+curYm.slice(5) - 1]} so far</div><div class="skhuge">${actual == null ? '—' : signMoney(actual)}</div>
@@ -2271,6 +2283,7 @@ function StocksGoal(g) {
         <div class="row small"><b>Every day this month</b><span class="spacer"></span><span class="muted"><b class="pos">■</b> made ${R.money0(perDayNeed)}+ · <b style="color:var(--mid)">■</b> under · <b class="neg">■</b> lost money · empty = to come</span></div>
         <div class="skdays">${daysArr.map((x, i) => html`<div class=${'skday' + (x.v == null ? '' : x.v >= perDayNeed ? ' g' : x.v >= 0 ? ' a' : ' r') + (x.today ? ' today' : '')} title=${x.d}>${x.v == null ? i + 1 : signMoney(x.v)}</div>`)}</div>
         <div class="skstrip" style="border-top:1px solid var(--line);padding-top:12px">${[['Sales', R.money0(s.rev)], ['Ad spend', R.money0(s.spend)], ['Profit', signMoney(actual)], ['MER', s.spend ? R.xroas(s.rev / s.spend) : '—'], ['Orders', Math.round(s.orders || 0)], ['Days with numbers', `${cm.days} of ${dimNow}`]].map(([a, b]) => html`<div><div class="small muted">${a}</div><div class="skv">${b}</div></div>`)}</div>
+        <div class="tiny muted">${cc.final ? `${MON_LONG[+curYm.slice(5) - 1]} is closed: these numbers are exact.` : cc.whole ? `Exact except product cost, which is an estimate until you put in the Sada bill.` : `Estimates for now: shipping, fees and returns aren't exact until the month ends. On ${mdLabel(R.addDays(monthEnd(curYm), 1))} the app will ask for ${MON_LONG[+curYm.slice(5) - 1]}'s whole-month numbers, and product cost is exact once you pay Sada.`}</div>
       </section>
       <div class="stack" style="gap:14px">
         <section class=${'panel ' + (ahead != null && ahead >= 0 ? 'skok' : 'skbad')}><div class="row"><h2>Verdict</h2><span class="spacer"></span>${ahead != null && html`<span class=${'sig ' + (ahead >= 0 ? 'sig-buy' : 'sig-sell')}>${ahead >= 0 ? 'AHEAD BY ' : 'BEHIND BY '}${R.money0(Math.abs(ahead))}</span>`}</div>

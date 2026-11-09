@@ -409,3 +409,4 @@ html[data-look=stocks] .brand .skmark{width:30px;height:30px}
 @media (max-width:700px){.tro-pop{left:12px;right:12px;top:auto;bottom:84px;max-width:none}}
 @media (prefers-reduced-motion:reduce){.tro-pop,.tro-full,.tro-fullin{animation:none}}
 .sktestedlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:0 16px;margin-top:8px}
+.skclose{gap:6px;box-shadow:inset 3px 0 0 var(--mid)}
