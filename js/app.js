@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=183';
-import * as R from './rules.js?v=183';
-import { importHistory } from './importer.js?v=183';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=183';
+import { createBackend } from './data.js?v=184';
+import * as R from './rules.js?v=184';
+import { importHistory } from './importer.js?v=184';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=184';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1815,6 +1815,8 @@ function StocksOverview(p) {
   const wrow = (r) => html`<button class="skw" onClick=${() => setModal({ type: AdDetail, props: { adId: r.ad.id } })}><${Media} path=${r.ad.media_path} type=${r.ad.media_type} poster=${r.ad.tags && r.ad.tags.poster} cls="round" />
     <span class="skwn"><span class="skwt"><i class=${'tdot k-' + team(r.ad)}></i><b>${displayName(r.ad).replace(/^(IMG|VID|Image|Video)\s*[|–-]\s*/i, '').replace(/\s*\|\s*V\d+$/i, '')}</b></span><${SigChip} s=${adSignal(r.ad, data)} inline /></span>
     ${r.q ? html`<span class="small muted skqd">${r.q}</span>` : html`<${Spark} vals=${adDaily(r.ad, data)} be=${2.85} />${roasPill(r.roas)}`}</button>`;
+  // Best first: highest ROAS on top, ads with no ROAS yet at the bottom.
+  const byBest = (list) => list.slice().sort((x, y) => (y.roas ?? -1) - (x.roas ?? -1));
   const grp = (t, list) => list.length > 0 && html`<div class="sklbl">${t}</div>${list.map(wrow)}`;
   const evs = wk.days.flatMap((d) => (wk.byDay.get(d) || []).map((e) => ({ d, e }))).slice(0, 6);
   const trade = (it) => { const sg = it.ad ? adSignal(it.ad, data) : null;
@@ -1844,7 +1846,7 @@ function StocksOverview(p) {
         </div></div>
     </div>
     <section class="panel skwatch"><div class="row"><h2>Watchlist · all products</h2><span class="spacer"></span><span class="tiny muted">ROAS 7d</span></div>
-      ${grp('Holdings · Main', liveRows.filter((r) => r.kind !== 'TEST'))}${grp('IPOs · Testing', liveRows.filter((r) => r.kind === 'TEST'))}
+      ${grp('Holdings · Main', byBest(liveRows.filter((r) => r.kind !== 'TEST')))}${grp('IPOs · Testing', byBest(liveRows.filter((r) => r.kind === 'TEST')))}
       ${grp('Reserve · Bench', data.ads.filter((a) => a.stage === 'bench').slice(0, 4).map((ad) => ({ ad, q: 'ready' })))}${grp('Up next', ready.slice(0, 3).map((ad, i) => ({ ad, q: '#' + (i + 1) + ' in line' })))}
       <div class="tiny muted" style="margin-top:8px">Dot = product colour · tap ⓘ on Portfolio for what the signals mean</div></section>
   </div>`;
