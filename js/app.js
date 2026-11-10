@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=187';
-import * as R from './rules.js?v=187';
-import { importHistory } from './importer.js?v=187';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=187';
+import { createBackend } from './data.js?v=188';
+import * as R from './rules.js?v=188';
+import { importHistory } from './importer.js?v=188';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=188';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -3019,7 +3019,9 @@ function mainHealth(ad, data, product) {
     const ctrSig = ctrDown != null && ctrDown >= rules.fatigueCtrDown;
     // The last 3 days only confirm direction (still weaker than the week before), not a second percentage test.
     const persist = rec.spend > 0 && (prev.roas == null || (rec.roas || 0) < prev.roas) && (c3 == null || c0 == null || c3 < c0);
-    creative = !decline ? 'healthy' : ctrSig && persist ? 'fatigue' : 'cooling';
+    // Spend jumped 50%+: Meta is reaching new, colder people, so a dip is expected. That isn't wear-out.
+    const spendUp = prev.spend ? cur.spend / prev.spend - 1 : 0;
+    creative = !decline ? 'healthy' : spendUp >= 0.5 ? 'scaling' : ctrSig && persist ? 'fatigue' : 'cooling';
   }
   let money = 'uncertain', v = null, be = null;
   if (econ.opBE && cur.spend > 0) {
@@ -3042,6 +3044,8 @@ function fatigueForecast(ad, data, product) {
   const n = pts.length, mx = pts.reduce((t, p) => t + p[0], 0) / n, my = pts.reduce((t, p) => t + p[1], 0) / n;
   const slope = pts.reduce((t, p) => t + (p[0] - mx) * (p[1] - my), 0) / (pts.reduce((t, p) => t + (p[0] - mx) ** 2, 0) || 1);
   const cur = pts[n - 1][1], rough = buys < 8 ? ' Rough: few purchases.' : '';
+  const wk = (a, b) => sumRows(rows.filter((r) => r.day > R.addDays(w.end, -a) && r.day <= R.addDays(w.end, -b))).spend, s1 = wk(7, 0), s0 = wk(14, 7);
+  if (s0 >= 20 && s1 >= s0 * 1.5 && cur >= be) return { state: 'none', cur, text: `No forecast this week: spend jumped ${Math.round((s1 / s0 - 1) * 100)}% (${R.money0(s0)} → ${R.money0(s1)}), so the dip comes from spending more, not from the ad wearing out. Check again after a steady week.` };
   if (cur < be * 0.95) return { state: 'below', cur, slope, text: `Under break-even now (${R.xroas(cur)} vs ${R.xroas(be)}).` };
   if (cur < be * 1.03 && slope < -0.01) return { state: 'at', cur, slope, text: `At break-even and falling: its last 7 days are ${R.xroas(cur)} vs ${R.xroas(be)}. Have its replacement ready.` };
   if (slope >= -0.01) return { state: 'steady', cur, slope, text: `Holding steady at ${R.xroas(cur)}${slope > 0.01 ? ' and improving' : ''}. No end in sight yet.${rough}` };
@@ -3050,7 +3054,7 @@ function fatigueForecast(ad, data, product) {
   const lo = Math.max(1, Math.round(days * 0.7)), hi = Math.max(lo + 1, Math.round(days * 1.3));
   return { state: days <= 7 ? 'soon' : 'fading', cur, slope, days, lo, hi, text: `About ${lo}–${hi} days until it drops under break-even: its last 7 days are ${R.xroas(cur)} and falling ~${Math.abs(slope).toFixed(2)}x a day toward ${R.xroas(be)}.${rough}` };
 }
-const CREATIVE = { healthy: ['Healthy', 'pass'], cooling: ['Cooling off', 'muted'], fatigue: ['Possible fatigue', 'mid'], none: ['Not enough data', 'muted'] };
+const CREATIVE = { scaling: ['Spend went up · not fatigue', 'live'], healthy: ['Healthy', 'pass'], cooling: ['Cooling off', 'muted'], fatigue: ['Possible fatigue', 'mid'], none: ['Not enough data', 'muted'] };
 const MONEY = { above: ['Above break-even', 'pass'], near: ['Near break-even', 'mid'], below: ['Below break-even', 'fail'], uncertain: ['Economics uncertain', 'muted'] };
 function healthText(h) {
   const d = `ROAS ${R.xroas(h.prev.roas)} → ${R.xroas(h.cur.roas)}, CPA ${R.money(h.prev.cpa)} → ${R.money(h.cur.cpa)}`;
@@ -3058,6 +3062,7 @@ function healthText(h) {
   const c = h.creative === 'none' ? `Needs at least $50 spend in each of the two weeks to judge.`
     : h.creative === 'healthy' ? `No meaningful decline (${d}${ctr}).`
     : h.creative === 'cooling' ? `Recent CPA up and ROAS down (${d}${ctr}); monitor. Not enough evidence of creative fatigue.`
+    : h.creative === 'scaling' ? `Numbers dipped (${d}${ctr}) because Meta spent ${Math.round((h.cur.spend / h.prev.spend - 1) * 100)}% more (${R.money0(h.prev.spend)} → ${R.money0(h.cur.spend)}). More spend reaches people less likely to buy, so CTR and ROAS drop. That's normal when an ad gets more budget, not wear-out. Fatigue is numbers falling while spend stays about the same.`
     : `${d}${ctr}, and the last 3 days are still weaker. Your call whether to mark it fatiguing.`;
   const m = !h.econSet ? 'Costs not set for this product.'
     : h.v && !h.v.missing ? `${R.xroas(h.cur.roas)} vs ${R.xroas(h.v.be.roas)} break-even (estimate).`
@@ -3088,7 +3093,7 @@ function adVerdict(ad, data, product) {
   const ctrCh = pc(h.c1, h.c0);
   const roasDown = h.roasDown != null && h.roasDown >= 15;
   if (ctrCh != null && roasDown && ctrCh > -10) why.push(`People still click (link CTR ${h.c0.toFixed(2)}% → ${h.c1.toFixed(2)}%), but fewer of them buy${conv(P) != null && conv(W) != null ? ` (${conv(P).toFixed(1)}% → ${conv(W).toFixed(1)}% of clicks)` : ''}. That points to the market, the site or the offer, not a worn-out ad.`);
-  if (ctrCh != null && ctrCh <= -20) why.push(`Fewer people click (link CTR ${h.c0.toFixed(2)}% → ${h.c1.toFixed(2)}%). That's how an ad wearing out usually starts.`);
+  if (ctrCh != null && ctrCh <= -20) why.push(sp >= 50 ? `Fewer people click (link CTR ${h.c0.toFixed(2)}% → ${h.c1.toFixed(2)}%), which is expected when spend jumps: Meta is showing it to new, colder people. Not a sign of wear-out.` : `Fewer people click (link CTR ${h.c0.toFixed(2)}% → ${h.c1.toFixed(2)}%) while spend stayed about the same. That's how an ad wearing out usually starts.`);
   if (W.purchases < 5) why.push(`Only ${W.purchases} buy${W.purchases === 1 ? '' : 's'} this week, so one or two orders swing these numbers a lot.`);
   const week = h.money, prevB = h.prevBand, lifeB = h.lifeBand;
   const lifeTxt = life.spend ? `Over its life: ${R.xroas(life.roas)} on ${R.money0(life.spend)} (${life.purchases} buys)${be ? `, ${lifeB === 'above' ? 'above' : lifeB === 'below' ? 'below' : 'around'} break-even (${R.xroas(be)})` : ''}.` : '';
@@ -3097,7 +3102,7 @@ function adVerdict(ad, data, product) {
   const benchTxt = bench.length ? ` Your Bench has ${bench.map((a) => displayName(a)).slice(0, 2).join(' and ')}.` : ' Your Bench is empty, so start a test now.';
   let tone, head, todo;
   if (!be) { tone = 'live'; head = 'Costs not set for this product'; todo = 'Add the product cost in Rules to see whether it makes money.'; }
-  else if (week === 'above') { tone = 'good'; head = h.creative === 'cooling' ? 'Still making money, a bit weaker than last week' : 'Doing well'; todo = 'Leave it alone.'; }
+  else if (week === 'above') { tone = 'good'; head = h.creative === 'scaling' ? 'Doing well, even with more spend' : h.creative === 'cooling' ? 'Still making money, a bit weaker than last week' : 'Doing well'; todo = h.creative === 'scaling' ? 'Leave it alone. A dip after a spend jump is normal; judge it after a steady week.' : 'Leave it alone.'; }
   else if (week === 'near') { tone = 'warn'; head = 'Around break-even this week'; todo = 'Hold and check again in a few days. No changes needed yet.'; }
   else if (week === 'below' && prevB === 'below') { tone = 'bad'; head = 'Losing money two weeks in a row'; todo = 'Time to act: lower its spend, or pause it and bring in your best Bench ad.' + benchTxt; }
   else if (week === 'below' && lifeB === 'below') { tone = 'bad'; head = 'Losing money this week and overall'; todo = 'Consider turning it off.' + benchTxt; }
