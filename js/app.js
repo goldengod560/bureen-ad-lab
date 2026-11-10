@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=184';
-import * as R from './rules.js?v=184';
-import { importHistory } from './importer.js?v=184';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=184';
+import { createBackend } from './data.js?v=185';
+import * as R from './rules.js?v=185';
+import { importHistory } from './importer.js?v=185';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=185';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1612,6 +1612,9 @@ function Today(ctx) {
     if (st.final) items.push({ ad, kind: 'todo', tone: 'blue', title: `Finalize: ${displayName(ad)}`, sub: `${p.name} · the 7 days are done. Record the result when you turn it off.`, tag: 'FINALIZE', go: () => setModal({ type: FinalizeForm, props: { testId: t.id } }) });
     else if (st.due.length) items.push({ ad, kind: 'todo', tone: 'amber', title: `Day ${st.due[st.due.length - 1]} results: ${displayName(ad)}`, sub: `${p.name} · add an Ads Manager file that covers day ${st.due[st.due.length - 1]}, or type the numbers.`, tag: 'RESULTS', go: () => setModal({ type: CheckinForm, props: { testId: t.id } }) });
   }
+  // Main ads running but no Main budget logged: ask for it.
+  for (const p of products) if (!R.num((p.rules || {}).mainBudget) && data.ads.some((a) => a.product_id === p.id && a.stage === 'main'))
+    items.push({ kind: 'todo', tone: 'amber', title: `Set the Main budget for ${p.name}`, sub: `${p.name} has ads in Main, but the app doesn't know the campaign's daily budget. Put in what it's set to in Meta so raise and lower suggestions are right.`, tag: 'BUDGET', go: () => setModal({ type: BudgetForm, props: { productId: p.id } }) });
   // Month close: from the 1st, ask for last month's numbers as one whole-month entry; then for the final Sada bill once it's paid.
   { const ym = monthKey(R.addDays(R.today().slice(0, 8) + '01', -1)), a = ym + '-01', b = monthEnd(ym), mn = MON_LONG[+ym.slice(5) - 1];
     const whole = goalPeriods(data).find((x) => x.revType === 'net' && x.exact == null && x.from <= a && x.to >= b && x.from >= R.addDays(a, -31));
@@ -1659,7 +1662,7 @@ function Today(ctx) {
   const [headsOpen, setHeadsOpen] = useState(() => lsGet('adlab-ov-heads', '0') === '1');
   const [weekOpen, setWeekOpen] = useState(() => lsGet('adlab-ov-week', '0') === '1');
   const flip = (k, v, set) => { set(v); lsSet(k, v ? '1' : '0'); };
-  const VERB = { NUMBERS: 'Add numbers', SADA: 'Update', DECIDE: 'Open ad', RESULTS: 'Add results', FINALIZE: 'Finalize', DAILY: 'Add file', RECORD: 'Record', REVIEW: 'Review', ACT: 'Open', SPEND: 'Check' };
+  const VERB = { BUDGET: 'Set budget', NUMBERS: 'Add numbers', SADA: 'Update', DECIDE: 'Open ad', RESULTS: 'Add results', FINALIZE: 'Finalize', DAILY: 'Add file', RECORD: 'Record', REVIEW: 'Review', ACT: 'Open', SPEND: 'Check' };
   const row = (list, btn) => html`<div class="list">${list.map((it) => html`<button class="li ovli" onClick=${it.go}><span class=${'bar ' + it.tone}></span>${it.ad && html`<${Media} path=${it.ad.media_path} type=${it.ad.media_type} poster=${it.ad.tags && it.ad.tags.poster} cls="sm" />`}<span class="grow"><b>${it.title}</b><br/><span class="small muted">${it.sub}</span></span>${btn ? html`<span class="btn sm">${VERB[it.tag] || 'Open'}</span>` : html`<span class="mono tiny" style="color:var(--accent2)">${it.tag}</span>`}</button>`)}</div>`;
   // ---- numbers: the last full day with Shopify + Meta (normally yesterday) ----
   const crewP = products.find((p) => p.kind === 'crew') || products[0];
@@ -3111,6 +3114,8 @@ function mainPlan(data, product) {
   const bw = rules.budgetWait || 5, aw = rules.mainAdWait || 5, ago = (d) => (d === 0 ? 'today' : d === 1 ? 'yesterday' : `${d} days ago`);
   // Checks in order of importance. Must-haves (*) all have to pass; the last one only decides 20% vs a smaller 10% step.
   const scaleChecks = [
+    // Without the real budget, any raise would be worked out from a guess, so it comes first.
+    [!!setB, setB ? `Main budget set (${R.money0(setB)}/day)` : 'Main budget not set in the app: set it first so the raise is worked out from the real budget', true],
     [nowB === 'above', `Last 7 days above break-even (${R.xroas(cur.roas)} vs ${R.xroas(be)})`, true],
     [l3.spend > 0 && l3.roas >= be, `Last 3 days holding above break-even (${R.xroas(l3.roas)})`, true],
     [!alarms.length, alarms.length ? 'A spend alarm is open (see Overview)' : 'No spend alarms', true],
@@ -3121,7 +3126,7 @@ function mainPlan(data, product) {
   ];
   const musts = scaleChecks.filter((c) => c[2]), mustOk = musts.filter((c) => c[0]).length, extraOk = scaleChecks.filter((c) => !c[2]).every((c) => c[0]);
   const stepNow = mustOk === musts.length ? (extraOk ? rules.raiseStep : Math.round(rules.raiseStep / 2)) : 0;
-  const scale = main.length && cur.spend ? { ok: stepNow > 0, half: stepNow > 0 && !extraOk, checks: scaleChecks, mustOk, mustN: musts.length, perDay, to: perDay * (1 + (stepNow || rules.raiseStep) / 100), step: stepNow || rules.raiseStep, full: rules.raiseStep, lastRaise } : null;
+  const scale = main.length && cur.spend ? { needBudget: !setB, ok: stepNow > 0, half: stepNow > 0 && !extraOk, checks: scaleChecks, mustOk, mustN: musts.length, perDay, to: perDay * (1 + (stepNow || rules.raiseStep) / 100), step: stepNow || rules.raiseStep, full: rules.raiseStep, lastRaise } : null;
   if (scale && scale.ok) budget = { call: `Can raise ${scale.step}%`, tone: 'good', why: scale.half ? 'Making money and holding, but only one good week, so a smaller step.' : 'Making money two weeks running and holding.' };
   const swapNow = nowB === 'below' && (prevB === 'below' || (weak && per.find((x) => x.ad === weak.ad).h.prevBand === 'below'));
   // Testing: one testing campaign for every product, so slots are shared
@@ -3152,6 +3157,7 @@ function ScaleRow({ s, product, reload, say, setModal }) {
   const [why, setWhy] = useState(false);
   const fail = s.checks.find((c) => !c[0] && c[2]);
   const log = () => setModal({ type: BudgetForm, props: { productId: product.id, suggest: s.to } });
+  if (s.needBudget) return html`<div class="status small warn"><div class="row" style="gap:8px;flex-wrap:wrap"><span class="grow"><b>Set the Main budget first.</b> ${product.name} has ads running in Main, but the app doesn't know the campaign's daily budget, so it can't tell you how much to raise. Put in what Meta is set to now.</span><button class="btn sm primary" onClick=${() => setModal({ type: BudgetForm, props: { productId: product.id } })}>Set Main budget</button></div></div>`;
   const STAR = 'Must-have: every starred check has to pass before raising. The unstarred one only decides the size: 20% if it passes, 10% if not.';
   return html`<div class=${'status small ' + (s.ok ? 'good' : 'live')}><div class="row" style="gap:8px;flex-wrap:wrap"><span class="grow">Raise Main today? <b>${s.ok ? `Yes, ${s.step}%` : 'Not today'}</b> · <span class=${s.mustOk === s.mustN ? 'good' : ''}>${s.mustOk} of ${s.mustN} must-haves<span style="cursor:help" title=${STAR} onClick=${() => say(STAR)}>*</span></span>${s.ok ? ` · ${R.money0(s.perDay)}/day → ${R.money0(s.to)}/day${s.half ? ' (smaller step: only one good week)' : ''}` : ` · ${fail[1]}`}</span>
     <button class="link small" onClick=${() => setWhy(!why)}>${why ? 'Hide' : 'Why'}</button>${s.ok && html`<button class="btn sm" onClick=${log}>I raised it: update budget</button>`}</div>
