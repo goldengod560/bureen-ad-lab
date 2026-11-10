@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=185';
-import * as R from './rules.js?v=185';
-import { importHistory } from './importer.js?v=185';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=185';
+import { createBackend } from './data.js?v=186';
+import * as R from './rules.js?v=186';
+import { importHistory } from './importer.js?v=186';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=186';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -398,7 +398,8 @@ function adSignal(ad, data) {
     const roas = (x) => (x.spend ? x.revenue / x.spend : null);
     if (cur.spend >= 20 && (roas(cur) || 0) < be && prev.spend >= 20 && (roas(prev) || 0) < be) return { k: 'sell', why: 'Under break-even two weeks in a row.' };
     if (cur.spend >= 20 && (roas(cur) || 0) >= be * 1.5 && !(ad.tags || {}).fatiguing) return { k: 'buy', why: 'Well over break-even. Make new versions of it.' };
-    return { k: 'hold' };
+    if (cur.spend >= 20 && (roas(cur) || 0) < be) return { k: 'hold', why: `Under break-even this week (${R.xroas(roas(cur))} vs ${R.xroas(be)}). One bad week: watch it. Two in a row = Sell.` };
+    return { k: 'hold', why: cur.spend >= 20 ? `Above break-even this week (${R.xroas(roas(cur))}). Nothing to do.` : undefined };
   }
   if (ad.stage === 'bench') return { k: 'hold', why: 'Backup ready for Main.' };
   if (ad.stage === 'next') return { k: 'wait', why: 'Launches when a test slot opens.' };
@@ -426,7 +427,7 @@ function Card(props) {
     <span class="ti"><${Media} path=${ad.media_path} type=${ad.media_type} poster=${t.poster} />
       ${(showStage || ci.chip) && html`<span class=${'chip t-' + (showStage ? 'muted' : ci.tone || 'muted')}>${showStage ? R.stageLabel(ad.stage) : ci.chip}</span>`}
       ${select && html`<span class=${'check' + (selected ? ' on' : '')}>${selected ? '✓' : ''}</span>`}
-      ${!select && ['main', 'bench', 'exhausted', 'mid', 'failed', 'retired', 'retest', 'seasonal'].includes(ad.stage) && props.data && (() => { const gr = adGrade(ad, props.data, props.data.products.find((x) => x.id === ad.product_id)); return gr && gr.g && html`<span class=${'gbadge t-' + gradeTone(gr.g)} title=${'Grade ' + gr.g + (gr.step ? (gr.step < 0 ? ' (down a step: last 2 weeks much weaker)' : ' (up a step: last 2 weeks much stronger)') : '')}>${gr.g}</span>`; })()}</span>
+      ${!select && ['main', 'bench', 'exhausted', 'mid', 'failed', 'retired', 'retest', 'seasonal'].includes(ad.stage) && props.data && (() => { const gr = adGrade(ad, props.data, props.data.products.find((x) => x.id === ad.product_id)); return gr && gr.g && html`<span class=${'gbadge t-' + gradeTone(gr.g)} title=${'Grade ' + gr.g + (gr.recent != null ? ` · last ${gr.days} days ${R.xroas(gr.recent)}${gr.step > 0 ? ', +1 step for its history' : gr.step < 0 ? ', −1 step for its history' : ''}` : ' · all-time')}>${gr.g}</span>`; })()}</span>
     <span class="tn">${displayName(ad)}</span>
     ${ci.line && html`<span class="tl">${ci.line}</span>`}
     ${ci.line2 && html`<span class="tl">${ci.line2}</span>`}
@@ -2792,25 +2793,28 @@ function MiniBars({ list, top, be, label, weekly }) {
       ${hi != null && html`<line x1=${x(hi)} x2=${x(hi)} y1=${Tp} y2=${H - B} class="cross" />`}
     </svg></div>`;
 }
-// Ad grade: all-time ROAS against the product's break-even, moved one step when the last 2 weeks are much better or worse.
+// Ad grade: for a running ad, its last 7 days against break-even (last 14 if the 7 days spent under $40).
+// Its all-time record can lift or drop it 1 step (a proven ad gets a little credit for its history). Ads not running: all-time.
 const GRADES = ['F', 'D', 'C', 'B−', 'B', 'B+', 'A−', 'A', 'A+'];
 const gradeIdx = (r) => (r >= 1.4 ? 8 : r >= 1.27 ? 7 : r >= 1.16 ? 6 : r >= 1.09 ? 5 : r >= 1.035 ? 4 : r >= 1 ? 3 : r >= 0.91 ? 2 : r >= 0.77 ? 1 : 0);
 function adGrade(ad, data, product) {
   const be = product && R.econOf(product).opBE; if (!be) return null;
   const q = quickStats(ad, data);
   if (!q || q.spend < 100 || (q.buys || 0) < 5) return { g: null, q, be };
-  const base = gradeIdx((q.roas || 0) / be); let i = base, recent = null, step = 0;
+  const all = gradeIdx((q.roas || 0) / be); let i = all, recent = null, step = 0, days = null;
   const w = healthWindow(data);
   if (w && ['main', 'bench', 'testing'].includes(ad.stage)) {
-    const t = sumRows(rowsForAd(ad, data.meta_days).filter((r) => r.day > R.addDays(w.end, -14) && r.day <= w.end));
-    if (t.spend >= 40) { recent = t.revenue / t.spend; const ri = gradeIdx(recent / be); if (ri <= base - 2) step = -1; else if (ri >= base + 2) step = 1; i = Math.max(0, Math.min(8, base + step)); }
+    const rows = rowsForAd(ad, data.meta_days), win = (n) => sumRows(rows.filter((r) => r.day > R.addDays(w.end, -n) && r.day <= w.end));
+    let t = win(7); days = 7; if (t.spend < 40) { t = win(14); days = 14; }
+    if (t.spend >= 40) { recent = t.revenue / t.spend; const ri = gradeIdx(recent / be); step = all >= ri + 2 ? 1 : all <= ri - 2 ? -1 : 0; i = Math.max(0, Math.min(8, ri + step)); }
+    else days = null;
   }
-  return { g: GRADES[i], base: GRADES[base], step, recent, q, be };
+  return { g: GRADES[i], base: GRADES[all], step, recent, days, q, be };
 }
 function gradeAdvice(gr, ad) {
   if (!gr || !gr.g) return 'Too early to grade: needs $100 spend and 5 buys.';
   const top = gr.g[0] === 'A', mid = gr.g[0] === 'B', low = !top && !mid;
-  const why = gr.step < 0 ? ` Its last 2 weeks (${R.xroas(gr.recent)}) are much weaker than its all-time ${R.xroas(gr.q.roas)}.` : gr.step > 0 ? ` Its last 2 weeks (${R.xroas(gr.recent)}) are much stronger than before.` : '';
+  const why = gr.recent == null ? ` Graded on its all-time ${R.xroas(gr.q.roas)} (not running lately).` : ` Graded on its last ${gr.days} days (${R.xroas(gr.recent)})${gr.step > 0 ? `, lifted 1 step for its all-time ${R.xroas(gr.q.roas)}` : gr.step < 0 ? `, dropped 1 step for its weaker all-time ${R.xroas(gr.q.roas)}` : ''}.`;
   if (ad.stage === 'main') return (top ? (gr.g === 'A−' ? 'Keep it running.' : 'Keep it. Make 1–2 new versions (same hook, new visual) so its replacement is ready.') : mid ? (gr.g === 'B+' ? 'Keep it running.' : 'Keep it, but get its replacement tested: it\'s only just above break-even.') : gr.g === 'C' ? 'Around break-even. If next week is no better, swap in your best Bench ad.' : 'Losing money. Swap in your best Bench ad, or turn it off if the Bench is empty.') + why;
   if (ad.stage === 'bench') return (top ? 'Strong backup: first in line for Main.' : mid ? 'Okay backup.' : "Weak backup: don't put it in Main. Test something better.") + why;
   if (ad.stage === 'testing') return 'Still testing: the day-7 result decides. This grade is just its numbers so far.';
