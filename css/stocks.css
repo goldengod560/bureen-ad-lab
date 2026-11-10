@@ -410,3 +410,4 @@ html[data-look=stocks] .brand .skmark{width:30px;height:30px}
 @media (prefers-reduced-motion:reduce){.tro-pop,.tro-full,.tro-fullin{animation:none}}
 .sktestedlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:0 16px;margin-top:8px}
 .skclose{gap:6px;box-shadow:inset 3px 0 0 var(--mid)}
+.sktable.skleft th,.sktable.skleft td{text-align:left}

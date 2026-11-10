@@ -467,3 +467,4 @@ button.ev[onclick],.ev:not([disabled]){cursor:pointer}
   .tiles.k4{grid-template-columns:repeat(2,minmax(0,1fr))}
   .pbars svg{height:140px}
 }
+button.gbadge{font:inherit;font-weight:800;font-size:12px;cursor:pointer}
