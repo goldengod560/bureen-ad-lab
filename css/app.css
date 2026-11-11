@@ -493,3 +493,6 @@ button.gbadge{font:inherit;font-weight:800;font-size:12px;cursor:pointer}
 .plg-tlab{position:absolute;z-index:1;white-space:nowrap;font-size:11px;line-height:1.3;cursor:pointer}.plg-tlab b{font-size:12.5px}.plg-tlab span{color:var(--muted)}.plg-tlab.done{opacity:.45;text-decoration:line-through}
 @media (max-width:760px){.plg-tlab span{display:none}.plg-tlab b{font-size:11px}}
 @media (max-width:600px){.wkcpa{display:none}}
+.plg-days{position:relative;height:18px}.plg-days span{position:absolute;text-align:center;font-size:10px;color:var(--muted);opacity:.8}
+.plg-days span.today{color:#000;background:var(--pass);border-radius:5px;font-weight:800;opacity:1}
+@media (max-width:760px){.plg-days span:not(.today){font-size:8px}}

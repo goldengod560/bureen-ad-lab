@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=201';
-import * as R from './rules.js?v=201';
-import { importHistory } from './importer.js?v=201';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=201';
+import { createBackend } from './data.js?v=202';
+import * as R from './rules.js?v=202';
+import { importHistory } from './importer.js?v=202';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=202';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -4553,10 +4553,10 @@ function PlanBar({ data, plan, w0, days, onTick, onEdit }) {
     if (ln.p) {
       const live = data.tests.filter((t) => t.product_id === ln.p.id && t.status === 'active' && t.stage === 1);
       const covered = plan.steps.some((s) => s.pid === ln.p.id && s.kind === 'test' && s.start && s.start <= td && R.addDays(s.start, (s.days || 7) - 1) >= td);
-      if (live.length && !covered) { const a = live.map((t) => t.start_date).sort()[0], b = live.map((t) => R.addDays(t.start_date, (t.planned_days || 7))).sort().pop(); out.push({ a, b, t: `Testing now · ${live.length} live`, sub: `decide by ${mdLabel(b)}`, solid: true }); }
+      if (live.length && !covered) { const a = live.map((t) => t.start_date).sort()[0], b = live.map((t) => R.addDays(t.start_date, (t.planned_days || 7))).sort().pop(); out.push({ a, b, t: `Testing now · ${live.length} live`, sub: `${mdLabel(a)} → decide ${mdLabel(b)}`, solid: true }); }
       plan.steps.filter((s) => s.pid === ln.p.id).forEach((s) => { const d = stepDates(s, plan, data);
         const live2 = data.tests.filter((t) => t.product_id === ln.p.id && t.status === 'active' && t.stage === 1).length;
-        out.push({ a: d.a, b: d.b, t: d.a <= td && d.b >= td && live2 ? `Testing · ${live2} live` : `Testing · ${s.slots || 3} ad${(s.slots || 3) === 1 ? '' : 's'}`, sub: s.when ? `when ${pName(data, s.when.pid)} is stable · est. ${mdLabel(d.a)}` : `decide ${mdLabel(R.addDays(d.b, 1))}`, solid: !d.est }); });
+        out.push({ a: d.a, b: d.b, t: d.a <= td && d.b >= td && live2 ? `Testing · ${live2} live` : `Testing · ${s.slots || 3} ad${(s.slots || 3) === 1 ? '' : 's'}`, sub: s.when ? `when ${pName(data, s.when.pid)} is stable · est. ${mdLabel(d.a)}` : `${mdLabel(d.a)} → decide ${mdLabel(R.addDays(d.b, 1))}`, solid: !d.est }); });
     } else if (ln.sale) { out.push({ a: ln.sale.start, b: ln.sale.end || ln.sale.start, t: ln.sale.name || 'Sale', sub: ln.sale.offer ? `${ln.sale.offer} · tests paused` : 'tests paused', solid: true });
     }
     out.push(...taskBlocks(ln));
@@ -4564,13 +4564,14 @@ function PlanBar({ data, plan, w0, days, onTick, onEdit }) {
   };
   return html`<div class="plg">
     <div class="plg-h"><span></span><div class="plg-axis">${weeks.map((d) => html`<span style=${`left:${pct(d)}%`}>${mdLabel(d)}</span>`)}</div></div>
+    <div class="plg-h"><span></span><div class="plg-days">${Array.from({ length: days }, (_, i) => R.addDays(w0, i)).map((d) => html`<span class=${d === td ? 'today' : ''} style=${`left:${pct(d)}%;width:${100 / days}%`} title=${longDate(d)}>${+d.slice(8)}</span>`)}</div></div>
     ${lanes.map((ln) => html`<div class="plg-l"><b><i style=${`background:${ln.col}`}></i>${ln.name}</b><div class="plg-k" style=${`height:${(ln.todo ? 14 : 56) + (() => { const ends = []; blocks(ln).filter((x) => x.task).sort((x, y) => x.a.localeCompare(y.a)).forEach((x) => { const e = R.addDays(x.a, Math.max(R.daysBetween(x.a, x.b) + 2, Math.ceil((String(x.t).length + String(x.sub).length + 3) * 7 / 30) + 1)); const r = ends.findIndex((d) => d <= x.a); if (r < 0) ends.push(e); else ends[r] = e; }); return ends.length * (ln.todo ? 38 : 40); })()}px`}>
       ${weeks.map((d) => html`<span class="plg-g" style=${`left:${pct(d)}%`}></span>`)}
       ${(() => { const bs = blocks(ln); const ends = []; bs.filter((x) => x.task).sort((x, y) => x.a.localeCompare(y.a)).forEach((x) => { const e = R.addDays(x.a, Math.max(R.daysBetween(x.a, x.b) + 2, Math.ceil((String(x.t).length + String(x.sub).length + 3) * 7 / 30) + 1)); let r = ends.findIndex((d) => d <= x.a); if (r < 0) { r = ends.length; ends.push(e); } else ends[r] = e; x.row = r; });
         ln.h = 56 + ends.length * 40; return bs.length ? bs.map((x) => x.task ? (() => { const L = pct(x.a), Rr = pct(R.addDays(x.b, 1)), flip = L > 70, top = 8 + x.row * 38, c = x.col || ln.col, click = x.tid ? () => onTick && onTick(x.tid) : x.edit ? () => onEdit && onEdit() : null, tip = x.edit ? 'Change it in Edit plan' : x.tid ? 'Tap to tick it off' : '';
           return html`<div class=${'plg-tlab' + (x.done ? ' done' : '')} style=${`top:${top}px;${flip ? `right:calc(${100 - Rr}% + 3px);text-align:right` : `left:${L}%`};color:${c}`} title=${tip} onClick=${click}><b>${x.t}</b> <span>${x.sub}</span></div>
             <div class=${'plg-tbar' + (x.done ? ' done' : '')} style=${`top:${top + 19}px;left:${L}%;width:calc(${Rr - L}% - 3px);background:${c}`} title=${tip} onClick=${click}></div>`; })() : html`<div class=${'plg-b' + (x.task ? ' task' + (x.done ? ' done' : '') : x.solid ? '' : ' est')} style=${`${x.task ? `top:${54 + x.row * 40}px;` : ''}left:${pct(x.a)}%;${x.task ? `min-width:calc(${pct(R.addDays(x.b, 1)) - pct(x.a)}% - 3px);width:max-content;max-width:${100 - pct(x.a)}%` : `width:calc(${pct(R.addDays(x.b, 1)) - pct(x.a)}% - 3px)`};${x.solid ? `background:${ln.col};color:${ln.col === '#4A8CFF' ? '#fff' : '#000'}` : `border-color:${ln.col};color:${ln.col}`}${x.task ? ';cursor:pointer' : ''}`} title=${x.edit ? 'Change it in Edit plan' : x.tid ? 'Tap to tick it off' : `${x.t} · ${mdLabel(x.a)} – ${mdLabel(x.b)}`} onClick=${x.tid ? () => onTick && onTick(x.tid) : x.edit ? () => onEdit && onEdit() : null}><b>${x.t}</b><span>${x.sub}</span></div>`) : html`<span class="tiny muted plg-none">not in the plan</span>`; })()}
-      <span class="plg-today" style=${`left:${pct(td)}%`}></span></div></div>`)}
+      <span class="plg-today" style=${`left:${pct(td) + 50 / days}%`}></span></div></div>`)}
   </div>`;
 }
 function PlanPage(ctx) {
