@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=192';
-import * as R from './rules.js?v=192';
-import { importHistory } from './importer.js?v=192';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=192';
+import { createBackend } from './data.js?v=193';
+import * as R from './rules.js?v=193';
+import { importHistory } from './importer.js?v=193';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=193';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -4413,7 +4413,7 @@ function productStable(data, product) {
 }
 // Start and end of a step: fixed dates, or an estimate when it waits for a product to be stable.
 function stepDates(step, plan, data) {
-  if (step.kind === 'sale') return { a: step.start, b: step.end || step.start, est: false };
+  if (step.kind === 'sale' || step.kind === 'task') return { a: step.start, b: step.end || step.start, est: false };
   if (step.start) return { a: step.start, b: R.addDays(step.start, (step.days || 7) - 1), est: false };
   if (step.when && step.when.type === 'stable') {
     const prod = data.products.find((p) => p.id === step.when.pid); const st = prod ? productStable(data, prod) : { stable: false };
@@ -4470,8 +4470,9 @@ function planTodos(data, plan) {
   });
   plan.steps.forEach((s) => {
     const dd = stepDates(s, plan, data);
+    if (s.kind === 'task') { if (!s.done && s.start) out.push({ d: s.start, end: s.end, t: s.name || 'To-do', c: s.start < td ? 'fail' : 'task', task: s.id, late: s.start < td && (s.end || s.start) < td }); return; }
     if (s.kind === 'sale') {
-      if (dd.a > td) { out.push({ d: R.addDays(dd.a, -8), t: `Last day to launch a normal test before ${s.name || 'the sale'}`, c: 'sale' }); out.push({ d: dd.a, t: `${s.name || 'Sale'} starts · tests paused`, c: 'sale' }); }
+      if (dd.a > td) { out.push({ d: R.addDays(dd.a, -8), t: `Last day to launch a normal test before ${s.name || 'the sale'}`, c: 'sale' }); out.push({ d: dd.a, t: `${s.name || 'Sale'} starts${s.offer ? ' · ' + s.offer : ''} · tests paused`, c: 'sale' }); }
       if (dd.b >= td) out.push({ d: dd.b, t: `${s.name || 'Sale'} ends (morning) · tests resume`, c: 'pass' });
       return;
     }
@@ -4481,7 +4482,7 @@ function planTodos(data, plan) {
     out.push({ d: R.addDays(dd.a, -1), t: `${prod.name} ready: ${cost ? 'costs set ✓' : 'set costs in Rules'} · ${Math.min(ready, s.slots || 3)} of ${s.slots || 3} ads in Up next`, c: cost && ready >= (s.slots || 3) ? 'pass' : 'mid' });
     out.push({ d: dd.a, t: `Launch ${prod.name} tests (${s.slots || 3} slot${(s.slots || 3) === 1 ? '' : 's'})`, c: 'pass' });
   });
-  return out.filter((x) => x.d >= td).sort((a, b) => a.d.localeCompare(b.d));
+  return out.filter((x) => x.task || x.d >= td).sort((a, b) => a.d.localeCompare(b.d));
 }
 // The suggestion: a product needs new ads but its next test is far away. Offer one slot from the next batch.
 function planSuggest(data, product, plan, st) {
@@ -4497,7 +4498,11 @@ function PlanBar({ data, plan, w0, days }) {
   const weeks = Array.from({ length: Math.ceil(days / 7) }, (_, i) => R.addDays(w0, i * 7));
   const lanes = data.products.filter((p) => !p.archived).sort((a, b) => a.sort - b.sort).map((p) => ({ key: p.id, name: p.name, col: PLAN_COL[p.kind] || '#8A939C', p }));
   const sales = plan.steps.filter((s) => s.kind === 'sale');
-  if (sales.length) lanes.splice(lanes.findIndex((l) => l.p.kind === 'crew') >= 0 ? 0 : 0, 0, ...sales.map((s) => ({ key: s.id, name: s.name || 'Sale', col: PLAN_COL.sale, sale: s })));
+  if (sales.length) lanes.splice(0, 0, ...sales.map((s) => ({ key: s.id, name: s.name || 'Sale', col: PLAN_COL.sale, sale: s })));
+  const tasks = plan.steps.filter((s) => s.kind === 'task' && s.start);
+  if (tasks.some((t) => !t.lane || !lanes.some((l) => (l.sale ? 'sale:' + l.sale.id : l.p.id) === t.lane))) lanes.push({ key: 'todo', name: 'To-dos', col: '#8A939C', todo: true });
+  const laneKey = (ln) => (ln.todo ? 'todo' : ln.sale ? 'sale:' + ln.sale.id : ln.p.id);
+  const taskBlocks = (ln) => tasks.filter((t) => (ln.todo ? !t.lane || !lanes.some((l) => !l.todo && laneKey(l) === t.lane) : t.lane === laneKey(ln))).map((t) => ({ a: t.start, b: t.end || t.start, t: `${t.done ? '✓' : '☐'} ${t.name || 'To-do'}`, sub: t.end ? `${mdLabel(t.start)} – ${mdLabel(t.end)}` : mdLabel(t.start), task: true, done: t.done }));
   const blocks = (ln) => {
     const out = [];
     if (ln.p) {
@@ -4507,14 +4512,17 @@ function PlanBar({ data, plan, w0, days }) {
       plan.steps.filter((s) => s.pid === ln.p.id).forEach((s) => { const d = stepDates(s, plan, data);
         const live2 = data.tests.filter((t) => t.product_id === ln.p.id && t.status === 'active' && t.stage === 1).length;
         out.push({ a: d.a, b: d.b, t: d.a <= td && d.b >= td && live2 ? `Testing · ${live2} live` : `Testing · ${s.slots || 3} ad${(s.slots || 3) === 1 ? '' : 's'}`, sub: s.when ? `when ${pName(data, s.when.pid)} is stable · est. ${mdLabel(d.a)}` : `decide ${mdLabel(R.addDays(d.b, 1))}`, solid: !d.est }); });
-    } else out.push({ a: ln.sale.start, b: ln.sale.end || ln.sale.start, t: ln.sale.name || 'Sale', sub: 'tests paused', solid: true });
+    } else if (ln.sale) { out.push({ a: ln.sale.start, b: ln.sale.end || ln.sale.start, t: ln.sale.name || 'Sale', sub: ln.sale.offer ? `${ln.sale.offer} · tests paused` : 'tests paused', solid: true });
+      const last = R.addDays(ln.sale.start, -8); out.push({ a: last, b: last, t: 'Last test launch', sub: mdLabel(last), task: true, auto: true }); }
+    out.push(...taskBlocks(ln));
     return out.filter((x) => x.b >= w0 && x.a <= R.addDays(w0, days));
   };
   return html`<div class="plg">
     <div class="plg-h"><span></span><div class="plg-axis">${weeks.map((d) => html`<span style=${`left:${pct(d)}%`}>${mdLabel(d)}</span>`)}</div></div>
-    ${lanes.map((ln) => html`<div class="plg-l"><b><i style=${`background:${ln.col}`}></i>${ln.name}</b><div class="plg-k">
+    ${lanes.map((ln) => html`<div class="plg-l"><b><i style=${`background:${ln.col}`}></i>${ln.name}</b><div class="plg-k" style=${`height:${56 + (() => { const ends = []; blocks(ln).filter((x) => x.task).sort((x, y) => x.a.localeCompare(y.a)).forEach((x) => { const e = R.addDays(x.a, Math.max(5, R.daysBetween(x.a, x.b) + 1)); const r = ends.findIndex((d) => d <= x.a); if (r < 0) ends.push(e); else ends[r] = e; }); return ends.length * 40; })()}px`}>
       ${weeks.map((d) => html`<span class="plg-g" style=${`left:${pct(d)}%`}></span>`)}
-      ${(() => { const bs = blocks(ln); return bs.length ? bs.map((x) => html`<div class=${'plg-b' + (x.solid ? '' : ' est')} style=${`left:${pct(x.a)}%;width:calc(${pct(R.addDays(x.b, 1)) - pct(x.a)}% - 3px);${x.solid ? `background:${ln.col};color:${ln.col === '#4A8CFF' ? '#fff' : '#000'}` : `border-color:${ln.col};color:${ln.col}`}`} title=${`${x.t} · ${mdLabel(x.a)} – ${mdLabel(x.b)}`}><b>${x.t}</b><span>${x.sub}</span></div>`) : html`<span class="tiny muted plg-none">not in the plan</span>`; })()}
+      ${(() => { const bs = blocks(ln); const ends = []; bs.filter((x) => x.task).sort((x, y) => x.a.localeCompare(y.a)).forEach((x) => { const e = R.addDays(x.a, Math.max(5, R.daysBetween(x.a, x.b) + 1)); let r = ends.findIndex((d) => d <= x.a); if (r < 0) { r = ends.length; ends.push(e); } else ends[r] = e; x.row = r; });
+        ln.h = 56 + ends.length * 40; return bs.length ? bs.map((x) => html`<div class=${'plg-b' + (x.task ? ' task' + (x.done ? ' done' : '') : x.solid ? '' : ' est')} style=${`${x.task ? `top:${54 + x.row * 40}px;` : ''}left:${pct(x.a)}%;width:calc(${pct(R.addDays(x.b, 1)) - pct(x.a)}% - 3px);${x.solid ? `background:${ln.col};color:${ln.col === '#4A8CFF' ? '#fff' : '#000'}` : `border-color:${ln.col};color:${ln.col}`}`} title=${`${x.t} · ${mdLabel(x.a)} – ${mdLabel(x.b)}`}><b>${x.t}</b><span>${x.sub}</span></div>`) : html`<span class="tiny muted plg-none">not in the plan</span>`; })()}
       <span class="plg-today" style=${`left:${pct(td)}%`}></span></div></div>`)}
   </div>`;
 }
@@ -4523,7 +4531,8 @@ function PlanPage(ctx) {
   const plan = planOf(data), td = R.today();
   const dow = (R.parseDay(td).getDay() + 6) % 7, w0 = R.addDays(td, -dow), days = 42;
   const prods = data.products.filter((p) => !p.archived).sort((a, b) => a.sort - b.sort).map((p) => ({ p, st: productStatus(data, p, plan) }));
-  const todos = planTodos(data, plan).slice(0, 9);
+  const todos = planTodos(data, plan).slice(0, 12);
+  const tick = (id) => act((p2) => { const t = p2.steps.find((x) => x.id === id); if (t) t.done = true; }, 'Done ✓');
   const act = async (fn, msg) => { const p2 = JSON.parse(JSON.stringify(plan)); fn(p2); await savePlan(p2, reload); say(msg); };
   const card = ({ p, st }) => {
     const sug = planSuggest(data, p, plan, st);
@@ -4543,7 +4552,7 @@ function PlanPage(ctx) {
     </section>`;
   };
   return html`
-    <div class="row" style="flex-wrap:wrap;gap:10px"><h1 style="font-size:30px">Plan</h1><span class="small muted">which product gets the test slots, and when</span><span class="spacer"></span><button class="btn" onClick=${() => setModal({ type: PlanEdit, props: {} })}>Edit plan</button></div>
+    <div class="row" style="flex-wrap:wrap;gap:10px"><h1 style="font-size:30px">Plan</h1><span class="small muted">which product gets the test slots, and when</span><span class="spacer"></span><button class="btn" onClick=${() => setModal({ type: PlanTask, props: {} })}>+ Add to-do</button><button class="btn" onClick=${() => setModal({ type: PlanEdit, props: {} })}>Edit plan</button></div>
     ${plan.isDefault && html`<div class="status live small">This is the plan you described: Long Sleeve now, Thermal (3) + Crew (1) Nov 16, Black Friday, Crew Dec 2, then V-Neck once Thermal is stable. Change anything in Edit plan.</div>`}
     <section class="panel"><div class="row"><h2 style="margin:0">Next 6 weeks</h2><span class="spacer"></span><span class="tiny muted">your test slots are shared by all products · dashed = estimated</span></div>
       <${PlanBar} data=${data} plan=${plan} w0=${w0} days=${days} /></section>
@@ -4551,9 +4560,29 @@ function PlanPage(ctx) {
       <div class="stack" style="gap:14px"><h2 style="margin:4px 0 0">Does each product need new ads?</h2>${prods.filter((x) => x.st.nc || x.st.live.length || x.st.next || x.st.now).map(card)}
         ${prods.filter((x) => !(x.st.nc || x.st.live.length || x.st.next || x.st.now)).length > 0 && html`<div class="small muted">Not in the plan: ${prods.filter((x) => !(x.st.nc || x.st.live.length || x.st.next || x.st.now)).map((x) => x.p.name).join(', ')}.</div>`}</div>
       <div class="stack" style="gap:14px"><section class="panel"><h2>What needs to be done</h2>
-        ${todos.length ? todos.map((x) => html`<div class="li small pltodo"><i class=${'dot t-' + x.c}></i><b>${x.d === td ? 'Today' : R.parseDay(x.d).toLocaleDateString('en-US', { weekday: 'short' }) + ' ' + mdLabel(x.d)}${x.est ? ' (est.)' : ''}</b><span>${x.t}</span></div>`) : html`<div class="small muted">Nothing coming up. Add a step in Edit plan.</div>`}</section>
+        ${todos.length ? todos.map((x) => html`<div class="li small pltodo">${x.task ? html`<button class="pltick" title="Mark done" onClick=${() => tick(x.task)}></button>` : html`<i class=${'dot t-' + x.c}></i>`}<b class=${x.late ? 'bad' : ''}>${x.late ? 'Late · ' : ''}${x.d === td ? 'Today' : R.parseDay(x.d).toLocaleDateString('en-US', { weekday: 'short' }) + ' ' + mdLabel(x.d)}${x.end ? ' – ' + mdLabel(x.end) : ''}${x.est ? ' (est.)' : ''}</b><span>${x.t}</span></div>`) : html`<div class="small muted">Nothing coming up.</div>`}
+        <div class="row" style="margin-top:6px"><button class="btn sm" onClick=${() => setModal({ type: PlanTask, props: {} })}>+ Add to-do</button></div></section>
         <section class="panel"><h2>How “needs new ads” works</h2><div class="small">A product is flagged when <b>${plan.need.min || 2} or more</b> of the checks are true: Main under ${plan.need.mainX}× break-even (last 7 days), half or more Main ads at C or lower, best Bench backup under ${plan.need.benchMin}, or a Main ad wearing out. You can change these in Edit plan.</div></section></div>
     </div>`;
+}
+// A to-do on the plan: a name, a day (or from–to), and which row it sits on (a sale or a product).
+function PlanTask({ data, close, reload, say }) {
+  const plan = planOf(data), sale = plan.steps.find((s) => s.kind === 'sale');
+  const [f, setF] = useState({ name: '', start: R.today(), end: '', lane: sale ? 'sale:' + sale.id : '' }); const [busy, setBusy] = useState(false);
+  const prods = data.products.filter((x) => !x.archived).sort((a, b) => a.sort - b.sort);
+  const save = async () => { if (!f.name.trim()) return; setBusy(true); const p2 = JSON.parse(JSON.stringify(plan)); p2.steps.push({ id: 'p' + Date.now(), kind: 'task', name: f.name.trim(), start: f.start, end: f.end && f.end > f.start ? f.end : null, lane: f.lane || null, done: false }); await savePlan(p2, reload); setBusy(false); close(); say('Added to the plan'); };
+  const quick = sale ? [`Make the ${sale.name || 'sale'} ads`, `Decide the ${sale.name || 'sale'} offer`, 'Set up the sale in Shopify (prices, free shipping, no stacking)', 'Place a test order'] : [];
+  return html`<${Modal} title="Add a to-do" sub="Shows on the timeline and in What needs to be done" onClose=${close}>
+    <div class="form">
+      <${Field} label="What" full><input value=${f.name} placeholder="e.g. Make the Black Friday ads" onInput=${(e) => setF({ ...f, name: e.target.value })} /><//>
+      ${quick.length > 0 && html`<div class="row full" style="gap:6px;flex-wrap:wrap">${quick.map((q) => html`<button class="btn sm" onClick=${() => setF({ ...f, name: q })}>${q}</button>`)}</div>`}
+      <${Field} label="Day (or from)"><input type="date" value=${f.start} onInput=${(e) => setF({ ...f, start: e.target.value })} /><//>
+      <${Field} label="To (optional)"><input type="date" value=${f.end} onInput=${(e) => setF({ ...f, end: e.target.value })} /><//>
+      <${Field} label="Which row" full><select value=${f.lane} onChange=${(e) => setF({ ...f, lane: e.target.value })}>
+        ${plan.steps.filter((s) => s.kind === 'sale').map((s) => html`<option value=${'sale:' + s.id}>${s.name || 'Sale'}</option>`)}
+        ${prods.map((x) => html`<option value=${x.id}>${x.name}</option>`)}<option value="">To-dos (own row)</option></select><//>
+      <div class="row full"><span class="spacer"></span><button class="btn" onClick=${close}>Cancel</button><button class="btn primary" disabled=${busy || !f.name.trim()} onClick=${save}>${busy ? 'Saving…' : 'Add'}</button></div>
+    </div><//>`;
 }
 function PlanEdit({ data, close, reload, say }) {
   const [p, setP] = useState(() => JSON.parse(JSON.stringify(planOf(data)))); const [busy, setBusy] = useState(false);
@@ -4568,16 +4597,21 @@ function PlanEdit({ data, close, reload, say }) {
     <div class="stack" style="gap:8px">
       ${p.steps.map((s, i) => html`<div class="pled">
         <div class="row" style="gap:4px"><button class="btn sm ghost" onClick=${() => move(i, -1)} aria-label="Up">↑</button><button class="btn sm ghost" onClick=${() => move(i, 1)} aria-label="Down">↓</button></div>
-        <select class="inp" value=${s.kind === 'sale' ? 'sale' : s.pid} onChange=${(e) => (e.target.value === 'sale' ? up(i, { kind: 'sale', pid: null, name: s.name || 'Black Friday', start: s.start || R.today(), end: s.end || R.addDays(s.start || R.today(), 6), when: null }) : up(i, { kind: 'test', pid: e.target.value, days: s.days || 7, slots: s.slots || 3 }))}>
-          ${prods.map((x) => html`<option value=${x.id}>${x.name} · test</option>`)}<option value="sale">Sale (tests paused)</option></select>
-        ${s.kind === 'sale' ? html`<input class="inp" value=${s.name || ''} placeholder="Sale name" onInput=${(e) => up(i, { name: e.target.value })} />
+        <select class="inp" value=${s.kind === 'sale' ? 'sale' : s.kind === 'task' ? 'task' : s.pid} onChange=${(e) => (e.target.value === 'sale' ? up(i, { kind: 'sale', pid: null, name: s.name || 'Black Friday', start: s.start || R.today(), end: s.end || R.addDays(s.start || R.today(), 6), when: null }) : e.target.value === 'task' ? up(i, { kind: 'task', pid: null, when: null, name: s.name || '', start: s.start || R.today(), end: null, lane: s.lane || null, done: false }) : up(i, { kind: 'test', pid: e.target.value, days: s.days || 7, slots: s.slots || 3 }))}>
+          ${prods.map((x) => html`<option value=${x.id}>${x.name} · test</option>`)}<option value="sale">Sale (tests paused)</option><option value="task">To-do</option></select>
+        ${s.kind === 'task' ? html`<input class="inp" value=${s.name || ''} placeholder="What needs doing" onInput=${(e) => up(i, { name: e.target.value })} />
+            <label class="f"><span>Day / from</span><input class="inp" type="date" value=${s.start} onInput=${(e) => up(i, { start: e.target.value })} /></label><label class="f"><span>To (optional)</span><input class="inp" type="date" value=${s.end || ''} onInput=${(e) => up(i, { end: e.target.value || null })} /></label>
+            <select class="inp" value=${s.lane || ''} onChange=${(e) => up(i, { lane: e.target.value || null })}>${p.steps.filter((x) => x.kind === 'sale').map((x) => html`<option value=${'sale:' + x.id}>Row: ${x.name || 'Sale'}</option>`)}${prods.map((x) => html`<option value=${x.id}>Row: ${x.name}</option>`)}<option value="">Row: To-dos</option></select>
+            <label class="chk"><input type="checkbox" checked=${!!s.done} onChange=${(e) => up(i, { done: e.target.checked })} /> Done</label>`
+        : s.kind === 'sale' ? html`<input class="inp" value=${s.name || ''} placeholder="Sale name" onInput=${(e) => up(i, { name: e.target.value })} />
+            <input class="inp" value=${s.offer || ''} placeholder="The offer, e.g. 15% off sitewide" onInput=${(e) => up(i, { offer: e.target.value })} style="min-width:220px" />
             <label class="f"><span>From</span><input class="inp" type="date" value=${s.start} onInput=${(e) => up(i, { start: e.target.value })} /></label><label class="f"><span>To</span><input class="inp" type="date" value=${s.end} onInput=${(e) => up(i, { end: e.target.value })} /></label>`
           : html`<select class="inp" value=${s.when ? 'stable:' + s.when.pid : 'date'} onChange=${(e) => (e.target.value === 'date' ? up(i, { when: null, start: s.start || R.addDays(R.today(), 7) }) : up(i, { when: { type: 'stable', pid: e.target.value.slice(7) }, start: null }))}>
               <option value="date">Starts on a date</option>${prods.filter((x) => x.id !== s.pid).map((x) => html`<option value=${'stable:' + x.id}>When ${x.name} is stable</option>`)}</select>
             ${s.when ? html`<span class="tiny muted">stable = 2 weeks in Main above break-even</span>` : html`<label class="f"><span>Starts</span><input class="inp" type="date" value=${s.start} onInput=${(e) => up(i, { start: e.target.value })} /></label>`}
             <label class="f"><span>Slots</span><input class="inp" inputmode="numeric" value=${s.slots || 3} onInput=${(e) => up(i, { slots: Math.max(1, Math.min(6, +e.target.value || 1)) })} /></label>`}
         <button class="btn sm danger" onClick=${() => del(i)}>Delete</button></div>`)}
-      <div class="row"><button class="btn sm" onClick=${add}>+ Add step</button><span class="spacer"></span><button class="link small" onClick=${() => setP({ ...planDefault(data), isDefault: false })}>Reset to the original plan</button></div>
+      <div class="row"><button class="btn sm" onClick=${add}>+ Add step</button><button class="btn sm" onClick=${() => setP({ ...p, steps: [...p.steps, { id: 'p' + Date.now(), kind: 'task', name: '', start: R.today(), end: null, lane: (p.steps.find((x) => x.kind === 'sale') ? 'sale:' + p.steps.find((x) => x.kind === 'sale').id : null), done: false }] })}>+ Add to-do</button><span class="spacer"></span><button class="link small" onClick=${() => setP({ ...planDefault(data), isDefault: false })}>Reset to the original plan</button></div>
       <section class="panel"><h2>When does a product need new ads?</h2>
         <div class="rulerow"><label>Flag it when this many checks are true</label><input value=${nd.min} inputmode="numeric" onInput=${(e) => setN('min', Math.max(1, Math.min(4, +e.target.value || 2)))} /><span class="tiny muted">of 4</span></div>
         <div class="rulerow"><label>Main last 7 days under</label><input value=${nd.mainX} inputmode="decimal" onInput=${(e) => setN('mainX', R.num(e.target.value) || 1.1)} /><span class="tiny muted">× break-even</span></div>
@@ -4592,7 +4626,7 @@ function PlanStrip({ data, setView }) {
   const plan = planOf(data), td = R.today();
   const needs = data.products.filter((p) => !p.archived).map((p) => ({ p, st: productStatus(data, p, plan) })).filter((x) => x.st.flag[0] === 'NEEDS NEW ADS');
   const live = data.products.filter((p) => data.tests.some((t) => t.product_id === p.id && t.status === 'active' && t.stage === 1));
-  const items = plan.steps.map((s) => ({ s, d: stepDates(s, plan, data) })).filter((x) => x.d.b >= td && !(x.d.a <= td && x.s.pid && live.some((p) => p.id === x.s.pid))).sort((a, b) => a.d.a.localeCompare(b.d.a)).slice(0, 4);
+  const items = plan.steps.filter((s) => s.kind !== 'task').map((s) => ({ s, d: stepDates(s, plan, data) })).filter((x) => x.d.b >= td && !(x.d.a <= td && x.s.pid && live.some((p) => p.id === x.s.pid))).sort((a, b) => a.d.a.localeCompare(b.d.a)).slice(0, 4);
   return html`<section class="panel plstrip">
     ${needs.map((x) => html`<div class="plneed"><span class="chip t-fail">NEEDS NEW ADS</span><span class="small"><b>${x.p.name} needs new tests.</b> ${x.st.nc.checks.filter((c) => c[0]).map((c) => c[1].toLowerCase()).join(', ')}.${x.st.next ? ` Your plan tests it ${x.st.next.s.when ? 'later' : 'on ' + mdLabel(x.st.next.d.a)}.` : ' It isn’t in the plan for testing.'}</span></div>`)}
     <div class="row small" style="gap:8px;flex-wrap:wrap"><span class="tiny muted" style="letter-spacing:.08em">PLAN</span>
