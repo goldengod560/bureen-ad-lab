@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=202';
-import * as R from './rules.js?v=202';
-import { importHistory } from './importer.js?v=202';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=202';
+import { createBackend } from './data.js?v=203';
+import * as R from './rules.js?v=203';
+import { importHistory } from './importer.js?v=203';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=203';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -4535,6 +4535,8 @@ function planSuggest(data, product, plan, st) {
   const batch = plan.steps.filter((s) => s.kind === 'test' && s.pid !== product.id && s.start && s.start > R.today() && (s.slots || 3) >= 2).sort((a, b) => a.start.localeCompare(b.start))[0];
   return { own, batch };
 }
+// "Nov 13 → decide 20" (short when it's the same month, so it fits small blocks)
+const spanTxt = (a, dec) => `${mdLabel(a)} → decide ${a.slice(0, 7) === dec.slice(0, 7) ? +dec.slice(8) : mdLabel(dec)}`;
 function PlanBar({ data, plan, w0, days, onTick, onEdit }) {
   const td = R.today(), pct = (d) => Math.max(0, Math.min(100, R.daysBetween(w0, d) / days * 100));
   const weeks = Array.from({ length: Math.ceil(days / 7) }, (_, i) => R.addDays(w0, i * 7));
@@ -4553,11 +4555,11 @@ function PlanBar({ data, plan, w0, days, onTick, onEdit }) {
     if (ln.p) {
       const live = data.tests.filter((t) => t.product_id === ln.p.id && t.status === 'active' && t.stage === 1);
       const covered = plan.steps.some((s) => s.pid === ln.p.id && s.kind === 'test' && s.start && s.start <= td && R.addDays(s.start, (s.days || 7) - 1) >= td);
-      if (live.length && !covered) { const a = live.map((t) => t.start_date).sort()[0], b = live.map((t) => R.addDays(t.start_date, (t.planned_days || 7))).sort().pop(); out.push({ a, b, t: `Testing now · ${live.length} live`, sub: `${mdLabel(a)} → decide ${mdLabel(b)}`, solid: true }); }
+      if (live.length && !covered) { const a = live.map((t) => t.start_date).sort()[0], b = live.map((t) => R.addDays(t.start_date, (t.planned_days || 7))).sort().pop(); out.push({ a, b, t: `Testing now · ${live.length} live`, sub: spanTxt(a, b), solid: true }); }
       plan.steps.filter((s) => s.pid === ln.p.id).forEach((s) => { const d = stepDates(s, plan, data);
         const live2 = data.tests.filter((t) => t.product_id === ln.p.id && t.status === 'active' && t.stage === 1).length;
-        out.push({ a: d.a, b: d.b, t: d.a <= td && d.b >= td && live2 ? `Testing · ${live2} live` : `Testing · ${s.slots || 3} ad${(s.slots || 3) === 1 ? '' : 's'}`, sub: s.when ? `when ${pName(data, s.when.pid)} is stable · est. ${mdLabel(d.a)}` : `${mdLabel(d.a)} → decide ${mdLabel(R.addDays(d.b, 1))}`, solid: !d.est }); });
-    } else if (ln.sale) { out.push({ a: ln.sale.start, b: ln.sale.end || ln.sale.start, t: ln.sale.name || 'Sale', sub: ln.sale.offer ? `${ln.sale.offer} · tests paused` : 'tests paused', solid: true });
+        out.push({ a: d.a, b: d.b, t: d.a <= td && d.b >= td && live2 ? `Testing · ${live2} live` : `Testing · ${s.slots || 3} ad${(s.slots || 3) === 1 ? '' : 's'}`, sub: s.when ? `when ${pName(data, s.when.pid)} is stable · est. ${mdLabel(d.a)}` : spanTxt(d.a, R.addDays(d.b, 1)), solid: !d.est }); });
+    } else if (ln.sale) { out.push({ a: ln.sale.start, b: ln.sale.end || ln.sale.start, t: ln.sale.name || 'Sale', sub: `${mdLabel(ln.sale.start)} – ${mdLabel(ln.sale.end || ln.sale.start)}${ln.sale.offer ? ' · ' + ln.sale.offer : ''} · tests paused`, solid: true });
     }
     out.push(...taskBlocks(ln));
     return out.filter((x) => x.b >= w0 && x.a <= R.addDays(w0, days));
