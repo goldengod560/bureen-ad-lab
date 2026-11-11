@@ -484,7 +484,7 @@ button.gbadge{font:inherit;font-weight:800;font-size:12px;cursor:pointer}
 .plstrip{gap:8px}.plneed{display:flex;gap:10px;align-items:center;padding:8px 10px;border-radius:10px;border:1px solid var(--fail)}
 @media (max-width:760px){.plg-b b,.plg-b span{display:none}.plg-b{height:22px;top:17px;padding:0}.plg-axis span{font-size:10px}.plgrid{grid-template-columns:1fr}.plg-h,.plg-l{grid-template-columns:86px 1fr}.plg-l>b{font-size:12px}.plg-b span{display:none}.plg-b{padding:3px 6px}.pltodo{grid-template-columns:12px 84px 1fr}.plneed{flex-direction:column;align-items:flex-start}}
 .slots .mono.over{color:var(--mid)}
-.plg-b.task{background:transparent;border:1.5px solid;min-width:118px;z-index:2;background-color:var(--panel,#121417)}.plg-b.task.done{opacity:.45;text-decoration:line-through}
+.plg-b.task{background:transparent;border:1.5px solid;z-index:2;background-color:var(--panel,#121417)}.plg-b.task.done{opacity:.45;text-decoration:line-through}
 .pltick{width:16px;height:16px;border-radius:5px;border:2px solid var(--muted);background:transparent;padding:0;cursor:pointer}.pltick:hover{border-color:var(--pass);background:rgba(0,200,5,.2)}
 .dot.t-task{background:#8A939C}.dot.t-fail{background:var(--fail)} .pltodo b.bad{color:var(--fail)}
 .pltick{display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;color:#000}.pltick.on{background:var(--pass);border-color:var(--pass)}.pltick:disabled{cursor:default;opacity:.85}
