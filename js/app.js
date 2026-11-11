@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=189';
-import * as R from './rules.js?v=189';
-import { importHistory } from './importer.js?v=189';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=189';
+import { createBackend } from './data.js?v=190';
+import * as R from './rules.js?v=190';
+import { importHistory } from './importer.js?v=190';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=190';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -427,7 +427,7 @@ function Card(props) {
     <span class="ti"><${Media} path=${ad.media_path} type=${ad.media_type} poster=${t.poster} />
       ${(showStage || ci.chip) && html`<span class=${'chip t-' + (showStage ? 'muted' : ci.tone || 'muted')}>${showStage ? R.stageLabel(ad.stage) : ci.chip}</span>`}
       ${select && html`<span class=${'check' + (selected ? ' on' : '')}>${selected ? '✓' : ''}</span>`}
-      ${!select && ['main', 'bench', 'exhausted', 'mid', 'failed', 'retired', 'retest', 'seasonal'].includes(ad.stage) && props.data && (() => { const gr = adGrade(ad, props.data, props.data.products.find((x) => x.id === ad.product_id)); return gr && gr.g && html`<span class=${'gbadge t-' + gradeTone(gr.g)} title=${'Grade ' + gr.g + (gr.kind === 'final' ? ' · final numbers (not running)' : gr.kind === 'test' ? ' · test so far' : ` · last 7 days ${R.xroas(gr.recent)}`)}>${gr.g}</span>`; })()}</span>
+      ${!select && ['main', 'bench', 'exhausted', 'mid', 'failed', 'retired', 'retest', 'seasonal'].includes(ad.stage) && props.data && (() => { const gr = adGrade(ad, props.data, props.data.products.find((x) => x.id === ad.product_id)); return gr && gr.g && html`<span class=${'gbadge t-' + gradeTone(gr.g)} title=${'Grade ' + gr.g + (gr.kind === 'testres' ? ' · test result (not running)' : gr.kind === 'final' ? ' · final numbers (not running)' : gr.kind === 'test' ? ' · test so far' : ` · last 7 days ${R.xroas(gr.recent)}`)}>${gr.g}</span>`; })()}</span>
     <span class="tn">${displayName(ad)}</span>
     ${ci.line && html`<span class="tl">${ci.line}</span>`}
     ${ci.line2 && html`<span class="tl">${ci.line2}</span>`}
@@ -1921,7 +1921,8 @@ function StockCard(props) {
   const q = quickStats(ad, data);
   const fin = ad.stage !== 'main' && ad.stage !== 'testing', fw = fin ? adWin(ad, data) : null;
   const has7 = !fin && w && w.spend > 0;
-  const big = has7 ? w.roas : q ? q.roas : null, bigl = has7 ? 'ROAS 7d' : q ? (fin ? 'final ROAS' : 'ROAS all time') : '';
+  let big = has7 ? w.roas : q ? q.roas : null, bigl = has7 ? 'ROAS 7d' : q ? (fin ? 'final ROAS' : 'ROAS all time') : '';
+  if (fw && fw.kind === 'testres') { big = fw.t.spend ? fw.t.roas : null; bigl = `test ROAS · ${fw.days} days`; }
   const gr = ['main', 'bench', 'exhausted', 'mid', 'failed', 'retired', 'retest', 'seasonal'].includes(ad.stage) ? adGrade(ad, data, p) : null;
   const click = () => (select ? onToggle(ad.id) : setModal({ type: AdDetail, props: { adId: ad.id } }));
   const drag = (e) => { e.dataTransfer.setData('text/adlab', ad.id); e.dataTransfer.effectAllowed = 'move'; props.onDragState && props.onDragState(true); };
@@ -2018,7 +2019,7 @@ function gradeParts(ad, data, product) {
 function AdReportCard({ ad, data, product, setModal }) {
   const rc = gradeParts(ad, data, product); if (!rc) return null;
   const weak = rc.rows.filter((r) => r.g && 'CDF'.includes(r.g[0])).map((r) => r.n.split(' (')[0].toLowerCase());
-  return html`<section class="panel"><div class="row"><h2>Report card · ${rc.w.kind === 'final' ? 'final numbers' : winLabel(rc.w)}</h2><span class="spacer"></span><button class="link small" onClick=${() => setModal({ type: GradeGuide, props: {} })}>What do the grades mean?</button></div>
+  return html`<section class="panel"><div class="row"><h2>Report card · ${rc.w.kind === 'final' ? 'final numbers' : rc.w.kind === 'testres' ? 'test result' : winLabel(rc.w)}</h2><span class="spacer"></span><button class="link small" onClick=${() => setModal({ type: GradeGuide, props: {} })}>What do the grades mean?</button></div>
     <div class="tiny muted">${mdLabel(rc.from)} – ${mdLabel(rc.to)} · the overall grade is the Money grade</div>
     <div class="tscroll"><table class="t sktable"><thead><tr><th>Part</th><th>This ad</th><th>Grade</th></tr></thead><tbody>
     ${rc.rows.map((r, i) => html`<tr class=${i === 0 ? 'hl' : ''}><td style="white-space:normal"><b>${r.n}</b><div class="tiny muted" style="max-width:380px">${r.m}</div></td><td style="white-space:normal"><b>${r.v}</b><div class="tiny muted">${r.cmp || ''}</div></td><td>${r.g ? html`<span class=${'gbadge t-' + gradeTone(r.g)}>${r.g}</span>` : '—'}</td></tr>`)}
@@ -2028,7 +2029,7 @@ function AdReportCard({ ad, data, product, setModal }) {
 function GradeGuideBody() {
   const L = [['A+', '40%+ over break-even', 'Excellent. Make new versions of it.'], ['A', '27–40% over', 'Great.'], ['A−', '16–27% over', 'Very good.'], ['B+', '9–16% over', 'Good, solid profit.'], ['B', '3.5–9% over', 'Okay, small profit.'], ['B−', '0–3.5% over', 'Just above break-even. Barely making money.'], ['C', '0–9% under', 'Around break-even, losing a little.'], ['D', '9–23% under', 'Losing money.'], ['F', '23%+ under', 'Losing a lot.']];
   return html`<div class="stack" style="gap:12px">
-    <div class="small"><b>What the grade is based on</b> (always ROAS compared with that product’s break-even, finished days only, never today):<ul style="margin:4px 0 0;padding-left:18px"><li><b>Main ads:</b> the last 7 days.</li><li><b>Ads in a test:</b> the test so far.</li><li><b>Bench, Up next and everything not running:</b> its final numbers (the whole time it ran). Not running doesn’t lower its grade.</li></ul></div>
+    <div class="small"><b>What the grade is based on</b> (always ROAS compared with that product’s break-even, finished days only, never today):<ul style="margin:4px 0 0;padding-left:18px"><li><b>Main ads:</b> the last 7 days.</li><li><b>Ads in a test:</b> the test so far.</li><li><b>Bench, Mid-Tier, Failed, Re-test:</b> its test result (the test’s own days). Not running doesn’t lower its grade.</li><li><b>Other ads not running</b> (Exhausted, Retired…): its final numbers, the whole time it ran.</li></ul></div>
     <div class="tscroll"><table class="t sktable skleft"><thead><tr><th>Grade</th><th>ROAS vs break-even</th><th>What it means</th></tr></thead><tbody>
       ${L.map(([g, r, m]) => html`<tr><td><span class=${'gbadge t-' + gradeTone(g)}>${g}</span></td><td>${r}</td><td style="white-space:normal">${m}</td></tr>`)}</tbody></table></div>
     <div class="small muted">Example with a 2.85x break-even: A+ is 4.0x or more, B− is 2.85–2.95x, D is about 2.2–2.6x, F is under 2.2x.</div>
@@ -2079,8 +2080,8 @@ function StockQuote(p) {
   return html`<${Modal} wide title=${displayName(ad)} sub=${`${product.name} · ${skName(ad.stage)} · ${ad.format || 'image'}`} onClose=${close}>
     <div class="skq">
       <div class="skq-main">
-        <div class="row" style="gap:8px;flex-wrap:wrap"><${SigChip} s=${sg} />${gr && gr.g && html`<button class=${'gbadge t-' + gradeTone(gr.g)} style="cursor:pointer" title="How grades work" onClick=${() => setModal({ type: GradeGuide, props: {} })}>${gr.g}</button><span class="tiny muted">${gr.kind === 'final' ? 'grade, final numbers' : gr.kind === 'test' ? 'grade, test so far' : 'grade, last 7 days'}</span>`}<span class="chip t-muted">${skName(ad.stage)}</span>${ec && html`<span class="chip t-ins">Day ${Math.min(ec.day, ec.planned)} of ${ec.planned}${ec.day > ec.planned ? ' · done' : ''}</span>`}${md && html`<span class="chip t-ins">Day ${md.day} in Main · since ${mdLabel(md.since)}</span>`}${ad.launched_on && html`<span class="chip t-muted">Live ${mdLabel(ad.launched_on)}</span>`}</div>
-        <div class="skq-big"><span class="skbig">${c && c.spend ? R.xroas(c.roas) : '—'}</span>${d != null && html`<span class=${'skq-d ' + (d >= 0 ? 'pos' : 'neg')}>${d >= 0 ? '+' : ''}${d.toFixed(2)}x this week</span>`}<span class="small muted">${fin ? (fw ? `Final ROAS · ran ${mdLabel(fw.a)} – ${mdLabel(fw.b)} · not running now` : 'Not run yet') : tFrom ? `ROAS since the test started ${mdLabel(tFrom)}` : 'ROAS, last 7 days'} · break-even ${R.xroas(be0)}</span></div>
+        <div class="row" style="gap:8px;flex-wrap:wrap"><${SigChip} s=${sg} />${gr && gr.g && html`<button class=${'gbadge t-' + gradeTone(gr.g)} style="cursor:pointer" title="How grades work" onClick=${() => setModal({ type: GradeGuide, props: {} })}>${gr.g}</button><span class="tiny muted">${gr.kind === 'testres' ? 'grade, test result' : gr.kind === 'final' ? 'grade, final numbers' : gr.kind === 'test' ? 'grade, test so far' : 'grade, last 7 days'}</span>`}<span class="chip t-muted">${skName(ad.stage)}</span>${ec && html`<span class="chip t-ins">Day ${Math.min(ec.day, ec.planned)} of ${ec.planned}${ec.day > ec.planned ? ' · done' : ''}</span>`}${md && html`<span class="chip t-ins">Day ${md.day} in Main · since ${mdLabel(md.since)}</span>`}${ad.launched_on && html`<span class="chip t-muted">Live ${mdLabel(ad.launched_on)}</span>`}</div>
+        <div class="skq-big"><span class="skbig">${c && c.spend ? R.xroas(c.roas) : '—'}</span>${d != null && html`<span class=${'skq-d ' + (d >= 0 ? 'pos' : 'neg')}>${d >= 0 ? '+' : ''}${d.toFixed(2)}x this week</span>`}<span class="small muted">${fin ? (fw ? `${fw.kind === 'testres' ? `Test result · ${fw.days} test days` : 'Final ROAS · ran'} ${mdLabel(fw.a)} – ${mdLabel(fw.b)} · not running now` : 'Not run yet') : tFrom ? `ROAS since the test started ${mdLabel(tFrom)}` : 'ROAS, last 7 days'} · break-even ${R.xroas(be0)}</span></div>
         ${(() => { const td = !fin && todaySoFar(ad, data); if (!td) return null; const from = tFrom || R.addDays(R.today(), -7);
           const w2 = sumRows(rowsForAd(ad, data.meta_days).filter((r) => r.day >= from && r.day <= R.today()));
           return html`<div class="small sktodayq"><span><span class="muted">Today so far (${mdLabel(R.today())}, not finished):</span> <b>${shortStat(td)}</b></span><span><span class="muted">${tFrom ? 'Test with today' : 'Last 7 days with today'}:</span> <b>${shortStat(w2)}</b></span></div>`; })()}
@@ -2089,7 +2090,7 @@ function StockQuote(p) {
         ${ad.stage === 'main' && html`<${VerdictPanel} ad=${ad} data=${data} product=${product} />`}
         <${TrendPanel} ad=${ad} data=${data} product=${product} />
         ${tFrom && !(c && c.spend) && html`<section class="panel"><div class="small muted">No numbers since the test started ${mdLabel(tFrom)} yet. Earlier days don't count toward this test.</div></section>`}
-        ${keys && html`<section class="panel"><h2>Key statistics · ${fin ? 'final numbers' : tFrom ? 'since the test started' : 'last 7 days'}</h2><div class="skkeys">${keys.map(([a, b]) => html`<div><small>${a}</small><b>${b}</b></div>`)}</div>
+        ${keys && html`<section class="panel"><h2>Key statistics · ${fin ? (fw && fw.kind === 'testres' ? 'test result' : 'final numbers') : tFrom ? 'since the test started' : 'last 7 days'}</h2><div class="skkeys">${keys.map(([a, b]) => html`<div><small>${a}</small><b>${b}</b></div>`)}</div>
           ${c.purchases > 0 && ad.stage !== 'testing' && html`<${ProfitLine} econ=${econ} m=${{ purchases: c.purchases, roas: c.roas, cpa: c.cpa, aov: c.revenue / c.purchases }} product=${product} />`}</section>`}
         <${AdReportCard} ad=${ad} data=${data} product=${product} setModal=${setModal} />
         <${PeriodTable} ad=${ad} data=${data} product=${product} from=${tFrom} />
@@ -2852,15 +2853,26 @@ function adWin(ad, data) {
   if (ad.stage === 'main') { const l = last7(ad, data); return l ? { kind: '7d', a: l.a, b: l.end, t: l.t } : null; }
   const test = ad.stage === 'testing' ? data.tests.find((t) => t.ad_id === ad.id && t.status === 'active' && t.stage === 1) : null;
   if (test) { const a = (test.conditions || {}).spendFrom || test.start_date; return { kind: 'test', a, b: y, t: sumRows(rowsForAd(ad, data.meta_days).filter((r) => r.day >= a && r.day <= y)) }; }
+  // Bench, Mid-Tier, Failed, Re-test: its test result (the test's own days and ad set).
+  if (['bench', 'mid', 'failed', 'retest', 'next'].includes(ad.stage)) {
+    const lt = lastStage1(ad, data), rr = lt && runsFor(lt, ad, data);
+    if (rr && rr.d7) {
+      let tr = rowsForAd(ad, data.meta_days).filter((r) => r.day >= rr.from && r.day <= rr.end && (!rr.off || r.day <= rr.off));
+      const sets = new Map(); tr.forEach((r) => { const k = r.campaign + '|' + r.adset; sets.set(k, (sets.get(k) || 0) + (+r.spend || 0)); });
+      const key = [...sets.entries()].sort((x, z) => z[1] - x[1]).map((x) => x[0])[0]; if (key) tr = tr.filter((r) => r.campaign + '|' + r.adset === key);
+      if (tr.length) return { kind: 'testres', a: rr.from, b: rr.end, t: sumRows(tr), days: R.daysBetween(rr.from, rr.end) + 1 };
+    }
+  }
   const rows = rowsForAd(ad, data.meta_days).filter((r) => r.day <= y && +r.spend > 0); if (!rows.length) return null;
   const a = rows.reduce((m, r) => (r.day < m ? r.day : m), rows[0].day), b = rows.reduce((m, r) => (r.day > m ? r.day : m), rows[0].day);
   return { kind: 'final', a, b, t: sumRows(rows) };
 }
-const winLabel = (w) => (!w ? '' : w.kind === '7d' ? 'last 7 days' : w.kind === 'test' ? 'since the test started' : `final · ${mdLabel(w.a)} – ${mdLabel(w.b)}`);
+const winLabel = (w) => (!w ? '' : w.kind === '7d' ? 'last 7 days' : w.kind === 'test' ? 'since the test started' : w.kind === 'testres' ? `test result · ${mdLabel(w.a)} – ${mdLabel(w.b)}` : `final · ${mdLabel(w.a)} – ${mdLabel(w.b)}`);
 function adGrade(ad, data, product) {
   const be = product && R.econOf(product).opBE; if (!be) return null;
   const w = adWin(ad, data);
   if (w && w.kind !== 'final' && w.t.spend >= 20) return { g: GRADES[gradeIdx((w.t.roas || 0) / be)], recent: w.t.roas, kind: w.kind, w, be };
+  if (w && w.kind === 'testres') return { g: null, w, be };
   const q = quickStats(ad, data);
   if (!q || q.spend < 100 || (q.buys || 0) < 5) return { g: null, q, be };
   return { g: GRADES[gradeIdx((q.roas || 0) / be)], recent: null, kind: 'final', w, q, be };
@@ -2880,7 +2892,7 @@ function productAvg(data, product) {
 function gradeAdvice(gr, ad) {
   if (!gr || !gr.g) return 'Too early to grade: needs $100 spend and 5 buys.';
   const top = gr.g[0] === 'A', mid = gr.g[0] === 'B', low = !top && !mid;
-  const why = gr.kind === 'final' ? ` Graded on its final numbers (${R.xroas(gr.q.roas)}) because it isn't running.` : gr.kind === 'test' ? ` Graded on its test so far (${R.xroas(gr.recent)}).` : ` Graded on its last 7 days (${R.xroas(gr.recent)}).`;
+  const why = gr.kind === 'testres' ? ` Graded on its test result (${R.xroas(gr.recent)}) because it isn't running.` : gr.kind === 'final' ? ` Graded on its final numbers (${R.xroas(gr.q.roas)}) because it isn't running.` : gr.kind === 'test' ? ` Graded on its test so far (${R.xroas(gr.recent)}).` : ` Graded on its last 7 days (${R.xroas(gr.recent)}).`;
   if (ad.stage === 'main') return (top ? (gr.g === 'A−' ? 'Keep it running.' : 'Keep it. Make 1–2 new versions (same hook, new visual) so its replacement is ready.') : mid ? (gr.g === 'B+' ? 'Keep it running.' : 'Keep it, but get its replacement tested: it\'s only just above break-even.') : gr.g === 'C' ? 'Around break-even. If next week is no better, swap in your best Bench ad.' : 'Losing money. Swap in your best Bench ad, or turn it off if the Bench is empty.') + why;
   if (ad.stage === 'bench') return (top ? 'Strong backup: first in line for Main.' : mid ? 'Okay backup.' : "Weak backup: don't put it in Main. Test something better.") + why;
   if (ad.stage === 'testing') return 'Still testing: the day-7 result decides. This grade is just its numbers so far.';
