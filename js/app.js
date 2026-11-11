@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=193';
-import * as R from './rules.js?v=193';
-import { importHistory } from './importer.js?v=193';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=193';
+import { createBackend } from './data.js?v=194';
+import * as R from './rules.js?v=194';
+import { importHistory } from './importer.js?v=194';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=194';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -4462,27 +4462,36 @@ function productStatus(data, product, plan) {
   return { live, nc, next, now, flag };
 }
 // To-dos that come from the plan and the live tests, in date order.
+const saleLast = (s) => s.lastLaunch || R.addDays(s.start, -8);
+// To-dos that come from the plan and the live tests, in date order. Every one can be ticked off;
+// some tick themselves (tests launched, ready checks met, tests decided).
 function planTodos(data, plan) {
-  const out = [], td = R.today();
-  data.tests.filter((t) => t.status === 'active' && t.stage === 1).forEach((t) => {
-    const ad = data.ads.find((a) => a.id === t.ad_id); if (!ad) return; const sg = adSignal(ad, data);
-    const d = sg && sg.date ? sg.date : sg && sg.k === 'dec' ? td : null; if (d) out.push({ d, t: `Decide ${displayName(ad).replace(/^(IMG|VID)\s*\|\s*/i, '').split(/\s*\|\s*/).slice(1, 3).join(' | ') || displayName(ad)} (${pName(data, t.product_id)})`, c: 'mid' });
+  const out = [], td = R.today(), dk = plan.doneKeys || {};
+  const push = (x) => { x.done = !!(x.auto || dk[x.key]); x.byApp = !!x.auto && !dk[x.key]; out.push(x); };
+  data.tests.filter((t) => t.stage === 1 && (t.status === 'active' || (t.end_date && t.end_date >= R.addDays(td, -2)))).forEach((t) => {
+    const ad = data.ads.find((a) => a.id === t.ad_id); if (!ad) return; const sg = t.status === 'active' ? adSignal(ad, data) : null;
+    const d = t.status !== 'active' ? t.end_date : sg && sg.date ? sg.date : sg && sg.k === 'dec' ? td : null;
+    if (d) push({ key: 'decide:' + t.id, d, t: `Decide ${displayName(ad).replace(/^(IMG|VID)\s*\|\s*/i, '').split(/\s*\|\s*/).slice(1, 3).join(' | ') || displayName(ad)} (${pName(data, t.product_id)})`, c: 'mid', auto: t.status !== 'active' });
   });
   plan.steps.forEach((s) => {
     const dd = stepDates(s, plan, data);
-    if (s.kind === 'task') { if (!s.done && s.start) out.push({ d: s.start, end: s.end, t: s.name || 'To-do', c: s.start < td ? 'fail' : 'task', task: s.id, late: s.start < td && (s.end || s.start) < td }); return; }
+    if (s.kind === 'task') { if (s.start) out.push({ key: 'task:' + s.id, d: s.start, end: s.end, t: s.name || 'To-do', c: 'task', task: s.id, done: !!s.done, late: !s.done && (s.end || s.start) < td }); return; }
     if (s.kind === 'sale') {
-      if (dd.a > td) { out.push({ d: R.addDays(dd.a, -8), t: `Last day to launch a normal test before ${s.name || 'the sale'}`, c: 'sale' }); out.push({ d: dd.a, t: `${s.name || 'Sale'} starts${s.offer ? ' · ' + s.offer : ''} · tests paused`, c: 'sale' }); }
-      if (dd.b >= td) out.push({ d: dd.b, t: `${s.name || 'Sale'} ends (morning) · tests resume`, c: 'pass' });
+      const ll = saleLast(s), launched = data.tests.some((t) => t.stage === 1 && t.start_date >= R.addDays(ll, -3) && t.start_date <= ll);
+      push({ key: 'last:' + s.id, d: ll, t: `Last day to launch a normal test before ${s.name || 'the sale'}`, c: 'sale', auto: launched });
+      push({ key: 'start:' + s.id, d: dd.a, t: `${s.name || 'Sale'} starts${s.offer ? ' · ' + s.offer : ''} · tests paused`, c: 'sale' });
+      push({ key: 'end:' + s.id, d: dd.b, t: `${s.name || 'Sale'} ends (morning) · tests resume`, c: 'pass' });
       return;
     }
-    const prod = data.products.find((p) => p.id === s.pid); if (!prod || dd.a <= td) return;
-    if (s.when) { const st = productStable(data, data.products.find((p) => p.id === s.when.pid) || prod); out.push({ d: dd.a, t: `${prod.name} starts when ${pName(data, s.when.pid)} is stable${st.stable ? ' · it is now' : ` · not yet (${st.weeks.filter((w) => w.ok).length} of 2 weeks)`}`, c: 'muted', est: true }); return; }
-    const ready = data.ads.filter((a) => a.product_id === prod.id && a.stage === 'next').length, cost = !!R.econOf(prod).opBE;
-    out.push({ d: R.addDays(dd.a, -1), t: `${prod.name} ready: ${cost ? 'costs set ✓' : 'set costs in Rules'} · ${Math.min(ready, s.slots || 3)} of ${s.slots || 3} ads in Up next`, c: cost && ready >= (s.slots || 3) ? 'pass' : 'mid' });
-    out.push({ d: dd.a, t: `Launch ${prod.name} tests (${s.slots || 3} slot${(s.slots || 3) === 1 ? '' : 's'})`, c: 'pass' });
+    const prod = data.products.find((p) => p.id === s.pid); if (!prod) return;
+    if (s.when) { if (dd.a <= td) return; const st2 = productStable(data, data.products.find((p) => p.id === s.when.pid) || prod); out.push({ key: 'when:' + s.id, d: dd.a, t: `${prod.name} starts when ${pName(data, s.when.pid)} is stable${st2.stable ? ' · it is now' : ` · not yet (${st2.weeks.filter((w) => w.ok).length} of 2 weeks)`}`, c: 'muted', est: true, noTick: true }); return; }
+    const n = s.slots || 3, ready = data.ads.filter((a) => a.product_id === prod.id && a.stage === 'next').length, cost = !!R.econOf(prod).opBE;
+    const launched = data.tests.filter((t) => t.product_id === prod.id && t.stage === 1 && t.start_date >= R.addDays(dd.a, -3) && t.start_date <= R.addDays(dd.a, 6)).length;
+    push({ key: 'ready:' + s.id, d: R.addDays(dd.a, -1), t: `${prod.name} ready: ${cost ? 'costs set ✓' : 'set costs in Rules'} · ${Math.min(ready, n)} of ${n} ads made (in Up next)`, c: 'mid', auto: (cost && ready >= n) || launched >= n });
+    push({ key: 'launch:' + s.id, d: dd.a, t: `Launch ${prod.name} tests (${launched ? `${Math.min(launched, n)} of ${n} launched` : `${n} slot${n === 1 ? '' : 's'}`})`, c: 'pass', auto: launched >= n });
   });
-  return out.filter((x) => x.task || x.d >= td).sort((a, b) => a.d.localeCompare(b.d));
+  // Show: anything not done (late ones too, for a week), and done ones until their day passes.
+  return out.filter((x) => (x.done ? x.d >= td : x.task || x.d >= R.addDays(td, -7))).map((x) => ({ ...x, late: x.late || (!x.done && !x.noTick && (x.end || x.d) < td) })).sort((a, b) => a.d.localeCompare(b.d));
 }
 // The suggestion: a product needs new ads but its next test is far away. Offer one slot from the next batch.
 function planSuggest(data, product, plan, st) {
@@ -4493,7 +4502,7 @@ function planSuggest(data, product, plan, st) {
   const batch = plan.steps.filter((s) => s.kind === 'test' && s.pid !== product.id && s.start && s.start > R.today() && (s.slots || 3) >= 2).sort((a, b) => a.start.localeCompare(b.start))[0];
   return { own, batch };
 }
-function PlanBar({ data, plan, w0, days }) {
+function PlanBar({ data, plan, w0, days, onTick, onEdit }) {
   const td = R.today(), pct = (d) => Math.max(0, Math.min(100, R.daysBetween(w0, d) / days * 100));
   const weeks = Array.from({ length: Math.ceil(days / 7) }, (_, i) => R.addDays(w0, i * 7));
   const lanes = data.products.filter((p) => !p.archived).sort((a, b) => a.sort - b.sort).map((p) => ({ key: p.id, name: p.name, col: PLAN_COL[p.kind] || '#8A939C', p }));
@@ -4502,7 +4511,7 @@ function PlanBar({ data, plan, w0, days }) {
   const tasks = plan.steps.filter((s) => s.kind === 'task' && s.start);
   if (tasks.some((t) => !t.lane || !lanes.some((l) => (l.sale ? 'sale:' + l.sale.id : l.p.id) === t.lane))) lanes.push({ key: 'todo', name: 'To-dos', col: '#8A939C', todo: true });
   const laneKey = (ln) => (ln.todo ? 'todo' : ln.sale ? 'sale:' + ln.sale.id : ln.p.id);
-  const taskBlocks = (ln) => tasks.filter((t) => (ln.todo ? !t.lane || !lanes.some((l) => !l.todo && laneKey(l) === t.lane) : t.lane === laneKey(ln))).map((t) => ({ a: t.start, b: t.end || t.start, t: `${t.done ? '✓' : '☐'} ${t.name || 'To-do'}`, sub: t.end ? `${mdLabel(t.start)} – ${mdLabel(t.end)}` : mdLabel(t.start), task: true, done: t.done }));
+  const taskBlocks = (ln) => tasks.filter((t) => (ln.todo ? !t.lane || !lanes.some((l) => !l.todo && laneKey(l) === t.lane) : t.lane === laneKey(ln))).map((t) => ({ a: t.start, b: t.end || t.start, t: `${t.done ? '✓' : '☐'} ${t.name || 'To-do'}`, sub: t.end ? `${mdLabel(t.start)} – ${mdLabel(t.end)}` : mdLabel(t.start), task: true, done: t.done, tid: t.id }));
   const blocks = (ln) => {
     const out = [];
     if (ln.p) {
@@ -4513,7 +4522,7 @@ function PlanBar({ data, plan, w0, days }) {
         const live2 = data.tests.filter((t) => t.product_id === ln.p.id && t.status === 'active' && t.stage === 1).length;
         out.push({ a: d.a, b: d.b, t: d.a <= td && d.b >= td && live2 ? `Testing · ${live2} live` : `Testing · ${s.slots || 3} ad${(s.slots || 3) === 1 ? '' : 's'}`, sub: s.when ? `when ${pName(data, s.when.pid)} is stable · est. ${mdLabel(d.a)}` : `decide ${mdLabel(R.addDays(d.b, 1))}`, solid: !d.est }); });
     } else if (ln.sale) { out.push({ a: ln.sale.start, b: ln.sale.end || ln.sale.start, t: ln.sale.name || 'Sale', sub: ln.sale.offer ? `${ln.sale.offer} · tests paused` : 'tests paused', solid: true });
-      const last = R.addDays(ln.sale.start, -8); out.push({ a: last, b: last, t: 'Last test launch', sub: mdLabel(last), task: true, auto: true }); }
+      const last = saleLast(ln.sale); out.push({ a: last, b: last, t: `${(plan.doneKeys || {})['last:' + ln.sale.id] ? '✓ ' : ''}Last test launch`, sub: mdLabel(last), task: true, auto: true, edit: true }); }
     out.push(...taskBlocks(ln));
     return out.filter((x) => x.b >= w0 && x.a <= R.addDays(w0, days));
   };
@@ -4522,7 +4531,7 @@ function PlanBar({ data, plan, w0, days }) {
     ${lanes.map((ln) => html`<div class="plg-l"><b><i style=${`background:${ln.col}`}></i>${ln.name}</b><div class="plg-k" style=${`height:${56 + (() => { const ends = []; blocks(ln).filter((x) => x.task).sort((x, y) => x.a.localeCompare(y.a)).forEach((x) => { const e = R.addDays(x.a, Math.max(5, R.daysBetween(x.a, x.b) + 1)); const r = ends.findIndex((d) => d <= x.a); if (r < 0) ends.push(e); else ends[r] = e; }); return ends.length * 40; })()}px`}>
       ${weeks.map((d) => html`<span class="plg-g" style=${`left:${pct(d)}%`}></span>`)}
       ${(() => { const bs = blocks(ln); const ends = []; bs.filter((x) => x.task).sort((x, y) => x.a.localeCompare(y.a)).forEach((x) => { const e = R.addDays(x.a, Math.max(5, R.daysBetween(x.a, x.b) + 1)); let r = ends.findIndex((d) => d <= x.a); if (r < 0) { r = ends.length; ends.push(e); } else ends[r] = e; x.row = r; });
-        ln.h = 56 + ends.length * 40; return bs.length ? bs.map((x) => html`<div class=${'plg-b' + (x.task ? ' task' + (x.done ? ' done' : '') : x.solid ? '' : ' est')} style=${`${x.task ? `top:${54 + x.row * 40}px;` : ''}left:${pct(x.a)}%;width:calc(${pct(R.addDays(x.b, 1)) - pct(x.a)}% - 3px);${x.solid ? `background:${ln.col};color:${ln.col === '#4A8CFF' ? '#fff' : '#000'}` : `border-color:${ln.col};color:${ln.col}`}`} title=${`${x.t} · ${mdLabel(x.a)} – ${mdLabel(x.b)}`}><b>${x.t}</b><span>${x.sub}</span></div>`) : html`<span class="tiny muted plg-none">not in the plan</span>`; })()}
+        ln.h = 56 + ends.length * 40; return bs.length ? bs.map((x) => html`<div class=${'plg-b' + (x.task ? ' task' + (x.done ? ' done' : '') : x.solid ? '' : ' est')} style=${`${x.task ? `top:${54 + x.row * 40}px;` : ''}left:${pct(x.a)}%;width:calc(${pct(R.addDays(x.b, 1)) - pct(x.a)}% - 3px);${x.solid ? `background:${ln.col};color:${ln.col === '#4A8CFF' ? '#fff' : '#000'}` : `border-color:${ln.col};color:${ln.col}`}${x.task ? ';cursor:pointer' : ''}`} title=${x.edit ? 'Change it in Edit plan' : x.tid ? 'Tap to tick it off' : `${x.t} · ${mdLabel(x.a)} – ${mdLabel(x.b)}`} onClick=${x.tid ? () => onTick && onTick(x.tid) : x.edit ? () => onEdit && onEdit() : null}><b>${x.t}</b><span>${x.sub}</span></div>`) : html`<span class="tiny muted plg-none">not in the plan</span>`; })()}
       <span class="plg-today" style=${`left:${pct(td)}%`}></span></div></div>`)}
   </div>`;
 }
@@ -4531,8 +4540,8 @@ function PlanPage(ctx) {
   const plan = planOf(data), td = R.today();
   const dow = (R.parseDay(td).getDay() + 6) % 7, w0 = R.addDays(td, -dow), days = 42;
   const prods = data.products.filter((p) => !p.archived).sort((a, b) => a.sort - b.sort).map((p) => ({ p, st: productStatus(data, p, plan) }));
-  const todos = planTodos(data, plan).slice(0, 12);
-  const tick = (id) => act((p2) => { const t = p2.steps.find((x) => x.id === id); if (t) t.done = true; }, 'Done ✓');
+  const todos = planTodos(data, plan).slice(0, 16);
+  const tick = (x) => act((p2) => { if (x.task) { const t = p2.steps.find((y) => y.id === x.task); if (t) t.done = !t.done; return; } const dk = { ...(p2.doneKeys || {}) }; if (dk[x.key]) delete dk[x.key]; else dk[x.key] = td; p2.doneKeys = dk; }, x.done ? 'Unticked' : 'Done ✓');
   const act = async (fn, msg) => { const p2 = JSON.parse(JSON.stringify(plan)); fn(p2); await savePlan(p2, reload); say(msg); };
   const card = ({ p, st }) => {
     const sug = planSuggest(data, p, plan, st);
@@ -4555,12 +4564,12 @@ function PlanPage(ctx) {
     <div class="row" style="flex-wrap:wrap;gap:10px"><h1 style="font-size:30px">Plan</h1><span class="small muted">which product gets the test slots, and when</span><span class="spacer"></span><button class="btn" onClick=${() => setModal({ type: PlanTask, props: {} })}>+ Add to-do</button><button class="btn" onClick=${() => setModal({ type: PlanEdit, props: {} })}>Edit plan</button></div>
     ${plan.isDefault && html`<div class="status live small">This is the plan you described: Long Sleeve now, Thermal (3) + Crew (1) Nov 16, Black Friday, Crew Dec 2, then V-Neck once Thermal is stable. Change anything in Edit plan.</div>`}
     <section class="panel"><div class="row"><h2 style="margin:0">Next 6 weeks</h2><span class="spacer"></span><span class="tiny muted">your test slots are shared by all products · dashed = estimated</span></div>
-      <${PlanBar} data=${data} plan=${plan} w0=${w0} days=${days} /></section>
+      <${PlanBar} data=${data} plan=${plan} w0=${w0} days=${days} onTick=${(id) => act((p2) => { const t = p2.steps.find((x) => x.id === id); if (t) t.done = !t.done; }, 'Updated')} onEdit=${() => setModal({ type: PlanEdit, props: {} })} /></section>
     <div class="plgrid">
       <div class="stack" style="gap:14px"><h2 style="margin:4px 0 0">Does each product need new ads?</h2>${prods.filter((x) => x.st.nc || x.st.live.length || x.st.next || x.st.now).map(card)}
         ${prods.filter((x) => !(x.st.nc || x.st.live.length || x.st.next || x.st.now)).length > 0 && html`<div class="small muted">Not in the plan: ${prods.filter((x) => !(x.st.nc || x.st.live.length || x.st.next || x.st.now)).map((x) => x.p.name).join(', ')}.</div>`}</div>
       <div class="stack" style="gap:14px"><section class="panel"><h2>What needs to be done</h2>
-        ${todos.length ? todos.map((x) => html`<div class="li small pltodo">${x.task ? html`<button class="pltick" title="Mark done" onClick=${() => tick(x.task)}></button>` : html`<i class=${'dot t-' + x.c}></i>`}<b class=${x.late ? 'bad' : ''}>${x.late ? 'Late · ' : ''}${x.d === td ? 'Today' : R.parseDay(x.d).toLocaleDateString('en-US', { weekday: 'short' }) + ' ' + mdLabel(x.d)}${x.end ? ' – ' + mdLabel(x.end) : ''}${x.est ? ' (est.)' : ''}</b><span>${x.t}</span></div>`) : html`<div class="small muted">Nothing coming up.</div>`}
+        ${todos.length ? todos.map((x) => html`<div class=${'li small pltodo' + (x.done ? ' done' : '')}>${x.noTick ? html`<i class=${'dot t-' + x.c}></i>` : html`<button class=${'pltick' + (x.done ? ' on' : '')} disabled=${x.byApp} title=${x.byApp ? 'Ticked by the app' : x.done ? 'Untick' : 'Tick it off'} onClick=${() => tick(x)}>${x.done ? '✓' : ''}</button>`}<b class=${x.late ? 'bad' : ''}>${x.late ? 'Late · ' : ''}${x.d === td ? 'Today' : R.parseDay(x.d).toLocaleDateString('en-US', { weekday: 'short' }) + ' ' + mdLabel(x.d)}${x.end ? ' – ' + mdLabel(x.end) : ''}${x.est ? ' (est.)' : ''}</b><span>${x.t}${x.byApp ? html` <span class="tiny muted">· done (the app saw it)</span>` : ''}</span></div>`) : html`<div class="small muted">Nothing coming up.</div>`}
         <div class="row" style="margin-top:6px"><button class="btn sm" onClick=${() => setModal({ type: PlanTask, props: {} })}>+ Add to-do</button></div></section>
         <section class="panel"><h2>How “needs new ads” works</h2><div class="small">A product is flagged when <b>${plan.need.min || 2} or more</b> of the checks are true: Main under ${plan.need.mainX}× break-even (last 7 days), half or more Main ads at C or lower, best Bench backup under ${plan.need.benchMin}, or a Main ad wearing out. You can change these in Edit plan.</div></section></div>
     </div>`;
@@ -4605,6 +4614,7 @@ function PlanEdit({ data, close, reload, say }) {
             <label class="chk"><input type="checkbox" checked=${!!s.done} onChange=${(e) => up(i, { done: e.target.checked })} /> Done</label>`
         : s.kind === 'sale' ? html`<input class="inp" value=${s.name || ''} placeholder="Sale name" onInput=${(e) => up(i, { name: e.target.value })} />
             <input class="inp" value=${s.offer || ''} placeholder="The offer, e.g. 15% off sitewide" onInput=${(e) => up(i, { offer: e.target.value })} style="min-width:220px" />
+            <label class="f"><span>Last test launch</span><input class="inp" type="date" value=${s.lastLaunch || (s.start ? R.addDays(s.start, -8) : '')} onInput=${(e) => up(i, { lastLaunch: e.target.value || null })} /></label>
             <label class="f"><span>From</span><input class="inp" type="date" value=${s.start} onInput=${(e) => up(i, { start: e.target.value })} /></label><label class="f"><span>To</span><input class="inp" type="date" value=${s.end} onInput=${(e) => up(i, { end: e.target.value })} /></label>`
           : html`<select class="inp" value=${s.when ? 'stable:' + s.when.pid : 'date'} onChange=${(e) => (e.target.value === 'date' ? up(i, { when: null, start: s.start || R.addDays(R.today(), 7) }) : up(i, { when: { type: 'stable', pid: e.target.value.slice(7) }, start: null }))}>
               <option value="date">Starts on a date</option>${prods.filter((x) => x.id !== s.pid).map((x) => html`<option value=${'stable:' + x.id}>When ${x.name} is stable</option>`)}</select>
