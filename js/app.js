@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=194';
-import * as R from './rules.js?v=194';
-import { importHistory } from './importer.js?v=194';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=194';
+import { createBackend } from './data.js?v=195';
+import * as R from './rules.js?v=195';
+import { importHistory } from './importer.js?v=195';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=195';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -3591,7 +3591,7 @@ function goalPeriods(data) {
     let v = {}; try { v = JSON.parse(l.text); } catch (e) {}
     const to = String(l.day).slice(0, 10), from = v.from || R.addDays(to, -6);
     return { id: l.id, kind: l.kind, from, to, days: R.daysBetween(from, to) + 1, created: l.created_at || '',
-      rev: R.num(v.rev) || 0, revType: v.revType || 'tw', spend: R.num(v.spend) || 0, orders: R.num(v.orders) || 0,
+      rev: R.num(v.rev) || 0, revType: v.revType || 'tw', spend: R.num(v.spend) || (v.revType === 'net' && !R.num(v.spend) ? Math.round(sumRows((data.meta_days || []).filter((r) => r.day >= from && r.day <= to)).spend * 100) / 100 : 0), orders: R.num(v.orders) || 0,
       profit: R.num(v.profit), refunds: R.num(v.refunds) || 0, other: R.num(v.other) || 0, exact: R.num(v.exact),
       shipIn: R.num(v.shipIn), retFees: R.num(v.retFees), cogs: R.num(v.cogs), packs: R.num(v.packs), labels: R.num(v.labels), packaging: R.num(v.packaging), fees: R.num(v.fees), fixedCost: R.num(v.fixedCost), costFinal: !!v.costFinal };
   }).sort((x, y) => x.from.localeCompare(y.from));
@@ -3999,13 +3999,15 @@ function PeriodForm(ctx) {
   const pick = (k) => { const pr = presets.find((x) => x[0] === k); setF({ ...f, preset: k, ...(pr[2] ? { from: pr[2], to: pr[3] } : {}) }); };
   const days = f.from && f.to && f.to >= f.from ? R.daysBetween(f.from, f.to) + 1 : 0;
   const metaSpend = sumRows((data.meta_days || []).filter((r) => r.day >= f.from && r.day <= f.to)).spend;
+  // Ad spend left blank = what your Meta files say for these dates (like apps fill in by themselves).
+  const autoSpend = String(f.spend || '').trim() === '' && metaSpend > 0, spendVal = autoSpend ? Math.round(metaSpend * 100) / 100 : R.num(f.spend) || 0;
   const overlap = goalPeriods(data).filter((x) => x.id !== id && x.from <= f.to && x.to >= f.from);
   const inside = overlap.filter((x) => x.from >= f.from && x.to <= f.to), partial = overlap.filter((x) => !inside.includes(x));
   const save = async () => {
     if (!days) { say('Pick the dates.'); return; }
     if (!R.num(f.rev) && R.num(f.exact) == null) { say('Add revenue (or the exact profit).'); return; }
     const opt = (k) => (f[k] === '' ? null : R.num(f[k]));
-    const text = JSON.stringify({ from: f.from, rev: R.num(f.rev) || 0, revType: f.revType, spend: R.num(f.spend) || 0, orders: R.num(f.orders) || 0, profit: opt('profit'), refunds: R.num(f.refunds) || 0, other: R.num(f.other) || 0, exact: opt('exact'),
+    const text = JSON.stringify({ from: f.from, rev: R.num(f.rev) || 0, revType: f.revType, spend: spendVal, orders: R.num(f.orders) || 0, profit: opt('profit'), refunds: R.num(f.refunds) || 0, other: R.num(f.other) || 0, exact: opt('exact'),
       shipIn: opt('shipIn'), retFees: opt('retFees'), cogs: opt('cogs'), packs: opt('packs'), labels: opt('labels'), packaging: opt('packaging'), fees: opt('fees'), fixedCost: opt('fixedCost') ?? Math.round(appsFor(days || 1) * 100) / 100, costFinal: !!f.costFinal }); // apps locked in at save, so changing the list later doesn't rewrite past months
     for (const x of inside) await be_.remove('learnings', x.id); // the new dates cover these completely
     if (ex) await be_.remove('learnings', ex.id); // re-saved as new, so it counts as the latest
@@ -4034,25 +4036,25 @@ function PeriodForm(ctx) {
         <${Field} label="Shipping labels"><input inputmode="decimal" value=${f.labels} onInput=${set('labels')} placeholder="$ Shipping labels report" /><//>
         <${Field} label="Packaging"><input inputmode="decimal" value=${f.packaging} onInput=${set('packaging')} placeholder="$" /><//>
         <${Field} label="Payment fees"><input inputmode="decimal" value=${f.fees} onInput=${set('fees')} placeholder="$ Shopify Payments fees" /><//>
-        <${Field} label="Ad spend (all ads)"><input inputmode="decimal" value=${f.spend} onInput=${set('spend')} placeholder=${metaSpend ? 'Meta files say $' + Math.round(metaSpend) : '$'} /><//>
+        <${Field} label="Ad spend (all ads)"><input inputmode="decimal" value=${f.spend} onInput=${set('spend')} placeholder=${metaSpend ? `auto ${R.money0(metaSpend)} (Meta files)` : '$'} /><//>
         <${Field} label="Apps and subscriptions"><input inputmode="decimal" value=${f.fixedCost} onInput=${set('fixedCost')} placeholder=${`auto ${R.money(appsFor(days || 1))}`} /><//>
         <${Field} label="Other costs"><input inputmode="decimal" value=${f.other} onInput=${set('other')} placeholder="$ chargebacks, extra shipping…" /><//>
-        <div class="tiny muted full">Apps fill in by themselves: ${R.money(appsFor(days || 1))} for these ${days || 1} days, from your ${R.money(R.num(R.storeEcon().fixedMonthly) || 0)}/month apps list (Goal → Apps). Only type a number if this period was different.</div>
+        <div class="tiny muted full">Apps and ad spend fill in by themselves: apps ${R.money(appsFor(days || 1))} for these ${days || 1} days (your ${R.money(R.num(R.storeEcon().fixedMonthly) || 0)}/month list, Goal → Apps)${metaSpend ? `, ad spend ${R.money(metaSpend)} from your Meta files` : ''}. Only type a number if it was different.</div>
         <div class="fsec full">Optional</div>
         <${Field} full label="Exact profit, if you already know it (overrides everything above)"><input inputmode="decimal" value=${f.exact} onInput=${set('exact')} placeholder="$" /><//>
         ${(() => { // live profit for these dates
           const opt = (k) => (f[k] === '' ? null : R.num(f[k]));
-          const x = { from: f.from, to: f.to, days: days || 1, rev: R.num(f.rev) || 0, revType: 'net', spend: R.num(f.spend) || 0, orders: R.num(f.orders) || 0, other: R.num(f.other) || 0, exact: opt('exact'), shipIn: opt('shipIn'), retFees: opt('retFees'), cogs: opt('cogs'), packs: opt('packs'), labels: opt('labels'), packaging: opt('packaging'), fees: opt('fees'), fixedCost: opt('fixedCost') };
+          const x = { from: f.from, to: f.to, days: days || 1, rev: R.num(f.rev) || 0, revType: 'net', spend: spendVal, orders: R.num(f.orders) || 0, other: R.num(f.other) || 0, exact: opt('exact'), shipIn: opt('shipIn'), retFees: opt('retFees'), cogs: opt('cogs'), packs: opt('packs'), labels: opt('labels'), packaging: opt('packaging'), fees: opt('fees'), fixedCost: opt('fixedCost') };
           const pr = periodProfit(x, R.storeEcon());
           if (!x.rev && x.exact == null) return null;
           return html`<div class="full stack" style="gap:4px"><div class="tscroll"><table class="t"><tbody>
             ${pr.lines ? html`<tr><td>Sales (net + shipping charged + return fees)</td><td class="mono">${R.money(pr.sales)}</td></tr>
-              ${pr.lines.map(([l, v]) => html`<tr><td>${l}${pr.est.includes(l.toLowerCase()) ? html` <span class="tiny muted">estimate</span>` : ''}</td><td class="mono">−${R.money(v)}</td></tr>`)}` : ''}
+              ${pr.lines.map(([l, v]) => html`<tr><td>${l}${pr.est.includes(l.toLowerCase()) ? html` <span class="tiny muted">estimate</span>` : l === 'Ad spend' && autoSpend ? html` <span class="tiny muted">from your Meta files</span>` : ''}</td><td class="mono">−${R.money(v)}</td></tr>`)}` : ''}
             <tr><td><b>Profit for these dates</b></td><td class=${'mono ' + (pr.value >= 0 ? 'good' : 'bad')}><b>${(pr.value < 0 ? '−' : '') + R.money(Math.abs(pr.value))}</b></td></tr>
           </tbody></table></div>${pr.est.length ? html`<div class="tiny muted">Estimated: ${pr.est.join(', ')}. Fill those in for an exact number.</div>` : ''}</div>`; })()}`
       : html`
         <${Field} label="Revenue"><input inputmode="decimal" value=${f.rev} onInput=${set('rev')} placeholder="$" /><//>
-        <${Field} label="Ad spend (all ads)"><input inputmode="decimal" value=${f.spend} onInput=${set('spend')} placeholder=${metaSpend ? 'Meta files say $' + Math.round(metaSpend) : '$'} /><//>
+        <${Field} label="Ad spend (all ads)"><input inputmode="decimal" value=${f.spend} onInput=${set('spend')} placeholder=${metaSpend ? `auto ${R.money0(metaSpend)} (Meta files)` : '$'} /><//>
         <${Field} label="Orders"><input inputmode="decimal" value=${f.orders} onInput=${set('orders')} /><//>
         <${Field} label="Returns, refunds and cancels"><input inputmode="decimal" value=${f.refunds} onInput=${set('refunds')} placeholder="$ from Shopify" /><//>
         <${Field} label="Other costs"><input inputmode="decimal" value=${f.other} onInput=${set('other')} placeholder="$" /><//>
