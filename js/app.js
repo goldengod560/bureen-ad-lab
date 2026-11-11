@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=191';
-import * as R from './rules.js?v=191';
-import { importHistory } from './importer.js?v=191';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=191';
+import { createBackend } from './data.js?v=192';
+import * as R from './rules.js?v=192';
+import { importHistory } from './importer.js?v=192';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=192';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -176,7 +176,7 @@ function App() {
         ${be.mock && html`<span class="chip t-mid">Test mode</span>`}
         <span class="slots" title="Stage 1 tests live across all products"><span class="lbl">TEST SLOTS</span>
           ${Array.from({ length: Math.max(rules0.slots, activeStage1.length) }, (_, i) => html`<i class=${i < activeStage1.length ? 'on' : ''}></i>`)}
-          <span class="mono">${activeStage1.length}/${rules0.slots}</span></span>
+          <span class=${'mono' + (activeStage1.length > rules0.slots ? ' over' : '')} title=${activeStage1.length > rules0.slots ? `${activeStage1.length - rules0.slots} over your ${rules0.slots} slots` : ''}>${activeStage1.length}/${rules0.slots}</span></span>
       </div>
     </header>
     ${look === 'stocks' && html`<${Ticker} data=${data} />`}
@@ -595,7 +595,7 @@ function Board(ctx) {
     const onTrial = by('main').filter((a) => data.tests.some((t) => t.ad_id === a.id && t.stage === 2 && t.status === 'active')).length;
     const mb = R.num((product.rules || {}).mainBudget), usedBy = [...new Set(others.map((a) => (data.products.find((x) => x.id === a.product_id) || {}).name))].filter(Boolean);
     const meta = { main: `${mb ? R.money0(mb) + '/day · ' : ''}${onTrial ? onTrial + ' on trial · ' : ''}${by('main').length - onTrial} running`,
-      testing: `${by('testing').length} ${product.name} here · ${testingCount(data)} of ${rules.slots} slots used${usedBy.length ? ' · also ' + usedBy.join(', ') : ''}`,
+      testing: `${by('testing').length} ${product.name} here · ${testingCount(data)} of ${rules.slots} slots used${testingCount(data) > rules.slots ? ` (${testingCount(data) - rules.slots} over)` : ''}${usedBy.length ? ' · also ' + usedBy.join(', ') : ''}`,
       bench: `${by('bench').length} of ${rules.benchTarget}`, next: `${by('next').length} queued, in order` };
     const empty = { main: 'Nothing in Main. Put your best Reserve ad in.', testing: others.length ? `No ${product.name} IPOs. Every slot is in use by ${usedBy.join(', ')}.` : 'No IPOs live. Launch one from the Watchlist.', bench: 'Empty reserve slot. An IPO that passes lands here.', next: 'Nothing queued. Add a new ad.' };
     const inner = (k) => { const l = by(k);
@@ -1274,7 +1274,7 @@ function LaunchForm(ctx) {
   const [f, setF] = useState({ date: R.today(), partial: false, budget: rules.stage1Budget, days: rules.plannedDays, method: R.TEST_METHODS[0], landingPage: 'Current page (Mar 2026+)', enhancements: false, shopAds: false, guess: '' });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
   const warns = [];
-  if (live.length >= rules.slots) warns.push(`${live.length} Stage 1 tests are already live (your limit is ${rules.slots}).`);
+  if (live.length >= rules.slots) warns.push(`This will be test ${live.length + 1} with ${rules.slots} slots. That’s allowed: it shows as ${live.length + 1}/${rules.slots} until one finishes.`);
   if (spendLive + (+f.budget || 0) > rules.testingCap) warns.push(`Testing spend would be $${spendLive + (+f.budget || 0)}/day, over your $${rules.testingCap} cap.`);
   if (rules.weekendLock && R.isWeekendLock()) warns.push('Weekend lock is on (Friday night to Sunday).');
   if (f.enhancements) warns.push('Creative enhancements ON: Meta will change your ad, so the result says less about your creative.');
@@ -3228,7 +3228,7 @@ function mainPlan(data, product) {
   steps.push({ tone: budget.tone, text: `Budget: ${budget.call}. ${budget.why} Main made ${R.xroas(cur.roas)} on ${R.money0(cur.spend)} in the last 7 days (${R.shortDate(w.a)} to ${R.shortDate(w.end)}); the week before ${R.xroas(prev.roas)}. Break-even ${R.xroas(be)}.` });
   if (weak) steps.push({ tone: 'warn', ad: weak.ad, text: `${displayName(weak.ad)} is the weakest in Main (${R.xroas(weak.roas)} on ${R.money0(weak.spend)}).${market ? ' The others dropped too, so this is likely the market; keep an eye on it rather than act.' : ''}` });
   if (best) steps.push({ tone: 'live', ad: best.a, text: swapNow ? `Swap in ${displayName(best.a)} (full run ${R.xroas(best.r && best.r.full.roas)}). Main has been losing money two weeks, so restarting Meta's learning is worth it.` : `${displayName(best.a)} is ready on the Bench (full run ${R.xroas(best.r && best.r.full.roas)}). Swap it in only if Main stays under break-even next week, since adding an ad restarts Meta's learning.` });
-  steps.push({ tone: free ? 'warn' : 'good', text: free ? `${free} of ${slots} test slots free; Up Next has ${next} ${product.name} ad${next === 1 ? '' : 's'}.${free > next ? ` Make ${free - next} more.` : ''}` : `All ${slots} test slots in use${usedBy.length ? ` (${usedBy.join(', ')})` : ''}.` });
+  steps.push({ tone: free ? 'warn' : 'good', text: free ? `${free} of ${slots} test slots free; Up Next has ${next} ${product.name} ad${next === 1 ? '' : 's'}.${free > next ? ` Make ${free - next} more.` : ''}` : used > slots ? `${used} tests live, ${used - slots} over your ${slots} slots${usedBy.length ? ` (${usedBy.join(', ')})` : ''}.` : `All ${slots} test slots in use${usedBy.length ? ` (${usedBy.join(', ')})` : ''}.` });
   if (daysLeft >= 0) steps.push({ tone: 'live', text: `Black Friday: last regular test batch by ${R.shortDate(lastLaunch)} (${daysLeft} days left), so new winners are proven before the sale. Sale ads themselves go live Nov 25.` });
   if (new Date().getDay() === 5) steps.push({ tone: 'live', text: `It's Friday: if Main is weak, lowering it ~30% before the weekend lock limits weekend overspending.` });
   const d7 = `the last 7 days (${R.shortDate(w.a)} to ${R.shortDate(w.end)})`;
@@ -4393,6 +4393,7 @@ function planDefault(data) {
   const steps = [];
   if (id('long')) steps.push({ id: 'p1', pid: id('long'), kind: 'test', start: '2026-11-06', days: 7, slots: 3 });
   if (id('thermal')) steps.push({ id: 'p2', pid: id('thermal'), kind: 'test', start: '2026-11-16', days: 7, slots: 3 });
+  if (id('crew')) steps.push({ id: 'p2c', pid: id('crew'), kind: 'test', start: '2026-11-16', days: 7, slots: 1 });
   steps.push({ id: 'p3', kind: 'sale', name: 'Black Friday', start: '2026-11-25', end: '2026-12-01' });
   if (id('crew')) steps.push({ id: 'p4', pid: id('crew'), kind: 'test', start: '2026-12-02', days: 7, slots: 3 });
   if (id('vneck') && id('thermal')) steps.push({ id: 'p5', pid: id('vneck'), kind: 'test', when: { type: 'stable', pid: id('thermal') }, days: 7, slots: 3 });
@@ -4543,7 +4544,7 @@ function PlanPage(ctx) {
   };
   return html`
     <div class="row" style="flex-wrap:wrap;gap:10px"><h1 style="font-size:30px">Plan</h1><span class="small muted">which product gets the test slots, and when</span><span class="spacer"></span><button class="btn" onClick=${() => setModal({ type: PlanEdit, props: {} })}>Edit plan</button></div>
-    ${plan.isDefault && html`<div class="status live small">This is the plan you described: Long Sleeve now, Thermal Nov 16, Black Friday, Crew Dec 2, then V-Neck once Thermal is stable. Change anything in Edit plan.</div>`}
+    ${plan.isDefault && html`<div class="status live small">This is the plan you described: Long Sleeve now, Thermal (3) + Crew (1) Nov 16, Black Friday, Crew Dec 2, then V-Neck once Thermal is stable. Change anything in Edit plan.</div>`}
     <section class="panel"><div class="row"><h2 style="margin:0">Next 6 weeks</h2><span class="spacer"></span><span class="tiny muted">your test slots are shared by all products · dashed = estimated</span></div>
       <${PlanBar} data=${data} plan=${plan} w0=${w0} days=${days} /></section>
     <div class="plgrid">
