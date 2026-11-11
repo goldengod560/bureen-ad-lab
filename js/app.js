@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=197';
-import * as R from './rules.js?v=197';
-import { importHistory } from './importer.js?v=197';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=197';
+import { createBackend } from './data.js?v=198';
+import * as R from './rules.js?v=198';
+import { importHistory } from './importer.js?v=198';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=198';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -4535,10 +4535,12 @@ function PlanBar({ data, plan, w0, days, onTick, onEdit }) {
   };
   return html`<div class="plg">
     <div class="plg-h"><span></span><div class="plg-axis">${weeks.map((d) => html`<span style=${`left:${pct(d)}%`}>${mdLabel(d)}</span>`)}</div></div>
-    ${lanes.map((ln) => html`<div class="plg-l"><b><i style=${`background:${ln.col}`}></i>${ln.name}</b><div class="plg-k" style=${`height:${56 + (() => { const ends = []; blocks(ln).filter((x) => x.task).sort((x, y) => x.a.localeCompare(y.a)).forEach((x) => { const e = R.addDays(x.a, Math.max(R.daysBetween(x.a, x.b) + 1, Math.ceil(String(x.t).length * 8.5 / 30) + 1)); const r = ends.findIndex((d) => d <= x.a); if (r < 0) ends.push(e); else ends[r] = e; }); return ends.length * 40; })()}px`}>
+    ${lanes.map((ln) => html`<div class="plg-l"><b><i style=${`background:${ln.col}`}></i>${ln.name}</b><div class="plg-k" style=${`height:${56 + (() => { const ends = []; blocks(ln).filter((x) => x.task).sort((x, y) => x.a.localeCompare(y.a)).forEach((x) => { const e = R.addDays(x.b, 2 + Math.ceil(String(x.t).length * 8.5 / 30)); const r = ends.findIndex((d) => d <= x.a); if (r < 0) ends.push(e); else ends[r] = e; }); return ends.length * 40; })()}px`}>
       ${weeks.map((d) => html`<span class="plg-g" style=${`left:${pct(d)}%`}></span>`)}
-      ${(() => { const bs = blocks(ln); const ends = []; bs.filter((x) => x.task).sort((x, y) => x.a.localeCompare(y.a)).forEach((x) => { const e = R.addDays(x.a, Math.max(R.daysBetween(x.a, x.b) + 1, Math.ceil(String(x.t).length * 8.5 / 30) + 1)); let r = ends.findIndex((d) => d <= x.a); if (r < 0) { r = ends.length; ends.push(e); } else ends[r] = e; x.row = r; });
-        ln.h = 56 + ends.length * 40; return bs.length ? bs.map((x) => html`<div class=${'plg-b' + (x.task ? ' task' + (x.done ? ' done' : '') : x.solid ? '' : ' est')} style=${`${x.task ? `top:${54 + x.row * 40}px;` : ''}left:${pct(x.a)}%;${x.task ? `min-width:calc(${pct(R.addDays(x.b, 1)) - pct(x.a)}% - 3px);width:max-content;max-width:${100 - pct(x.a)}%` : `width:calc(${pct(R.addDays(x.b, 1)) - pct(x.a)}% - 3px)`};${x.solid ? `background:${ln.col};color:${ln.col === '#4A8CFF' ? '#fff' : '#000'}` : `border-color:${ln.col};color:${ln.col}`}${x.task ? ';cursor:pointer' : ''}`} title=${x.edit ? 'Change it in Edit plan' : x.tid ? 'Tap to tick it off' : `${x.t} · ${mdLabel(x.a)} – ${mdLabel(x.b)}`} onClick=${x.tid ? () => onTick && onTick(x.tid) : x.edit ? () => onEdit && onEdit() : null}><b>${x.t}</b><span>${x.sub}</span></div>`) : html`<span class="tiny muted plg-none">not in the plan</span>`; })()}
+      ${(() => { const bs = blocks(ln); const ends = []; bs.filter((x) => x.task).sort((x, y) => x.a.localeCompare(y.a)).forEach((x) => { const e = R.addDays(x.b, 2 + Math.ceil(String(x.t).length * 8.5 / 30)); let r = ends.findIndex((d) => d <= x.a); if (r < 0) { r = ends.length; ends.push(e); } else ends[r] = e; x.row = r; });
+        ln.h = 56 + ends.length * 40; return bs.length ? bs.map((x) => x.task ? (() => { const L = pct(x.a), Rr = pct(R.addDays(x.b, 1)), flip = Rr > 72, top = 54 + x.row * 40, click = x.tid ? () => onTick && onTick(x.tid) : x.edit ? () => onEdit && onEdit() : null, tip = x.edit ? 'Change it in Edit plan' : x.tid ? 'Tap to tick it off' : '';
+          return html`<div class=${'plg-tbar' + (x.done ? ' done' : '')} style=${`top:${top + 6}px;left:${L}%;width:calc(${Rr - L}% - 3px);border-color:${ln.col};background:${ln.col}33`} title=${tip} onClick=${click}></div>
+            <div class=${'plg-tlab' + (x.done ? ' done' : '')} style=${`top:${top}px;${flip ? `right:calc(${100 - L}% + 6px);text-align:right` : `left:calc(${Rr}% + 4px)`};color:${ln.col}`} title=${tip} onClick=${click}><b>${x.t}</b><span>${x.sub}</span></div>`; })() : html`<div class=${'plg-b' + (x.task ? ' task' + (x.done ? ' done' : '') : x.solid ? '' : ' est')} style=${`${x.task ? `top:${54 + x.row * 40}px;` : ''}left:${pct(x.a)}%;${x.task ? `min-width:calc(${pct(R.addDays(x.b, 1)) - pct(x.a)}% - 3px);width:max-content;max-width:${100 - pct(x.a)}%` : `width:calc(${pct(R.addDays(x.b, 1)) - pct(x.a)}% - 3px)`};${x.solid ? `background:${ln.col};color:${ln.col === '#4A8CFF' ? '#fff' : '#000'}` : `border-color:${ln.col};color:${ln.col}`}${x.task ? ';cursor:pointer' : ''}`} title=${x.edit ? 'Change it in Edit plan' : x.tid ? 'Tap to tick it off' : `${x.t} · ${mdLabel(x.a)} – ${mdLabel(x.b)}`} onClick=${x.tid ? () => onTick && onTick(x.tid) : x.edit ? () => onEdit && onEdit() : null}><b>${x.t}</b><span>${x.sub}</span></div>`) : html`<span class="tiny muted plg-none">not in the plan</span>`; })()}
       <span class="plg-today" style=${`left:${pct(td)}%`}></span></div></div>`)}
   </div>`;
 }

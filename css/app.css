@@ -489,3 +489,6 @@ button.gbadge{font:inherit;font-weight:800;font-size:12px;cursor:pointer}
 .dot.t-task{background:#8A939C}.dot.t-fail{background:var(--fail)} .pltodo b.bad{color:var(--fail)}
 .pltick{display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;color:#000}.pltick.on{background:var(--pass);border-color:var(--pass)}.pltick:disabled{cursor:default;opacity:.85}
 .pltodo.done span{color:var(--muted);text-decoration:line-through}.pltodo.done b{color:var(--muted)}
+.plg-tbar{position:absolute;height:22px;border:1.5px solid;border-radius:6px;z-index:1;cursor:pointer}.plg-tbar.done{opacity:.4}
+.plg-tlab{position:absolute;z-index:1;white-space:nowrap;font-size:11.5px;line-height:1.3;cursor:pointer;display:flex;flex-direction:column}.plg-tlab b{font-size:12.5px}.plg-tlab span{color:var(--muted)}.plg-tlab.done{opacity:.45;text-decoration:line-through}
+@media (max-width:760px){.plg-tlab span{display:none}.plg-tlab b{font-size:11px}}
