@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=203';
-import * as R from './rules.js?v=203';
-import { importHistory } from './importer.js?v=203';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=203';
+import { createBackend } from './data.js?v=204';
+import * as R from './rules.js?v=204';
+import { importHistory } from './importer.js?v=204';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=204';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -410,7 +410,9 @@ function adSignal(ad, data) {
 function SigChip({ s, inline }) {
   if (!s) return null;
   const d = s.date ? R.parseDay(s.date) : null, dl = d ? `${d.toLocaleDateString('en-US', { weekday: 'short' })} ${mdLabel(s.date)}` : '';
-  if (inline) return html`<span class=${'sig sig-' + s.k} title=${s.why || SIG[s.k][1]}>${SIG[s.k][0]}${d ? ' · DECIDE ' + mdLabel(s.date).toUpperCase() : ''}</span>`;
+  // A wait with a date just says when to decide ("Wait" is implied).
+  if (inline) return html`<span class=${'sig sig-' + s.k} title=${s.why || SIG[s.k][1]}>${d && s.k === 'wait' ? 'DECIDE ' + mdLabel(s.date).toUpperCase() : SIG[s.k][0] + (d ? ' · DECIDE ' + mdLabel(s.date).toUpperCase() : '')}</span>`;
+  if (d && s.k === 'wait') return html`<span class=${'sig sig-' + s.k} title=${s.why || SIG[s.k][1]}>DECIDE ${dl.toUpperCase()}</span>`;
   return html`<span class=${'sig sig-' + s.k} title=${s.why || SIG[s.k][1]}>${SIG[s.k][0]}</span>${d ? html`<span class="sigd">decide ${dl}</span>` : ''}`;
 }
 
