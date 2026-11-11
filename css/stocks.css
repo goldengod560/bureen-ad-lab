@@ -411,3 +411,7 @@ html[data-look=stocks] .brand .skmark{width:30px;height:30px}
 .sktestedlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:0 16px;margin-top:8px}
 .skclose{gap:6px;box-shadow:inset 3px 0 0 var(--mid)}
 .sktable.skleft th,.sktable.skleft td{text-align:left}
+/* Watchlist: chips stay inside their column (cut with … instead of running under the mini chart) */
+html[data-look=stocks] .skwn{overflow:hidden}
+html[data-look=stocks] .skwn>*{max-width:100%}
+html[data-look=stocks] .skwn .chip,html[data-look=stocks] .skwn [class*=sig]{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block}
