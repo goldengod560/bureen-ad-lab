@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=206';
-import * as R from './rules.js?v=206';
-import { importHistory } from './importer.js?v=206';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=206';
+import { createBackend } from './data.js?v=207';
+import * as R from './rules.js?v=207';
+import { importHistory } from './importer.js?v=207';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=207';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1122,7 +1122,7 @@ function AdDetail(ctx) {
             <div class="metric"><small>All files</small><b>${R.money0(all.spend)}</b></div><div class="metric"><small>ROAS</small><b>${R.xroas(all.roas)}</b></div><div class="metric"><small>Buys</small><b>${Math.round(all.purchases)}</b></div></div>
             ${ad.stage !== 'testing' && html`<${ProfitLine} econ=${R.econOf(product)} m=${{ purchases: all.purchases, roas: all.roas, cpa: all.cpa, aov: all.purchases ? all.revenue / all.purchases : null }} product=${product} />`}</div>`; })()}
         <${PhaseCompare} ad=${ad} data=${data} product=${product} />
-        <${TrendPanel} ad=${ad} data=${data} product=${product} />
+        <${TrendPanel} ad=${ad} data=${data} product=${product} testFrom=${active && active.stage === 1 ? ((active.conditions || {}).spendFrom || active.start_date) : null} />
         ${actions.length > 0 && html`<div class="row">${actions}</div>`}
         <div class="row"><label class="f" style="flex-direction:row;align-items:center;gap:8px">Move to
           <select class="inp" style="width:auto;min-height:36px" value=${ad.stage} onChange=${(e) => (e.target.value === 'testing' && !active ? open(LaunchForm) : move(e.target.value, 'Moved by hand'))}>
@@ -2173,7 +2173,7 @@ function StockQuote(p) {
         ${ad.setup_era === 'era1' && html`<div class="status warn small">${R.ERAS.era1.note}</div>`}
         ${ec && ec.state !== 'done' && !tDone && html`<${EarlyCheckPanel} ec=${ec} ad=${ad} setModal=${setModal} reload=${reload} say=${say} />`}
         ${ad.stage === 'main' && html`<${VerdictPanel} ad=${ad} data=${data} product=${product} />`}
-        <${TrendPanel} ad=${ad} data=${data} product=${product} />
+        <${TrendPanel} ad=${ad} data=${data} product=${product} testFrom=${tFrom} />
         ${tFrom && !(c && c.spend) && html`<section class="panel"><div class="small muted">No numbers since the test started ${mdLabel(tFrom)} yet. Earlier days don't count toward this test.</div></section>`}
         ${keys && html`<section class="panel"><h2>Key statistics · ${fin ? (fw && fw.kind === 'testres' ? 'test result' : 'final numbers') : tFrom ? (tDone ? 'test result' : 'since the test started') : 'last 7 days'}</h2><div class="skkeys">${keys.map(([a, b]) => html`<div><small>${a}</small><b>${b}</b></div>`)}</div>
           ${c.purchases > 0 && ad.stage !== 'testing' && html`<${ProfitLine} econ=${econ} m=${{ purchases: c.purchases, roas: c.roas, cpa: c.cpa, aov: c.revenue / c.purchases }} product=${product} />`}</section>`}
@@ -2983,7 +2983,7 @@ function gradeAdvice(gr, ad) {
   if (ad.stage === 'testing') return 'Still testing: the day-7 result decides. This grade is just its numbers so far.';
   return top || mid ? 'Worked before. Worth a re-test with a fresh version.' : "Don't bring it back as it is.";
 }
-function TrendPanel({ ad, data, product }) {
+function TrendPanel({ ad, data, product, testFrom }) {
   const [hi, setHi0] = useState(null); const [table, setTable] = useState(false); const [noteOpen, setNoteOpen] = useState(false);
   const setHi = (i) => { setHi0(i); if (i !== hi) setNoteOpen(false); };
   const [tab, setTab0] = useState(() => { try { return localStorage.getItem('adlab-trend2') || 'weeks'; } catch (e) { return 'weeks'; } });
@@ -3036,6 +3036,8 @@ function TrendPanel({ ad, data, product }) {
   const trend = (() => { if (tab !== 'all' || n < 7) return null; const k = Math.min(14, n - 1); const d14 = items[n - 1].cum - items[n - 1 - k].cum; let s14 = 0; for (let i = n - k; i < n; i++) s14 += items[i].spend; if (s14 < 20) return { label: 'Not running lately', tone: 'muted' }; const r = d14 / s14; return r >= 0.1 ? { label: 'Rising', tone: 'pass' } : r >= -0.05 ? { label: 'Steady', tone: 'live' } : r >= -0.2 ? { label: 'Slipping', tone: 'mid' } : { label: 'Falling', tone: 'fail' }; })();
   // ----- geometry (real pixels) -----
   const L = 44, Rt = 8, T1 = 10, H1 = kind === 'line' ? 170 : 120, G = 18, H2 = kind === 'line' ? 0 : 64, B = 22, H = T1 + H1 + (H2 ? G + H2 : 0) + B;
+  // Days before this test started (an older version of the ad) are shown faded and don't count.
+  const pre = (v) => !!(testFrom && tab === 'days' && v.key < testFrom), tStart = testFrom && tab === 'days' ? items.findIndex((v) => v.key >= testFrom) : -1;
   const step = (W - L - Rt) / n, x = (i) => L + step * (i + 0.5), bw = Math.max(2, Math.min(kind === 'bars' && tab === 'weeks' ? 34 : 14, step * 0.6));
   let yV, ticks, top2 = T1 + H1 + G, yS = null, sMax = 0;
   if (kind === 'bars') {
@@ -3050,10 +3052,10 @@ function TrendPanel({ ad, data, product }) {
   const pick = (e) => { const r = e.currentTarget.getBoundingClientRect(); const i = Math.floor((e.clientX - r.left - L) / step); setHi(i >= 0 && i < n ? i : null); };
   const h = hi != null ? items[hi] : null;
   // ----- info line (above the chart, never on top of it) -----
-  const info = h ? html`<b>${h.title}</b> · ${h.spend > 0 ? html`${R.money(h.spend)} spent · ${h.purchases} buy${h.purchases === 1 ? '' : 's'} · <b style=${'color:' + tone(h.roas || 0)}>${R.xroas(h.roas)}</b>` : '$0 spent (not running)'}${kind === 'line' ? html` · made so far <b>${(h.cum < 0 ? '−' : '') + R.money0(Math.abs(h.cum))}</b>` : ''}${h.marks.length ? html` · <span style="color:var(--mid);cursor:pointer" title=${marksDetail(cal, h.key)} onClick=${() => setNoteOpen(!noteOpen)}>${h.marks.join(' · ')} <u>ⓘ</u></span>${noteOpen ? html`<div class="tiny" style="white-space:pre-wrap;color:var(--soft);margin-top:4px">${marksDetail(cal, h.key)}</div>` : ''}` : ''}`
+  const info = h ? html`<b>${h.title}</b>${pre(h) ? html` <span class="muted">(before this test, not counted)</span>` : ''} · ${h.spend > 0 ? html`${R.money(h.spend)} spent · ${h.purchases} buy${h.purchases === 1 ? '' : 's'} · <b style=${'color:' + tone(h.roas || 0)}>${R.xroas(h.roas)}</b>` : '$0 spent (not running)'}${kind === 'line' ? html` · made so far <b>${(h.cum < 0 ? '−' : '') + R.money0(Math.abs(h.cum))}</b>` : ''}${h.marks.length ? html` · <span style="color:var(--mid);cursor:pointer" title=${marksDetail(cal, h.key)} onClick=${() => setNoteOpen(!noteOpen)}>${h.marks.join(' · ')} <u>ⓘ</u></span>${noteOpen ? html`<div class="tiny" style="white-space:pre-wrap;color:var(--soft);margin-top:4px">${marksDetail(cal, h.key)}</div>` : ''}` : ''}`
     : tab === 'all' ? html`Lifetime ${R.xroas(life.roas)} on ${R.money0(life.spend)} · ${life.purchases} buys${be ? ` · break-even ${R.xroas(be)}` : ''}`
     : tab === 'weeks' ? html`One dot per week (Mon–Sun) with its ROAS. Green above break-even${be ? ` (${R.xroas(be)})` : ''}, yellow close to it, red below. Bigger dot = more spend.`
-    : html`One bar per day, last ${n} days. Green above break-even, red below, thin red line = no sales.`;
+    : html`One bar per day, last ${n} days. Green above break-even, red below, thin red line = no sales.${tStart > 0 ? ` Faded days are from before this test (it started ${mdLabel(testFrom)}): shown, but not counted in any number.` : ''}`;
   const ln = kind === 'line' ? items.map((v, i) => `${x(i)},${yV(v.cum)}`).join(' ') : '';
   return html`<div class="panel">
     <div class="row" style="gap:8px;flex-wrap:wrap"><h2 style="margin:0">Performance</h2><span class="spacer"></span>
@@ -3068,10 +3070,11 @@ function TrendPanel({ ad, data, product }) {
         ${kind === 'bars' && be && html`<line x1=${L} x2=${W - Rt} y1=${yV(be)} y2=${yV(be)} class="ref" /><text x=${W - Rt} y=${yV(be) - 4} class="ax" text-anchor="end">break-even ${R.xroas(be)}</text>`}
         ${kind === 'bars' && html`<text x=${L} y=${T1 - 1} class="ax">ROAS</text>`}
         ${kind === 'bars' && items.map((v, i) => v.spend > 0 && (v.purchases > 0
-          ? html`<rect x=${x(i) - bw / 2} y=${yV(v.roas)} width=${bw} height=${Math.max(2, yV(0) - yV(v.roas))} rx="2" fill=${tone(v.roas)} opacity=${(hi == null || hi === i ? 0.9 : 0.45) * (v.partial ? 0.6 : 1)} />`
+          ? html`<rect x=${x(i) - bw / 2} y=${yV(v.roas)} width=${bw} height=${Math.max(2, yV(0) - yV(v.roas))} rx="2" fill=${tone(v.roas)} opacity=${(hi == null || hi === i ? 0.9 : 0.45) * (v.partial ? 0.6 : 1) * (pre(v) ? 0.3 : 1)} />`
           : html`<rect x=${x(i) - bw / 2} y=${yV(0) - 3} width=${bw} height="3" rx="1" fill="var(--fail)" />`))}
         ${kind === 'bars' && html`<text x=${L} y=${top2 - 5} class="ax">Spend</text><line x1=${L} x2=${W - Rt} y1=${top2 + H2} y2=${top2 + H2} class="grid" /><text x=${L - 6} y=${top2 + 8} class="ax" text-anchor="end">${R.money0(sMax / 1.1)}</text>
-          ${items.map((v, i) => v.spend > 0 && html`<rect x=${x(i) - bw / 2} y=${yS(v.spend)} width=${bw} height=${Math.max(1, top2 + H2 - yS(v.spend))} rx="2" fill="#C2669E" opacity=${hi == null || hi === i ? 1 : 0.5} />`)}`}
+          ${items.map((v, i) => v.spend > 0 && html`<rect x=${x(i) - bw / 2} y=${yS(v.spend)} width=${bw} height=${Math.max(1, top2 + H2 - yS(v.spend))} rx="2" fill="#C2669E" opacity=${(hi == null || hi === i ? 1 : 0.5) * (pre(v) ? 0.3 : 1)} />`)}`}
+        ${tStart > 0 && html`<line x1=${x(tStart) - step / 2} x2=${x(tStart) - step / 2} y1=${T1 - 4} y2=${H - B} stroke="var(--ins)" stroke-width="1.5" stroke-dasharray="4 3" /><text x=${x(tStart) - step / 2 + 4} y=${T1 + 8} class="ax" style="fill:var(--ins)">test starts ${R.shortDate(testFrom)}</text>`}
         ${kind === 'line' && html`<polyline points=${ln} fill="none" stroke="#3D8BFF" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" />${hi != null && html`<circle cx=${x(hi)} cy=${yV(h.cum)} r="4" fill="#3D8BFF" stroke="var(--panel)" stroke-width="2" />`}`}
         ${items.map((v, i) => i % lblEvery === 0 && html`<text x=${x(i)} y=${H - 6} class="ax" text-anchor="middle">${v.label}</text>`)}
         ${hi != null && html`<line x1=${x(hi)} x2=${x(hi)} y1=${T1} y2=${H - B} class="cross" />`}
