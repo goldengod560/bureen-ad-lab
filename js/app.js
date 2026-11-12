@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=204';
-import * as R from './rules.js?v=204';
-import { importHistory } from './importer.js?v=204';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=204';
+import { createBackend } from './data.js?v=205';
+import * as R from './rules.js?v=205';
+import { importHistory } from './importer.js?v=205';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=205';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -539,7 +539,10 @@ function SelectBar({ sel, setSel, ctx }) {
   const { data, reload, say } = ctx;
   const [to, setTo] = useState('');
   if (!sel) return null;
-  const go = async () => { if (!to || !sel.length) return; await moveAds(sel, to, data, 'Moved several at once'); await reload(); say(`Moved ${sel.length} to ${R.stageLabel(to)}`); setSel(null); };
+  const go = async () => { if (!to || !sel.length) return;
+    const un = to === 'ideas' || to === 'retired' ? [] : sel.filter((id) => isUnnamed(data.ads.find((a) => a.id === id))), ok = sel.filter((id) => !un.includes(id));
+    if (ok.length) await moveAds(ok, to, data, 'Moved several at once'); await reload();
+    say(un.length ? `Moved ${ok.length}. ${un.length} unnamed idea${un.length === 1 ? '' : 's'} stayed in Ideas: open each to name it first.` : `Moved ${sel.length} to ${R.stageLabel(to)}`); setSel(null); };
   return html`<div class="selbar"><b>${sel.length} selected</b>
     <select class="inp" value=${to} onChange=${(e) => setTo(e.target.value)}><option value="">Move to…</option>${[...R.STAGES, ...R.SHELVES].map((s) => html`<option value=${s.key}>${s.label}</option>`)}</select>
     <button class="btn primary sm" disabled=${!to || !sel.length} onClick=${go}>Move</button><button class="btn ghost sm" onClick=${() => setSel(null)}>Cancel</button></div>`;
@@ -712,16 +715,65 @@ function Archive(ctx) {
   const cardCtx = (ad) => ({ ...cctx, selected: !!sel && sel.includes(ad.id) });
   const searching = b.q.trim().length > 0;
   const list = searching ? b.apply(ads.filter((a) => FOLDERS.includes(a.stage) && b.match(a)), data) : b.apply(ads.filter((a) => a.stage === folder), data);
-  const hint = { ideas: 'Drafts and new uploads. Tap one and choose "Ready: put in Up Next" when it is ready to launch.', retest: 'Ads that never got a fair shot. Queue one for a retest when you want to run it again.', exhausted: 'Worked, then fatigued. Revive one to the Bench after a long rest.', mid: 'Close but not a pass. Best ones to recycle with a fix.', failed: 'Did not work.', seasonal: 'Sale and holiday ads.', retired: 'Hidden from everything else.' };
+  const hint = { ideas: 'Ideas and drafts. Tap one and choose "Ready: put in Up Next" when it is ready; unnamed ones get a name then.', retest: 'Ads that never got a fair shot. Queue one for a retest when you want to run it again.', exhausted: 'Worked, then fatigued. Revive one to the Bench after a long rest.', mid: 'Close but not a pass. Best ones to recycle with a fix.', failed: 'Did not work.', seasonal: 'Sale and holiday ads.', retired: 'Hidden from everything else.' };
   return html`
     <div class="row"><h1 style="font-size:30px">${LOOK === 'stocks' ? 'History' : 'Archive'}</h1></div>
     <div class="folders">${FOLDERS.map((f) => html`<button class=${'folder' + (folder === f && !searching ? ' on' : '')} onClick=${() => { setFolder(f); b.setQ(''); }}><b>${LOOK === 'stocks' ? skName(f) : R.stageLabel(f)}</b><span>${count(f)}</span></button>`)}</div>
     ${LOOK === 'stocks' && html`<${StockArchiveTop} data=${data} product=${product} />`}
     <${Toolbar} b=${b} data=${data} product=${product} sel=${sel} setSel=${setSel} />
+    ${!searching && folder === 'ideas' && html`<${IdeaDrop} product=${product} reload=${ctx.reload} say=${ctx.say} />`}
     ${searching ? html`<div class="small muted">${list.length} match${list.length === 1 ? '' : 'es'} across the archive</div>` : html`<div class="small muted">${hint[folder]}</div>`}
     ${searching ? html`<div class=${LOOK === 'stocks' ? 'skgrid' : 'agrid'}>${list.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${cardCtx(ad)} showStage />`)}</div>`
       : html`<div class="stack"><${CardGroupsSel} key=${folder} stageKey=${folder} list=${list} ctx=${cctx} cardCtx=${cardCtx} limit=${12} grid=${LOOK === 'stocks' ? 'skgrid' : 'agrid'} /></div>`}
     <${SelectBar} sel=${sel} setSel=${setSel} ctx=${ctx} />`;
+}
+
+// ---------- quick ideas ----------
+// Drop as many files as you like into Ideas: no names, no form. They're saved as "Idea" right away.
+// A name is only asked for when one moves on (Up Next, a test, or Main).
+const isUnnamed = (ad) => !!(ad && ad.tags && ad.tags.unnamed);
+function IdeaDrop({ product, reload, say }) {
+  const [prog, setProg] = useState(null);
+  const add = async (files) => {
+    files = files.filter((f) => /^(image|video)\//.test(f.type)); if (!files.length) return;
+    const n = files.length, day = mdLabel(R.today()); let done = 0, failed = 0; setProg({ done, n });
+    const one = async (f, k) => {
+      const fmt = /^video/.test(f.type) ? 'video' : 'image', stamp = `${product.id}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const media_path = await be.upload(`${stamp}.${extOf(f)}`, f);
+      const tags = { unnamed: true, file: f.name };
+      if (fmt === 'video') { try { const pb = await videoPoster(f); tags.poster = await be.upload(`${stamp}.poster.jpg`, new File([pb], 'poster.jpg', { type: 'image/jpeg' })); } catch (e) { /* optional */ } }
+      await be.insert('ads', { product_id: product.id, base_name: `Idea · ${day} · ${k + 1}`, format: fmt, media_path, media_type: f.type, stage: 'ideas', version: 1, tags, history: {} });
+    };
+    const q = files.map((f, k) => [f, k]);
+    await Promise.all([0, 1, 2].map(async () => { while (q.length) { const [f, k] = q.shift(); try { await one(f, k); } catch (e) { failed++; } done++; setProg({ done, n }); } }));
+    await reload(); setProg(null); say(`Added ${n - failed} idea${n - failed === 1 ? '' : 's'}${failed ? ` · ${failed} didn’t upload` : ''}`);
+  };
+  const over = useDropFiles(add);
+  return html`<label class=${'ideadrop' + (over ? ' over' : '') + (prog ? ' busy' : '')}>
+    <input type="file" multiple accept="image/*,video/*" hidden disabled=${!!prog} onChange=${(e) => { const fs = [...e.target.files]; e.target.value = ''; add(fs); }} />
+    ${prog ? html`<b>Uploading ${prog.done} of ${prog.n}…</b><span class="ideabar"><i style=${`width:${prog.done / prog.n * 100}%`}></i></span><span class="tiny muted">Keep this page open until it finishes.</span>`
+      : html`<b>Drop images or videos here, or tap to pick</b><span class="small muted">As many as you want. No names needed: they’re saved straight to ${product.name} Ideas. You name one when you move it to Up Next.</span>`}
+  </label>`;
+}
+// Name an idea when it moves on. Suggests a name from its file name.
+function NameIdea({ data, adId, to, close, reload, say }) {
+  const ad = data.ads.find((a) => a.id === adId); const product = data.products.find((p) => p.id === ad.product_id);
+  const fmt = ad.format || (/^video/.test(ad.media_type || '') ? 'video' : 'image');
+  const guess = ad.tags && ad.tags.file ? cleanName({ name: ad.tags.file }, fmt) : `${fmt === 'video' ? 'VID' : 'IMG'} |  | V1`;
+  const [name, setName] = useState(guess); const [angle, setAngle] = useState(ad.angle || ''); const [busy, setBusy] = useState(false);
+  const go = async () => {
+    if (!name.trim()) return; setBusy(true);
+    const tags = { ...(ad.tags || {}) }; delete tags.unnamed;
+    if (to === 'next') tags.queue = Date.now();
+    await be.update('ads', ad.id, { base_name: name.trim(), angle: angle || null, tags, ...(to ? { stage: to } : {}) });
+    await reload(); close(); say(to === 'next' ? 'Named and put in Up Next' : 'Named');
+  };
+  return html`<${Modal} title="Name this ad" sub=${to === 'next' ? 'It needs a name before it goes to Up Next' : product.name} onClose=${close}>
+    <div class="row" style="gap:14px;align-items:flex-start"><span style="width:110px;flex-shrink:0"><${Media} path=${ad.media_path} type=${ad.media_type} poster=${ad.tags && ad.tags.poster} cls="" /></span>
+      <div class="form" style="flex:1"><${Field} label="Name (same as in Meta)" full><input value=${name} onInput=${(e) => setName(e.target.value)} autofocus /><//>
+      <div class="full"><div class="tiny muted" style="margin-bottom:6px">Angle (optional)</div><${AnglePicker} value=${angle} onPick=${setAngle} product=${product} reload=${reload} say=${say} /></div></div></div>
+    <div class="row"><button class="btn primary" disabled=${busy || !name.trim()} onClick=${go}>${to === 'next' ? 'Save and put in Up Next' : 'Save name'}</button><button class="btn ghost" onClick=${close}>Cancel</button></div>
+  <//>`;
 }
 
 // ---------- bulk upload ----------
@@ -990,6 +1042,7 @@ function AdDetail(ctx) {
       break;
     }
     case 'ideas':
+      if (isUnnamed(ad)) { actions.push(A('Ready: name it and put in Up Next', () => setModal({ type: NameIdea, props: { adId: ad.id, to: 'next' } }), 'primary')); actions.push(A('Name it', () => setModal({ type: NameIdea, props: { adId: ad.id } }))); break; }
       actions.push(A('Ready: put in Up Next', () => move('next', 'Ready to launch'), 'primary'));
       actions.push(A(tags.review ? `Check: ${tags.review.score}/100` : 'Pre-launch check', () => open(ReviewForm)));
       actions.push(A('It went live in Meta', () => open(LaunchForm)));

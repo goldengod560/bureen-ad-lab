@@ -496,3 +496,7 @@ button.gbadge{font:inherit;font-weight:800;font-size:12px;cursor:pointer}
 .plg-days{position:relative;height:18px}.plg-days span{position:absolute;text-align:center;font-size:10px;color:var(--muted);opacity:.8}
 .plg-days span.today{color:#000;background:var(--pass);border-radius:5px;font-weight:800;opacity:1}
 @media (max-width:760px){.plg-days span:not(.today){font-size:8px}}
+/* Quick ideas drop zone */
+.ideadrop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;padding:26px 16px;border:2px dashed var(--line);border-radius:14px;cursor:pointer;background:rgba(255,255,255,.02)}
+.ideadrop:hover,.ideadrop.over{border-color:var(--pass);background:rgba(0,200,5,.06)}.ideadrop.busy{cursor:default}
+.ideabar{width:min(420px,90%);height:8px;border-radius:4px;background:var(--line);overflow:hidden}.ideabar i{display:block;height:100%;background:var(--pass);transition:width .3s}
