@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=205';
-import * as R from './rules.js?v=205';
-import { importHistory } from './importer.js?v=205';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=205';
+import { createBackend } from './data.js?v=206';
+import * as R from './rules.js?v=206';
+import { importHistory } from './importer.js?v=206';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=206';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -257,11 +257,13 @@ function quickStats(ad, data) {
 }
 
 // Running totals for a live test from the Ads Manager files, from the day it went live.
+// The test's own days: from launch to day 7. Days after day 7 aren't part of the test result.
+function testEnd(t, data) { const p = data.products.find((x) => x.id === t.product_id); return R.addDays(t.start_date, (t.planned_days || R.rulesOf(p).plannedDays || 7) - 1); }
 function liveFor(t, ad, data) {
   if (!ad || !t || !t.start_date || t.status !== 'active') return null;
   const from = (t.conditions || {}).spendFrom || t.start_date;
-  // Through yesterday only: today isn't finished, same as every other number in the app.
-  const y = R.addDays(R.today(), -1), rows = rowsForAd(ad, data.meta_days || []).filter((r) => r.day >= from && r.day <= y);
+  // Through yesterday only (today isn't finished), and never past day 7.
+  const y = [R.addDays(R.today(), -1), testEnd(t, data)].sort()[0], rows = rowsForAd(ad, data.meta_days || []).filter((r) => r.day >= from && r.day <= y);
   if (!rows.length) return null;
   const s = sumRows(rows), through = rows.reduce((a, r) => (r.day > a ? r.day : a), '');
   return { m: R.metrics({ spend: s.spend, purchases: s.purchases, revenue: s.revenue, impressions: s.impressions || null, link_clicks: s.link_clicks || null, adds_to_cart: s.adds_to_cart || null, hook_plays: s.hook_plays || null, frequency: s.frequency }), day: R.daysBetween(t.start_date, through) + 1, through };
@@ -1055,6 +1057,13 @@ function AdDetail(ctx) {
       break;
     case 'testing':
       if (!active) actions.push(A('Set start date and budget', () => open(LaunchForm), 'primary'));
+      if (active && active.stage === 1 && R.today() > testEnd(active, data)) {
+        // Decide day: pick the result. The one your rules say is highlighted.
+        const rs = ruleFor(active, data), pk = (k) => (rs === k ? 'primary' : '');
+        actions.push(A('✓ Pass → Bench', () => quickResult(active, data, 'pass', reload, say), pk('pass') || 'good'), A('~ Mid-Tier', () => quickResult(active, data, 'mid', reload, say), pk('mid')), A('✕ Fail → Failed', () => quickResult(active, data, 'fail', reload, say), pk('fail') || 'danger'));
+        actions.push(A('More options (not a fair test, other date…)', () => open(FinalizeForm, { testId: active.id }), 'ghost'));
+        break;
+      }
       if (active) actions.push(A('Add Ads Manager file', () => setModal({ type: MetaFileModal, props: { back: ad.id } }), 'primary'));
       if (active) actions.push(A('Type results', () => open(CheckinForm, { testId: active.id })), A('Finalize', () => open(FinalizeForm, { testId: active.id })), A('Stop early', () => open(StopForm, { testId: active.id }), 'danger'));
       break;
@@ -1445,6 +1454,22 @@ function RunBlock({ title, sub, m }) {
 }
 const SLIP_TEXT = 'Passed Stage 1, but performance slipped after Day 7. Review before advancing.';
 
+// One tap on decide day: Pass → Bench, Mid-Tier → Mid-Tier, Fail → Failed. Uses the same numbers as Finalize.
+async function quickResult(test, data, pick, reload, say) {
+  const ad = data.ads.find((a) => a.id === test.ad_id) || {}, product = data.products.find((p) => p.id === test.product_id), rules = R.rulesOf(product);
+  const off = R.today(), runs = runsFor(test, ad, data, off), m = runs && runs.d7, rule = runs ? runs.rule : null;
+  const snap = (x) => (x ? { spend: round2(x.spend), purchases: x.purchases, revenue: round2(x.revenue) } : null);
+  const end = runs ? runs.end : testEnd(test, data);
+  const conditions = { ...(test.conditions || {}), stoppedOn: off, d7: m ? { ...snap(m), end, rule } : null, full: runs ? { ...snap(runs.full), lastDay: runs.lastDay } : null };
+  delete conditions.lateAck;
+  await be.update('tests', test.id, { status: 'complete', result: pick, strong: pick === 'strong_pass', result_reason: runs ? (runs.evidence || []).join(' ') : '', override_reason: rule && pick !== rule ? 'Your call on decide day' : null, conditions });
+  const move = ad.stage === 'testing';
+  await be.update('ads', test.ad_id, { ...(move ? { stage: R.stageForResult(pick) } : {}), result: pick, tags: { ...(ad.tags || {}), retest: R.isRetestResult(pick), ready: false } });
+  await be.insert('decisions', { product_id: test.product_id, ad_id: test.ad_id, test_id: test.id, kind: 'result', day: off, choice: `Filed as ${R.RESULTS[pick].label}`, reason: rule && pick !== rule ? `Rules said ${R.RESULTS[rule].label}` : '' });
+  await reload(); say(`${R.RESULTS[pick].label} · moved to ${skName(R.stageForResult(pick))}`);
+}
+// What your rules say for a finished test (to highlight that button).
+const ruleFor = (test, data) => { const ad = data.ads.find((a) => a.id === test.ad_id); const r = ad && runsFor(test, ad, data); return r && r.windowDone ? (r.rule === 'strong_pass' ? 'pass' : r.rule) : null; };
 function FinalizeForm(ctx) {
   const { data, testId, close, reload, say } = ctx;
   const test = data.tests.find((t) => t.id === testId); const product = data.products.find((p) => p.id === test.product_id);
@@ -1987,8 +2012,11 @@ function StockCard(props) {
   const test = data.tests.find((x) => x.ad_id === ad.id && x.status === 'active');
   const go = (m) => (e) => { e.stopPropagation(); setModal(m); };
   let btns = [];
+  const tDone = !!(test && test.stage === 1 && ad.stage === 'testing' && test.start_date && R.today() > testEnd(test, data));
   if (!select && sg) {
-    if (sg.k === 'dec' && test) btns = test.stage === 2 ? [['Keep or send back', go({ type: MainForm, props: { adId: ad.id, mode: 'record', testId: test.id } }), 'primary']] : [['Record result', go({ type: FinalizeForm, props: { testId: test.id } }), 'primary']];
+    if (sg.k === 'dec' && test && test.stage === 2) btns = [['Keep or send back', go({ type: MainForm, props: { adId: ad.id, mode: 'record', testId: test.id } }), 'primary']];
+    else if ((sg.k === 'dec' || tDone) && test) { const rs = ruleFor(test, data), q = (k) => (e) => { e.stopPropagation(); quickResult(test, data, k, props.reload, props.say); };
+      btns = [['Pass', q('pass'), rs === 'pass' ? 'primary' : 'good'], ['Mid', q('mid'), rs === 'mid' ? 'primary' : ''], ['Fail', q('fail'), rs === 'fail' ? 'primary' : 'danger']]; }
     else if (sg.k === 'sell') btns = test && ad.stage === 'testing' ? [['Stop early', go({ type: StopForm, props: { adId: ad.id, testId: test.id } }), 'danger']] : [['Turn off', go({ type: ExhaustForm, props: { adId: ad.id } }), 'danger']];
     else if (sg.k === 'buy') btns = [['+ New version', go({ type: AdForm, props: { mode: 'version', adId: ad.id } }), '']];
   }
@@ -1998,7 +2026,7 @@ function StockCard(props) {
   const tday = test && ad.stage === 'testing' ? Math.max(0, R.testDay(test)) : null;
   let bigV = big, bigL = bigl;
   if (ad.stage === 'testing') {
-    bigV = lv ? lv.m.roas : null; bigL = 'ROAS so far';
+    bigV = lv ? lv.m.roas : null; bigL = tDone ? 'test ROAS · 7 days' : 'ROAS so far';
     kv = lv ? [['Spend', R.money0(lv.m.spend)], ['Buys', lv.m.purchases], ['CPA', R.money(lv.m.cpa)], ['CTR', R.pct(lv.m.ctr)], ['Add to cart', Math.round(sumRows(rowsForAd(ad, data.meta_days).filter((r) => r.day >= ((test.conditions || {}).spendFrom || test.start_date) && r.day <= R.addDays(R.today(), -1))).adds_to_cart)], ['CPM', R.money0(lv.m.cpm)], ['Hook', R.pct(lv.m.hookRate)], ['Freq', lv.m.frequency ? lv.m.frequency.toFixed(1) : '—']] : null;
   }
   const loan = props.product && ad.product_id !== props.product.id && ad.stage === 'testing';
@@ -2118,9 +2146,9 @@ function StockQuote(p) {
   // During a test, only the test's own days count (from Day 1, or the partial day before it).
   const liveT = ad.stage === 'testing' ? tests.find((t) => t.status === 'active' && t.stage === 1) : null;
   const tFrom = liveT ? ((liveT.conditions || {}).spendFrom || liveT.start_date) : null;
-  const inTest = (a) => (tFrom && a < tFrom ? tFrom : a);
+  const inTest = (a) => (tFrom && a < tFrom ? tFrom : a), tEnd = liveT ? testEnd(liveT, data) : null, tDone = tEnd && R.today() > tEnd;
   const fin = ad.stage !== 'main' && ad.stage !== 'testing', fw = fin ? adWin(ad, data) : null;
-  const c = fin ? (fw ? fw.t : null) : last ? adRange(ad, data, inTest(R.addDays(last, -6)), last) : null, pv = last && !tFrom && !fin ? adRange(ad, data, R.addDays(last, -13), R.addDays(last, -7)) : null;
+  const c = fin ? (fw ? fw.t : null) : tFrom && last ? adRange(ad, data, tFrom, [last, tEnd].sort()[0]) : last ? adRange(ad, data, inTest(R.addDays(last, -6)), last) : null, pv = last && !tFrom && !fin ? adRange(ad, data, R.addDays(last, -13), R.addDays(last, -7)) : null;
   const sg = adSignal(ad, data), gr = adGrade(ad, data, product), ec = earlyCheck(ad, data), md = mainDay(ad, data);
   const d = c && c.spend && pv && pv.spend ? c.roas - pv.roas : null;
   const rows = rowsForAd(ad, data.meta_days).filter((r) => !tFrom || r.day >= tFrom);
@@ -2138,16 +2166,16 @@ function StockQuote(p) {
     <div class="skq">
       <div class="skq-main">
         <div class="row" style="gap:8px;flex-wrap:wrap"><${SigChip} s=${sg} />${gr && gr.g && html`<button class=${'gbadge t-' + gradeTone(gr.g)} style="cursor:pointer" title="How grades work" onClick=${() => setModal({ type: GradeGuide, props: {} })}>${gr.g}</button><span class="tiny muted">${gr.kind === 'testres' ? 'grade, test result' : gr.kind === 'final' ? 'grade, final numbers' : gr.kind === 'test' ? 'grade, test so far' : 'grade, last 7 days'}</span>`}<span class="chip t-muted">${skName(ad.stage)}</span>${ec && html`<span class="chip t-ins">Day ${Math.min(ec.day, ec.planned)} of ${ec.planned}${ec.day > ec.planned ? ' · done' : ''}</span>`}${md && html`<span class="chip t-ins">Day ${md.day} in Main · since ${mdLabel(md.since)}</span>`}${ad.launched_on && html`<span class="chip t-muted">Live ${mdLabel(ad.launched_on)}</span>`}</div>
-        <div class="skq-big"><span class="skbig">${c && c.spend ? R.xroas(c.roas) : '—'}</span>${d != null && html`<span class=${'skq-d ' + (d >= 0 ? 'pos' : 'neg')}>${d >= 0 ? '+' : ''}${d.toFixed(2)}x this week</span>`}<span class="small muted">${fin ? (fw ? `${fw.kind === 'testres' ? `Test result · ${fw.days} test days` : 'Final ROAS · ran'} ${mdLabel(fw.a)} – ${mdLabel(fw.b)} · not running now` : 'Not run yet') : tFrom ? `ROAS since the test started ${mdLabel(tFrom)}` : 'ROAS, last 7 days'} · break-even ${R.xroas(be0)}</span></div>
-        ${(() => { const td = !fin && todaySoFar(ad, data); if (!td) return null; const from = tFrom || R.addDays(R.today(), -7);
+        <div class="skq-big"><span class="skbig">${c && c.spend ? R.xroas(c.roas) : '—'}</span>${d != null && html`<span class=${'skq-d ' + (d >= 0 ? 'pos' : 'neg')}>${d >= 0 ? '+' : ''}${d.toFixed(2)}x this week</span>`}<span class="small muted">${fin ? (fw ? `${fw.kind === 'testres' ? `Test result · ${fw.days} test days` : 'Final ROAS · ran'} ${mdLabel(fw.a)} – ${mdLabel(fw.b)} · not running now` : 'Not run yet') : tFrom ? (tDone ? `Test result · ${mdLabel(tFrom)} – ${mdLabel(tEnd)}` : `ROAS since the test started ${mdLabel(tFrom)}`) : 'ROAS, last 7 days'} · break-even ${R.xroas(be0)}</span></div>
+        ${(() => { const td = !fin && !tDone && todaySoFar(ad, data); if (!td) return null; const from = tFrom || R.addDays(R.today(), -7);
           const w2 = sumRows(rowsForAd(ad, data.meta_days).filter((r) => r.day >= from && r.day <= R.today()));
           return html`<div class="small sktodayq"><span><span class="muted">Today so far (${mdLabel(R.today())}, not finished):</span> <b>${shortStat(td)}</b></span><span><span class="muted">${tFrom ? 'Test with today' : 'Last 7 days with today'}:</span> <b>${shortStat(w2)}</b></span></div>`; })()}
         ${ad.setup_era === 'era1' && html`<div class="status warn small">${R.ERAS.era1.note}</div>`}
-        ${ec && ec.state !== 'done' && html`<${EarlyCheckPanel} ec=${ec} ad=${ad} setModal=${setModal} reload=${reload} say=${say} />`}
+        ${ec && ec.state !== 'done' && !tDone && html`<${EarlyCheckPanel} ec=${ec} ad=${ad} setModal=${setModal} reload=${reload} say=${say} />`}
         ${ad.stage === 'main' && html`<${VerdictPanel} ad=${ad} data=${data} product=${product} />`}
         <${TrendPanel} ad=${ad} data=${data} product=${product} />
         ${tFrom && !(c && c.spend) && html`<section class="panel"><div class="small muted">No numbers since the test started ${mdLabel(tFrom)} yet. Earlier days don't count toward this test.</div></section>`}
-        ${keys && html`<section class="panel"><h2>Key statistics · ${fin ? (fw && fw.kind === 'testres' ? 'test result' : 'final numbers') : tFrom ? 'since the test started' : 'last 7 days'}</h2><div class="skkeys">${keys.map(([a, b]) => html`<div><small>${a}</small><b>${b}</b></div>`)}</div>
+        ${keys && html`<section class="panel"><h2>Key statistics · ${fin ? (fw && fw.kind === 'testres' ? 'test result' : 'final numbers') : tFrom ? (tDone ? 'test result' : 'since the test started') : 'last 7 days'}</h2><div class="skkeys">${keys.map(([a, b]) => html`<div><small>${a}</small><b>${b}</b></div>`)}</div>
           ${c.purchases > 0 && ad.stage !== 'testing' && html`<${ProfitLine} econ=${econ} m=${{ purchases: c.purchases, roas: c.roas, cpa: c.cpa, aov: c.revenue / c.purchases }} product=${product} />`}</section>`}
         <${AdReportCard} ad=${ad} data=${data} product=${product} setModal=${setModal} />
         <${PeriodTable} ad=${ad} data=${data} product=${product} from=${tFrom} />
@@ -2909,7 +2937,7 @@ function adWin(ad, data) {
   const y = R.addDays(R.today(), -1);
   if (ad.stage === 'main') { const l = last7(ad, data); return l ? { kind: '7d', a: l.a, b: l.end, t: l.t } : null; }
   const test = ad.stage === 'testing' ? data.tests.find((t) => t.ad_id === ad.id && t.status === 'active' && t.stage === 1) : null;
-  if (test) { const a = (test.conditions || {}).spendFrom || test.start_date; return { kind: 'test', a, b: y, t: sumRows(rowsForAd(ad, data.meta_days).filter((r) => r.day >= a && r.day <= y)) }; }
+  if (test) { const a = (test.conditions || {}).spendFrom || test.start_date, b = [y, testEnd(test, data)].sort()[0]; return { kind: 'test', a, b, t: sumRows(rowsForAd(ad, data.meta_days).filter((r) => r.day >= a && r.day <= b)) }; }
   // Bench, Mid-Tier, Failed, Re-test: its test result (the test's own days and ad set).
   if (['bench', 'mid', 'failed', 'retest', 'next'].includes(ad.stage)) {
     const lt = lastStage1(ad, data), rr = lt && runsFor(lt, ad, data);
@@ -2924,7 +2952,7 @@ function adWin(ad, data) {
   const a = rows.reduce((m, r) => (r.day < m ? r.day : m), rows[0].day), b = rows.reduce((m, r) => (r.day > m ? r.day : m), rows[0].day);
   return { kind: 'final', a, b, t: sumRows(rows) };
 }
-const winLabel = (w) => (!w ? '' : w.kind === '7d' ? 'last 7 days' : w.kind === 'test' ? 'since the test started' : w.kind === 'testres' ? `test result · ${mdLabel(w.a)} – ${mdLabel(w.b)}` : `final · ${mdLabel(w.a)} – ${mdLabel(w.b)}`);
+const winLabel = (w) => (!w ? '' : w.kind === '7d' ? 'last 7 days' : w.kind === 'test' ? (w.b < R.addDays(R.today(), -1) ? 'test result' : 'since the test started') : w.kind === 'testres' ? `test result · ${mdLabel(w.a)} – ${mdLabel(w.b)}` : `final · ${mdLabel(w.a)} – ${mdLabel(w.b)}`);
 function adGrade(ad, data, product) {
   const be = product && R.econOf(product).opBE; if (!be) return null;
   const w = adWin(ad, data);
