@@ -415,3 +415,5 @@ html[data-look=stocks] .brand .skmark{width:30px;height:30px}
 html[data-look=stocks] .skwn{overflow:hidden}
 html[data-look=stocks] .skwn>*{max-width:100%}
 html[data-look=stocks] .skwn .chip,html[data-look=stocks] .skwn [class*=sig]{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block}
+/* product day by day keeps its Main tile on phone (4 tiles, 2 rows) */
+@media (max-width:900px){html[data-look=stocks] .pdtiles .mp-tile:nth-child(2){display:flex}}

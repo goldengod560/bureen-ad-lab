@@ -501,3 +501,8 @@ button.gbadge{font:inherit;font-weight:800;font-size:12px;cursor:pointer}
 .ideadrop:hover,.ideadrop.over{border-color:var(--pass);background:rgba(0,200,5,.06)}.ideadrop.busy{cursor:default}
 .ideabar{width:min(420px,90%);height:8px;border-radius:4px;background:var(--line);overflow:hidden}.ideabar i{display:block;height:100%;background:var(--pass);transition:width .3s}
 .btn.good{color:var(--pass);border-color:rgba(0,200,5,.45)}.btn.danger{border-color:rgba(255,80,0,.45)}
+/* product day by day: tapped numbers on the left, color key top right */
+.pdhead{display:flex;gap:10px;align-items:flex-start;min-height:20px;margin-top:4px}
+.pdkeys{display:flex;gap:12px;flex-wrap:wrap;justify-content:flex-end;font-size:12px;font-weight:700;white-space:nowrap}
+.pdkey{display:inline-flex;align-items:center;gap:5px}.pdkey i{width:11px;height:11px;border-radius:3px;display:inline-block}
+@media (max-width:600px){.pdhead{flex-direction:column-reverse;gap:4px}.pdkeys{align-self:flex-end}}

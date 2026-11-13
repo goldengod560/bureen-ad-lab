@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=210';
-import * as R from './rules.js?v=210';
-import { importHistory } from './importer.js?v=210';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=210';
+import { createBackend } from './data.js?v=211';
+import * as R from './rules.js?v=211';
+import { importHistory } from './importer.js?v=211';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=211';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -3377,69 +3377,121 @@ function ScaleRow({ s, product, reload, say, setModal }) {
 }
 // Product day by day: everything this product's ads spent and sold, split into Main and Testing.
 // Testing = rows from a campaign with "test" in its name, or an ad that was in its Stage 1 test that day.
+// 7 / 30 days: a stick per day going up or down from break-even (All = a blue Main and a pink Testing stick side by side).
+// Weeks: Main and Testing bars side by side for each week (Monday to Sunday), ROAS on top.
+const PD_MAIN = '#3D8BFF', PD_TEST = '#C2669E';
 function ProductDaily({ data, product }) {
   const [rng, setRng0] = useState(() => { try { return localStorage.getItem('adlab-pd-rng') || '7'; } catch (e) { return '7'; } });
   const [scope, setScope0] = useState(() => { try { return localStorage.getItem('adlab-pd-scope') || 'all'; } catch (e) { return 'all'; } });
-  const setRng = (v) => { setRng0(v); try { localStorage.setItem('adlab-pd-rng', v); } catch (e) {} };
-  const setScope = (v) => { setScope0(v); try { localStorage.setItem('adlab-pd-scope', v); } catch (e) {} };
   const [hi, setHi] = useState(null); const [box, W] = useWidth();
+  const setRng = (v) => { setRng0(v); setHi(null); try { localStorage.setItem('adlab-pd-rng', v); } catch (e) {} };
+  const setScope = (v) => { setScope0(v); setHi(null); try { localStorage.setItem('adlab-pd-scope', v); } catch (e) {} };
   const [open, setOpen0] = useState(() => { try { return localStorage.getItem('adlab-pd-open') !== '0'; } catch (e) { return true; } });
   const setOpen = (v) => { setOpen0(v); try { localStorage.setItem('adlab-pd-open', v ? '1' : '0'); } catch (e) {} };
   const w = healthWindow(data); if (!w) return null;
   const be = R.econOf(product).opBE;
-  const n = +rng, from = R.addDays(w.end, -(n - 1));
   const ads = data.ads.filter((a) => a.product_id === product.id);
   const tests = data.tests.filter((t) => t.stage === 1 && t.product_id === product.id && t.start_date);
   const inTest = (ad, d) => tests.some((t) => t.ad_id === ad.id && d >= ((t.conditions || {}).spendFrom || t.start_date) && (t.status === 'active' || d <= R.addDays(t.start_date, (t.planned_days || 7) - 1)));
-  const days = Array.from({ length: n }, (_, i) => ({ d: R.addDays(from, i), main: { spend: 0, revenue: 0, purchases: 0 }, test: { spend: 0, revenue: 0, purchases: 0 } }));
-  const at = new Map(days.map((x) => [x.d, x]));
+  const z = () => ({ spend: 0, revenue: 0, purchases: 0 });
+  const byDay = new Map();
   for (const ad of ads) for (const r of rowsForAd(ad, data.meta_days)) {
-    const x = at.get(r.day); if (!x) continue;
+    if (r.day > w.end) continue;
+    const x = byDay.get(r.day) || { main: z(), test: z() }; byDay.set(r.day, x);
     const g = /test/i.test(r.campaign || '') || inTest(ad, r.day) ? x.test : x.main;
     g.spend += +r.spend || 0; g.revenue += +r.revenue || 0; g.purchases += +r.purchases || 0;
   }
-  const pick = (x) => (scope === 'main' ? x.main : scope === 'test' ? x.test : { spend: x.main.spend + x.test.spend, revenue: x.main.revenue + x.test.revenue, purchases: x.main.purchases + x.test.purchases });
-  const tot = (k) => days.reduce((t, x) => { const v = k === 'all' ? pick({ ...x }) : x[k]; return { spend: t.spend + v.spend, revenue: t.revenue + v.revenue, purchases: t.purchases + v.purchases }; }, { spend: 0, revenue: 0, purchases: 0 });
-  const all = days.reduce((t, x) => ({ spend: t.spend + x.main.spend + x.test.spend, revenue: t.revenue + x.main.revenue + x.test.revenue, purchases: t.purchases + x.main.purchases + x.test.purchases }), { spend: 0, revenue: 0, purchases: 0 });
-  const M = tot('main'), Tt = tot('test');
+  const add = (a, b) => ({ spend: a.spend + b.spend, revenue: a.revenue + b.revenue, purchases: a.purchases + b.purchases });
+  const dayOf = (d) => byDay.get(d) || { main: z(), test: z() };
+  const weeksMode = rng === 'wk';
+  // what the chart shows: days (7 or 30) or weeks
+  let items = [];
+  if (!weeksMode) {
+    const n = +rng || 7, from = R.addDays(w.end, -(n - 1));
+    for (let i = 0; i < n; i++) { const d = R.addDays(from, i), x = dayOf(d); items.push({ key: d, a: d, b: d, main: x.main, test: x.test }); }
+  } else {
+    const spentDays = [...byDay.keys()].filter((d) => { const x = byDay.get(d); return x.main.spend + x.test.spend > 0; }).sort();
+    if (spentDays.length) {
+      const mon = (d) => R.addDays(d, -((R.parseDay(d).getDay() + 6) % 7));
+      let k = 0;
+      for (let a = mon(spentDays[0]); a <= w.end; a = R.addDays(a, 7)) {
+        k++; const end = R.addDays(a, 6), b = end < w.end ? end : w.end; let m = z(), t = z();
+        for (let d = a; d <= b; d = R.addDays(d, 1)) { const x = dayOf(d); m = add(m, x.main); t = add(t, x.test); }
+        items.push({ key: a, a, b, wk: k, partial: end > w.end, main: m, test: t });
+      }
+      items = items.slice(-(W < 520 ? 4 : 6));
+    }
+  }
+  const n = items.length;
+  const from = n ? items[0].a : w.end, to = w.end;
+  const M = items.reduce((s, x) => add(s, x.main), z()), Tt = items.reduce((s, x) => add(s, x.test), z()), all = add(M, Tt);
   if (!all.spend) return null;
-  const vals = days.map((x) => { const v = pick(x); return { ...v, roas: v.spend ? v.revenue / v.spend : null }; });
-  const tone = (r) => (be && r < be ? 'var(--fail)' : 'var(--pass)');
-  const L = 44, Rt = 8, T1 = 12, H1 = 110, G = 18, H2 = 60, B = 22, H = T1 + H1 + G + H2 + B, step = (W - L - Rt) / n, x = (i) => L + step * (i + 0.5), bw = Math.max(3, Math.min(22, step * 0.6));
-  const rMax = Math.max(1, Math.min(Math.max(...vals.map((v) => v.roas || 0)), be ? be * 2.5 : 8), be || 0) * 1.15, yR = (v) => T1 + H1 * (1 - Math.min(v, rMax) / rMax);
-  const top2 = T1 + H1 + G, sMax = Math.max(1, ...days.map((d) => d.main.spend + d.test.spend)) * 1.1, yS = (v) => top2 + H2 * (1 - v / sMax);
-  const lblEvery = Math.max(1, Math.ceil(n / Math.max(3, Math.floor((W - L) / 56))));
-  const move = (e) => { const r = e.currentTarget.getBoundingClientRect(); const i = Math.floor((e.clientX - r.left - L) / step); setHi(i >= 0 && i < n ? i : null); };
-  const h = hi != null ? days[hi] : null, hv = hi != null ? vals[hi] : null;
   const ro = (t) => (t.spend ? R.xroas(t.revenue / t.spend) : '—');
-  const info = h ? html`<b>${longDate(h.d)}</b> · Main ${R.money0(h.main.spend)} (${h.main.purchases} buys, ${ro(h.main)}) · Testing ${R.money0(h.test.spend)} (${h.test.purchases} buys, ${ro(h.test)}) · ${scope === 'all' ? 'together' : scope === 'main' ? 'Main' : 'Testing'} <b style=${'color:' + tone(hv.roas || 0)}>${R.xroas(hv.roas)}</b>`
-    : html`Tap a day for its numbers.`;
+  const rv = (t) => (t.spend > 0 ? t.revenue / t.spend : null);
+  const tone = (r) => (!be || r >= be ? 'var(--pass)' : r >= be * 0.95 ? 'var(--mid)' : 'var(--fail)');
+  const ser = scope === 'all' ? [['main', PD_MAIN], ['test', PD_TEST]] : [[scope, null]];
+  const shown = items.flatMap((x) => ser.map(([k]) => rv(x[k]))).filter((v) => v != null);
+  const rMax = Math.max(1, Math.min(Math.max(0, ...shown), be ? be * 2.5 : 8), be || 0) * 1.12;
+  // layout
+  const P = 8, PR = be ? (W < 500 ? 46 : 78) : 8, T = 24, Hc = weeksMode ? 170 : 160, B = 32, H = T + Hc + B, step = (W - P - PR) / Math.max(1, n), x = (i) => P + step * (i + 0.5);
+  const yR = (v) => T + Hc * (1 - Math.min(Math.max(v, 0), rMax) / rMax), base = be ? yR(be) : yR(0);
+  const move = (e) => { const r = e.currentTarget.getBoundingClientRect(); const i = Math.floor((e.clientX - r.left - P) / step); setHi(i >= 0 && i < n ? i : null); };
+  const fade = (i) => (hi == null || hi === i ? 1 : 0.4);
+  const longNums = !weeksMode && n <= 7, dec1 = (v) => (v >= 10 ? Math.round(v) + '' : v.toFixed(1));
+  const numsOn = weeksMode || (scope === 'all' ? n <= 7 : step >= 22);
+  // the color key, top right
+  const key = scope === 'all' || weeksMode
+    ? ser.map(([k, c]) => html`<span class="pdkey"><i style=${'background:' + (c || (k === 'main' ? PD_MAIN : PD_TEST))}></i>${k === 'main' ? 'Main' : 'Testing'}</span>`)
+    : [['var(--pass)', 'above break-even'], ['var(--mid)', 'close'], ['var(--fail)', 'below']].map(([c, l]) => html`<span class="pdkey"><i style=${'background:' + c + ';border-radius:50%'}></i>${l}</span>`);
+  // tapped day or week
+  const h = hi != null ? items[hi] : null;
+  const part = (l, t) => html`${l} ${R.money0(t.spend)} (${Math.round(t.purchases)} buys, <b style=${t.spend ? 'color:' + tone(t.revenue / t.spend) : ''}>${ro(t)}</b>)`;
+  const info = h ? html`<b>${weeksMode ? `Week ${h.wk} · ${mdLabel(h.a)} – ${mdLabel(h.b)}${h.partial ? ' (so far)' : ''}` : longDate(h.a)}</b> · ${part('Main', h.main)} · ${h.test.spend ? part('Testing', h.test) : 'no test'}${scope === 'all' && h.main.spend && h.test.spend ? html` · together <b>${ro(add(h.main, h.test))}</b>` : ''}`
+    : html`<span class="muted">Tap a ${weeksMode ? 'week' : 'day'} for its numbers.</span>`;
+  // one stick from break-even to the day's ROAS
+  const stick = (cx, v, c, i, wdt, r, numC) => {
+    const y = yR(v), below = be && v < be;
+    return html`<g opacity=${fade(i)}><line x1=${cx} x2=${cx} y1=${base} y2=${y} stroke=${c} stroke-width=${wdt} stroke-linecap="round" /><circle cx=${cx} cy=${y} r=${r} fill=${c} />
+      ${numsOn && html`<text x=${cx} y=${below ? y + r + 11 : y - r - 4} class="ax" text-anchor="middle" style=${'font-weight:700;fill:' + (numC || 'var(--ink)')}>${longNums && (scope !== 'all' || step >= 90) ? R.xroas(v) : dec1(v)}</text>`}</g>`;
+  };
+  const dayChart = () => {
+    const off = scope === 'all' ? Math.min(n <= 7 ? 18 : 5, step * 0.22) : 0, wdt = n <= 7 ? 4 : step >= 18 ? 3 : 2, r = n <= 7 ? 5.5 : step >= 18 ? 4 : 3;
+    const lblEvery = step >= 18 ? 1 : Math.ceil(18 / step);
+    return html`${items.map((it, i) => ser.map(([k, c], j) => { const v = rv(it[k]); if (v == null) return null; const cx = x(i) + (scope === 'all' ? (j ? off : -off) : 0); return stick(cx, v, c || tone(v), i, wdt, r, c || null); }))}
+      ${items.map((it, i) => (n - 1 - i) % lblEvery === 0 && html`<text x=${x(i)} y=${H - 18} class="ax" text-anchor="middle" style="fill:var(--ink)">${n <= 7 ? R.parseDay(it.a).toLocaleDateString('en-US', { weekday: 'short' }) : 'SMTWTFS'[R.parseDay(it.a).getDay()]}</text><text x=${x(i)} y=${H - 5} class="ax" text-anchor="middle">${n <= 7 ? mdLabel(it.a) : +it.a.slice(8)}</text>`)}`;
+  };
+  const weekChart = () => {
+    const y0 = yR(0), single = scope !== 'all', bw = Math.max(8, Math.min(single ? 48 : 40, step * (single ? 0.42 : 0.3))), gap = 3;
+    return html`${items.map((it, i) => html`<g opacity=${fade(i)}>${ser.map(([k], j) => {
+        const v = rv(it[k]), c = k === 'main' ? PD_MAIN : PD_TEST, cx = single ? x(i) : x(i) + (j ? bw / 2 + gap : -bw / 2 - gap);
+        if (v == null) return html`<text x=${cx} y=${y0 - 6} class="ax" text-anchor="middle">${k === 'test' ? 'no test' : 'no Main'}</text>`;
+        return html`<rect x=${cx - bw / 2} y=${yR(v)} width=${bw} height=${Math.max(2, y0 - yR(v))} rx="4" fill=${c} opacity=".92" /><text x=${cx} y=${yR(v) - 5} class="ax" text-anchor="middle" style="font-weight:700;fill:var(--ink)">${step < 90 && !single ? dec1(v) : R.xroas(v)}</text>`; })}
+        <line x1=${x(i) - Math.min(step * 0.42, 70)} x2=${x(i) + Math.min(step * 0.42, 70)} y1=${y0} y2=${y0} class="grid" /></g>`)}
+      ${items.map((it, i) => html`<text x=${x(i)} y=${H - 18} class="ax" text-anchor="middle" style="fill:var(--ink);font-weight:700">Week ${it.wk}</text><text x=${x(i)} y=${H - 5} class="ax" text-anchor="middle">${mdLabel(it.a)}${it.partial ? (step >= 80 ? ' so far' : '*') : ''}</text>`)}`;
+  };
+  const cap = weeksMode
+    ? `Each week runs Monday to Sunday${items.some((x) => x.partial) ? '; * or "so far" = this week isn’t finished' : ''}. Bars show ROAS for the week; the dashed line is break-even. Week 1 is the first week this product spent.`
+    : scope === 'all' ? `Blue stick = Main, pink stick = Testing, going up from break-even when it made money and down when it didn’t.${n > 7 ? ' Tap a day for the numbers.' : ''} Days with no test only have the blue one.`
+    : scope === 'test' ? 'Only tests. No stick = no test running that day. Tests run on small budgets, so single days swing a lot; judge a test on its whole test, not one day.'
+    : 'Only Main. Up from break-even = made money that day, down = lost money.';
   return html`<section class="panel">
-    <div class="row" style="gap:8px;flex-wrap:wrap"><h2 style="margin:0">${product.name} · day by day</h2><span class="spacer"></span>
+    <div class="row" style="gap:8px;flex-wrap:wrap"><h2 style="margin:0">${product.name} · ${weeksMode ? 'week by week' : 'day by day'}</h2><span class="spacer"></span>
       <div class="seg sm" role="group" aria-label="Show">${[['all', 'All'], ['main', 'Main'], ['test', 'Testing']].map(([k, l]) => html`<button class=${scope === k ? 'on' : ''} onClick=${() => setScope(k)}>${l}</button>`)}</div>
-      <div class="seg sm" role="group" aria-label="Range" style="grid-template-columns:repeat(2,auto)">${[['7', '7 days'], ['30', '30 days']].map(([k, l]) => html`<button class=${rng === k ? 'on' : ''} onClick=${() => setRng(k)}>${l}</button>`)}</div>
+      <div class="seg sm" role="group" aria-label="Range" style="grid-template-columns:repeat(3,auto)">${[['7', '7 days'], ['30', '30 days'], ['wk', 'Weeks']].map(([k, l]) => html`<button class=${rng === k ? 'on' : ''} onClick=${() => setRng(k)}>${l}</button>`)}</div>
       <button class="link small" onClick=${() => setOpen(!open)}>${open ? 'Hide chart' : 'Show chart'}</button></div>
-    <div class="mp-tiles">
-      <div class="mp-tile"><small>Main + Testing · ${R.shortDate(from)} to ${R.shortDate(w.end)}</small><b class=${be && all.spend && all.revenue / all.spend < be ? 'bad' : 'good'}>${ro(all)}</b><span>${R.money0(all.spend)} spent · ${all.purchases} buys</span></div>
-      <div class="mp-tile"><small>Main</small><b class=${be && M.spend && M.revenue / M.spend < be ? 'bad' : M.spend ? 'good' : ''}>${ro(M)}</b><span>${R.money0(M.spend)} · ${M.purchases} buys</span></div>
-      <div class="mp-tile"><small>Testing</small><b class=${be && Tt.spend && Tt.revenue / Tt.spend < be ? 'bad' : Tt.spend ? 'good' : ''}>${ro(Tt)}</b><span>${R.money0(Tt.spend)} · ${Tt.purchases} buys</span></div>
+    <div class="mp-tiles pdtiles">
+      <div class="mp-tile"><small>Main + Testing · ${R.shortDate(from)} to ${R.shortDate(to)}</small><b class=${be && all.revenue / all.spend < be ? 'bad' : 'good'}>${ro(all)}</b><span>${R.money0(all.spend)} spent · ${Math.round(all.purchases)} buys</span></div>
+      <div class="mp-tile"><small>Main</small><b class=${be && M.spend && M.revenue / M.spend < be ? 'bad' : M.spend ? 'good' : ''}>${ro(M)}</b><span>${R.money0(M.spend)} · ${Math.round(M.purchases)} buys</span></div>
+      <div class="mp-tile"><small>Testing</small><b class=${be && Tt.spend && Tt.revenue / Tt.spend < be ? 'bad' : Tt.spend ? 'good' : ''}>${ro(Tt)}</b><span>${R.money0(Tt.spend)} · ${Math.round(Tt.purchases)} buys</span></div>
       <div class="mp-tile"><small>Break-even</small><b>${R.xroas(be)}</b><span>Meta-reported sales</span></div>
     </div>
-    ${open && html`<div class="small" style="min-height:20px">${info}</div>`}
-    <div class="chart" ref=${box} style=${open ? '' : 'display:none'}><svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${move} onPointerDown=${move} role="img" aria-label="ROAS and spend each day">
-      <text x=${L} y=${T1 - 2} class="ax">ROAS</text>
-      ${[0, rMax / 1.15].map((v) => html`<line x1=${L} x2=${W - Rt} y1=${yR(v)} y2=${yR(v)} class="grid" /><text x=${L - 6} y=${yR(v) + 4} class="ax" text-anchor="end">${v.toFixed(1)}x</text>`)}
-      ${be && html`<line x1=${L} x2=${W - Rt} y1=${yR(be)} y2=${yR(be)} class="ref" /><text x=${L + 4} y=${yR(be) + 12} class="ax">break-even ${R.xroas(be)}</text>`}
-      ${n <= 7 ? html`<polyline points=${vals.map((v, i) => (v.spend > 0 ? `${x(i)},${yR(v.roas || 0)}` : null)).filter(Boolean).join(' ')} fill="none" stroke="#3D8BFF" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" />
-          ${vals.map((v, i) => v.spend > 0 && html`<circle cx=${x(i)} cy=${yR(v.roas || 0)} r="5" fill=${v.purchases > 0 ? tone(v.roas) : 'var(--fail)'} stroke="var(--panel)" stroke-width="2" /><text x=${x(i)} y=${yR(v.roas || 0) - 10} class="ax" text-anchor="middle" style="fill:var(--ink)">${R.xroas(v.roas)}</text>`)}`
-        : vals.map((v, i) => v.spend > 0 && (v.purchases > 0 ? html`<rect x=${x(i) - bw / 2} y=${yR(v.roas)} width=${bw} height=${Math.max(2, yR(0) - yR(v.roas))} rx="2" fill=${tone(v.roas)} opacity=${hi == null || hi === i ? 0.9 : 0.45} />` : html`<rect x=${x(i) - bw / 2} y=${yR(0) - 3} width=${bw} height="3" rx="1" fill="var(--fail)" />`))}
-      <text x=${L} y=${top2 - 5} class="ax">Spend each day: <tspan fill="#3D8BFF">blue = Main</tspan>, <tspan fill="#C2669E">pink = Testing</tspan>, whole bar = total</text>
-      <line x1=${L} x2=${W - Rt} y1=${top2 + H2} y2=${top2 + H2} class="grid" /><text x=${L - 6} y=${top2 + 8} class="ax" text-anchor="end">${R.money0(sMax / 1.1)}</text>
-      ${days.map((d, i) => html`${d.main.spend > 0 && html`<rect x=${x(i) - bw / 2} y=${yS(d.main.spend)} width=${bw} height=${Math.max(1, top2 + H2 - yS(d.main.spend))} fill="#3D8BFF" opacity=${hi == null || hi === i ? 0.9 : 0.45} />`}${d.test.spend > 0 && html`<rect x=${x(i) - bw / 2} y=${yS(d.main.spend + d.test.spend)} width=${bw} height=${Math.max(1, yS(d.main.spend) - yS(d.main.spend + d.test.spend))} fill="#C2669E" opacity=${hi == null || hi === i ? 0.9 : 0.45} />`}`)}
-      ${days.map((d, i) => i % lblEvery === 0 && html`<text x=${x(i)} y=${H - 6} class="ax" text-anchor="middle">${R.shortDate(d.d)}</text>`)}
-      ${hi != null && html`<line x1=${x(hi)} x2=${x(hi)} y1=${T1} y2=${H - B} class="cross" />`}
+    ${open && html`<div class="pdhead"><div class="small grow">${info}</div><div class="pdkeys">${key}</div></div>`}
+    <div class="chart" ref=${box} style=${open ? '' : 'display:none'}><svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${move} onPointerDown=${move} role="img" aria-label=${weeksMode ? 'ROAS each week, Main and Testing' : 'ROAS each day against break-even'}>
+      ${be && html`<line x1=${P} x2=${W - PR + 4} y1=${yR(be)} y2=${yR(be)} class="ref" /><text x=${W - PR + 8} y=${yR(be) - 2} class="ax">${W < 500 ? 'BE' : 'break-even'}</text><text x=${W - PR + 8} y=${yR(be) + 10} class="ax">${R.xroas(be)}</text>`}
+      ${hi != null && html`<rect x=${x(hi) - step / 2} y=${T - 18} width=${step} height=${Hc + 18} fill="var(--ink)" opacity=".05" rx="4" />`}
+      ${weeksMode ? weekChart() : dayChart()}
     </svg></div>
-    ${open && html`<div class="tiny muted">Top: ROAS each day (${n <= 7 ? 'dots' : 'bars'} green above break-even, red below${n <= 7 ? '' : ', thin red line = no sales'}). Bottom: spend each day, blue = Main and pink = Testing stacked into the day's total. Only ads in Ad Lab count; Testing = your test campaign or an ad in its test that day.</div>`}
+    ${open && html`<div class="tiny muted">${cap} Only ads in Ad Lab count; Testing = your test campaign or an ad in its test that day.</div>`}
   </section>`;
 }
 function MainPlan({ data, product, setModal, reload, say }) {
@@ -3559,7 +3611,7 @@ function LineChart({ labels, series, fmt, refLine, height = 190, cap, marks }) {
   const sk = LOOK === 'stocks', ri = hi != null ? hi : labels.reduce((m, _, i) => (series.some((s) => s.values[i] != null) ? i : m), labels.length - 1);
   return html`<div class="chart" ref=${box}>
     ${sk && labels.length > 0 && html`<div class="skread small"><b>${R.parseDay(labels[ri]).toLocaleDateString('en-US', { weekday: 'short' })} ${mdLabel(labels[ri])}</b>${series.map((s) => html`<span><i style=${'background:' + s.color}></i>${s.name}: <b>${s.values[ri] == null ? '—' : fmt(s.values[ri])}</b></span>`)}${marks && marks[ri] && marks[ri].length > 0 && html`<span style="color:var(--mid)">${marks[ri].join(' · ')}</span>`}${hi == null && html`<span class="muted">· hover or tap a day</span>`}</div>`}
-    <svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${move} onPointerDown=${move} onPointerLeave=${() => setHi(null)} role="img">
+    <svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${move} onPointerDown=${move} role="img">
       ${marks && marks.map((m, i) => m.length > 0 && html`<rect x=${x(i) - (W - L - Rt) / Math.max(1, labels.length - 1) / 2} y=${T} width=${(W - L - Rt) / Math.max(1, labels.length - 1)} height=${H - T - B} fill="var(--mid)" opacity="0.10" />`)}
       ${ticks.map((t) => html`<line x1=${L} x2=${W - Rt} y1=${y(t)} y2=${y(t)} class="grid" /><text x=${L - 6} y=${y(t) + 4} class="ax" text-anchor="end">${fmt(t, true)}</text>`)}
       ${labels.map((l, i) => i % step === 0 && html`<text x=${x(i)} y=${H - 6} class="ax" text-anchor="middle">${sk ? mdLabel(l) : R.shortDate(l)}</text>`)}
@@ -3805,7 +3857,7 @@ function RoadChart({ months: plan, before = [] }) {
   const col = (m) => (m.status === 'hit' || m.status === 'crushed' ? 'var(--pass)' : m.status === 'close' ? 'var(--mid)' : m.status === 'missed' ? 'var(--fail)' : 'var(--accent)');
   const h = hi != null ? months[hi] : null;
   return html`<div class="chart" ref=${box}>
-    <svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${(e) => { const r = e.currentTarget.getBoundingClientRect(); const i = Math.floor((e.clientX - r.left - L) / step); setHi(i >= 0 && i < n ? i : null); }} onPointerLeave=${() => setHi(null)} role="img" aria-label="Monthly profit toward the goal">
+    <svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${(e) => { const r = e.currentTarget.getBoundingClientRect(); const i = Math.floor((e.clientX - r.left - L) / step); setHi(i >= 0 && i < n ? i : null); }} role="img" aria-label="Monthly profit toward the goal">
       ${[0, 6000, 12000].map((v) => html`<line x1=${L} x2=${W - Rt} y1=${y(v)} y2=${y(v)} class="grid" /><text x=${L - 6} y=${y(v) + 4} class="ax" text-anchor="end">${v ? '$' + v / 1000 + 'k' : '$0'}</text>`)}
       ${nb > 0 && html`<line x1=${L + step * nb} x2=${L + step * nb} y1=${T} y2=${H - B} stroke="var(--line2)" stroke-dasharray="3 3" /><text x=${L + step * nb + 4} y=${T + 10} class="ax">Plan starts</text>`}
       ${months.map((m, i) => !m.pre && html`<rect x=${x(i) - step * 0.42} y=${y(m.hi)} width=${step * 0.84} height=${Math.max(1, y(m.lo) - y(m.hi))} rx="3" fill="var(--line2)" opacity=${m.future ? 0.35 : 0.55} />`)}
