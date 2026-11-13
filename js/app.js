@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=209';
-import * as R from './rules.js?v=209';
-import { importHistory } from './importer.js?v=209';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=209';
+import { createBackend } from './data.js?v=210';
+import * as R from './rules.js?v=210';
+import { importHistory } from './importer.js?v=210';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=210';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -605,7 +605,9 @@ function Board(ctx) {
       testing: `${by('testing').length} ${product.name} here · ${testingCount(data)} of ${rules.slots} slots used${testingCount(data) > rules.slots ? ` (${testingCount(data) - rules.slots} over)` : ''}${usedBy.length ? ' · also ' + usedBy.join(', ') : ''}`,
       bench: `${by('bench').length} of ${rules.benchTarget}`, next: `${by('next').length} queued, in order` };
     const empty = { main: 'Nothing in Main. Put your best Reserve ad in.', testing: others.length ? `No ${product.name} IPOs. Every slot is in use by ${usedBy.join(', ')}.` : 'No IPOs live. Launch one from the Watchlist.', bench: 'Empty reserve slot. An IPO that passes lands here.', next: 'Nothing queued. Add a new ad.' };
-    const inner = (k) => { const l = by(k);
+    // Best first, worst last: Main by its last 7 days, a test by the test so far, Bench by its test result.
+    const wr = (a) => { const w = adWin(a, data); return w && w.t.spend > 0 ? w.t.roas || 0 : -1; };
+    const inner = (k) => { const l = ['main', 'testing', 'bench'].includes(k) ? by(k).slice().sort((a, b) => wr(b) - wr(a)) : by(k);
       // Testing shows every live test: this product's first, then the other products' (greyed, they share the slots).
       if (k === 'testing' && others.length) { const ps = (a) => (data.products.find((x) => x.id === a.product_id) || {}).sort || 0, oth = others.slice().sort((a, b) => ps(a) - ps(b));
         return html`<div class="skgrid">${l.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${cardCtx(ad)} />`)}${oth.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${cardCtx(ad)} />`)}</div>`; }
