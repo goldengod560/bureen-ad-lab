@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=211';
-import * as R from './rules.js?v=211';
-import { importHistory } from './importer.js?v=211';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=211';
+import { createBackend } from './data.js?v=212';
+import * as R from './rules.js?v=212';
+import { importHistory } from './importer.js?v=212';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=212';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -3422,6 +3422,7 @@ function ProductDaily({ data, product }) {
       items = items.slice(-(W < 520 ? 4 : 6));
     }
   }
+  items.forEach((it) => { it.all = add(it.main, it.test); });
   const n = items.length;
   const from = n ? items[0].a : w.end, to = w.end;
   const M = items.reduce((s, x) => add(s, x.main), z()), Tt = items.reduce((s, x) => add(s, x.test), z()), all = add(M, Tt);
@@ -3429,19 +3430,22 @@ function ProductDaily({ data, product }) {
   const ro = (t) => (t.spend ? R.xroas(t.revenue / t.spend) : '—');
   const rv = (t) => (t.spend > 0 ? t.revenue / t.spend : null);
   const tone = (r) => (!be || r >= be ? 'var(--pass)' : r >= be * 0.95 ? 'var(--mid)' : 'var(--fail)');
-  const ser = scope === 'all' ? [['main', PD_MAIN], ['test', PD_TEST]] : [[scope, null]];
+  // 7 days = a line (one ROAS a day) with spend bars under it; 30 days = sticks from break-even; on a phone the 30-day All view is one stick a day.
+  const lineMode = !weeksMode && n <= 7, phoneAll = !weeksMode && !lineMode && scope === 'all' && W < 600;
+  const both = [['main', PD_MAIN], ['test', PD_TEST]];
+  const ser = lineMode || phoneAll ? [[scope, null]] : scope === 'all' ? both : [[scope, null]];
   const shown = items.flatMap((x) => ser.map(([k]) => rv(x[k]))).filter((v) => v != null);
   const rMax = Math.max(1, Math.min(Math.max(0, ...shown), be ? be * 2.5 : 8), be || 0) * 1.12;
   // layout
-  const P = 8, PR = be ? (W < 500 ? 46 : 78) : 8, T = 24, Hc = weeksMode ? 170 : 160, B = 32, H = T + Hc + B, step = (W - P - PR) / Math.max(1, n), x = (i) => P + step * (i + 0.5);
+  const P = lineMode ? 44 : 8, PR = lineMode ? 8 : be ? (W < 500 ? 46 : 78) : 8, T = lineMode ? 16 : 24, Hc = lineMode ? 120 : weeksMode ? 170 : 160, G2 = 22, H2 = 60, B = lineMode ? 22 : 32, H = T + Hc + (lineMode ? G2 + H2 : 0) + B, step = (W - P - PR) / Math.max(1, n), x = (i) => P + step * (i + 0.5);
   const yR = (v) => T + Hc * (1 - Math.min(Math.max(v, 0), rMax) / rMax), base = be ? yR(be) : yR(0);
   const move = (e) => { const r = e.currentTarget.getBoundingClientRect(); const i = Math.floor((e.clientX - r.left - P) / step); setHi(i >= 0 && i < n ? i : null); };
   const fade = (i) => (hi == null || hi === i ? 1 : 0.4);
   const longNums = !weeksMode && n <= 7, dec1 = (v) => (v >= 10 ? Math.round(v) + '' : v.toFixed(1));
-  const numsOn = weeksMode || (scope === 'all' ? n <= 7 : step >= 22);
+  const numsOn = weeksMode || (ser.length > 1 ? n <= 7 : step >= 22);
   // the color key, top right
-  const key = scope === 'all' || weeksMode
-    ? ser.map(([k, c]) => html`<span class="pdkey"><i style=${'background:' + (c || (k === 'main' ? PD_MAIN : PD_TEST))}></i>${k === 'main' ? 'Main' : 'Testing'}</span>`)
+  const key = lineMode || weeksMode || ser.length > 1
+    ? (lineMode ? both : ser).map(([k, c]) => html`<span class="pdkey"><i style=${'background:' + (c || (k === 'main' ? PD_MAIN : PD_TEST))}></i>${k === 'main' ? 'Main' : 'Testing'}</span>`)
     : [['var(--pass)', 'above break-even'], ['var(--mid)', 'close'], ['var(--fail)', 'below']].map(([c, l]) => html`<span class="pdkey"><i style=${'background:' + c + ';border-radius:50%'}></i>${l}</span>`);
   // tapped day or week
   const h = hi != null ? items[hi] : null;
@@ -3455,9 +3459,9 @@ function ProductDaily({ data, product }) {
       ${numsOn && html`<text x=${cx} y=${below ? y + r + 11 : y - r - 4} class="ax" text-anchor="middle" style=${'font-weight:700;fill:' + (numC || 'var(--ink)')}>${longNums && (scope !== 'all' || step >= 90) ? R.xroas(v) : dec1(v)}</text>`}</g>`;
   };
   const dayChart = () => {
-    const off = scope === 'all' ? Math.min(n <= 7 ? 18 : 5, step * 0.22) : 0, wdt = n <= 7 ? 4 : step >= 18 ? 3 : 2, r = n <= 7 ? 5.5 : step >= 18 ? 4 : 3;
+    const off = ser.length > 1 ? Math.min(n <= 7 ? 18 : 5, step * 0.22) : 0, wdt = n <= 7 ? 4 : step >= 18 ? 3 : 2, r = n <= 7 ? 5.5 : step >= 18 ? 4 : 3;
     const lblEvery = step >= 18 ? 1 : Math.ceil(18 / step);
-    return html`${items.map((it, i) => ser.map(([k, c], j) => { const v = rv(it[k]); if (v == null) return null; const cx = x(i) + (scope === 'all' ? (j ? off : -off) : 0); return stick(cx, v, c || tone(v), i, wdt, r, c || null); }))}
+    return html`${items.map((it, i) => ser.map(([k, c], j) => { const v = rv(it[k]); if (v == null) return null; const cx = x(i) + (ser.length > 1 ? (j ? off : -off) : 0); return stick(cx, v, c || tone(v), i, wdt, r, c || null); }))}
       ${items.map((it, i) => (n - 1 - i) % lblEvery === 0 && html`<text x=${x(i)} y=${H - 18} class="ax" text-anchor="middle" style="fill:var(--ink)">${n <= 7 ? R.parseDay(it.a).toLocaleDateString('en-US', { weekday: 'short' }) : 'SMTWTFS'[R.parseDay(it.a).getDay()]}</text><text x=${x(i)} y=${H - 5} class="ax" text-anchor="middle">${n <= 7 ? mdLabel(it.a) : +it.a.slice(8)}</text>`)}`;
   };
   const weekChart = () => {
@@ -3469,8 +3473,23 @@ function ProductDaily({ data, product }) {
         <line x1=${x(i) - Math.min(step * 0.42, 70)} x2=${x(i) + Math.min(step * 0.42, 70)} y1=${y0} y2=${y0} class="grid" /></g>`)}
       ${items.map((it, i) => html`<text x=${x(i)} y=${H - 18} class="ax" text-anchor="middle" style="fill:var(--ink);font-weight:700">Week ${it.wk}</text><text x=${x(i)} y=${H - 5} class="ax" text-anchor="middle">${mdLabel(it.a)}${it.partial ? (step >= 80 ? ' so far' : '*') : ''}</text>`)}`;
   };
+  const lineChart = () => {
+    const k = ser[0][0], vals = items.map((it) => it[k]), lc = k === 'main' ? PD_MAIN : k === 'test' ? PD_TEST : '#8A94A6';
+    const top2 = T + Hc + G2, sMax = Math.max(1, ...items.map((d) => d.all.spend)) * 1.1, yS = (v) => top2 + H2 * (1 - v / sMax), bw = Math.max(4, Math.min(22, step * 0.5)), bot = top2 + H2;
+    const pts = vals.map((v, i) => (v.spend > 0 ? `${x(i)},${yR(rv(v))}` : null)).filter(Boolean).join(' ');
+    return html`<text x=${P} y=${T - 5} class="ax">ROAS${k === 'all' ? ' · Main + Testing' : k === 'main' ? ' · Main' : ' · Testing'}</text>
+      ${[0, rMax / 1.12].map((v) => html`<line x1=${P} x2=${W - PR} y1=${yR(v)} y2=${yR(v)} class="grid" /><text x=${P - 6} y=${yR(v) + 4} class="ax" text-anchor="end">${v.toFixed(1)}x</text>`)}
+      <polyline points=${pts} fill="none" stroke=${lc} stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" />
+      ${vals.map((v, i) => v.spend > 0 && html`<g opacity=${fade(i)}><circle cx=${x(i)} cy=${yR(rv(v))} r="5.5" fill=${tone(rv(v))} stroke="var(--panel)" stroke-width="2" /><text x=${x(i)} y=${yR(rv(v)) - 10} class="ax" text-anchor="middle" style="fill:var(--ink);font-weight:700">${step >= 60 ? R.xroas(rv(v)) : dec1(rv(v))}</text></g>`)}
+      <text x=${P} y=${top2 - 6} class="ax">Spend each day</text><text x=${P - 6} y=${top2 + 8} class="ax" text-anchor="end">${R.money0(sMax / 1.1)}</text>
+      <line x1=${P} x2=${W - PR} y1=${bot} y2=${bot} class="grid" />
+      ${items.map((d, i) => html`<g opacity=${fade(i)}>${d.main.spend > 0 && html`<rect x=${x(i) - bw / 2} y=${yS(d.main.spend)} width=${bw} height=${Math.max(1, bot - yS(d.main.spend))} fill=${PD_MAIN} />`}${d.test.spend > 0 && html`<rect x=${x(i) - bw / 2} y=${yS(d.all.spend)} width=${bw} height=${Math.max(1, yS(d.main.spend) - yS(d.all.spend))} fill=${PD_TEST} />`}</g>`)}
+      ${items.map((d, i) => html`<text x=${x(i)} y=${H - 6} class="ax" text-anchor="middle">${step >= 80 ? R.parseDay(d.a).toLocaleDateString('en-US', { weekday: 'short' }) + ' ' : ''}${mdLabel(d.a)}</text>`)}`;
+  };
   const cap = weeksMode
     ? `Each week runs Monday to Sunday${items.some((x) => x.partial) ? '; * or "so far" = this week isn’t finished' : ''}. Bars show ROAS for the week; the dashed line is break-even. Week 1 is the first week this product spent.`
+    : lineMode ? `Top: ROAS each day${scope === 'all' ? ' (Main and Testing together)' : ''}, dots green above break-even, yellow close, red below. Bottom: spend each day, blue = Main and pink = Testing stacked into the day’s total.`
+    : phoneAll ? 'One stick per day (Main and Testing together) so the phone isn’t crowded: up from break-even = made money, down = lost. Tap a day to see Main and Testing apart; on a computer they show side by side.'
     : scope === 'all' ? `Blue stick = Main, pink stick = Testing, going up from break-even when it made money and down when it didn’t.${n > 7 ? ' Tap a day for the numbers.' : ''} Days with no test only have the blue one.`
     : scope === 'test' ? 'Only tests. No stick = no test running that day. Tests run on small budgets, so single days swing a lot; judge a test on its whole test, not one day.'
     : 'Only Main. Up from break-even = made money that day, down = lost money.';
@@ -3487,9 +3506,10 @@ function ProductDaily({ data, product }) {
     </div>
     ${open && html`<div class="pdhead"><div class="small grow">${info}</div><div class="pdkeys">${key}</div></div>`}
     <div class="chart" ref=${box} style=${open ? '' : 'display:none'}><svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${move} onPointerDown=${move} role="img" aria-label=${weeksMode ? 'ROAS each week, Main and Testing' : 'ROAS each day against break-even'}>
-      ${be && html`<line x1=${P} x2=${W - PR + 4} y1=${yR(be)} y2=${yR(be)} class="ref" /><text x=${W - PR + 8} y=${yR(be) - 2} class="ax">${W < 500 ? 'BE' : 'break-even'}</text><text x=${W - PR + 8} y=${yR(be) + 10} class="ax">${R.xroas(be)}</text>`}
-      ${hi != null && html`<rect x=${x(hi) - step / 2} y=${T - 18} width=${step} height=${Hc + 18} fill="var(--ink)" opacity=".05" rx="4" />`}
-      ${weeksMode ? weekChart() : dayChart()}
+      ${be && lineMode && html`<line x1=${P} x2=${W - PR} y1=${yR(be)} y2=${yR(be)} class="ref" /><text x=${P + 4} y=${yR(be) + 12} class="ax">break-even ${R.xroas(be)}</text>`}
+      ${be && !lineMode && html`<line x1=${P} x2=${W - PR + 4} y1=${yR(be)} y2=${yR(be)} class="ref" /><text x=${W - PR + 8} y=${yR(be) - 2} class="ax">${W < 500 ? 'BE' : 'break-even'}</text><text x=${W - PR + 8} y=${yR(be) + 10} class="ax">${R.xroas(be)}</text>`}
+      ${hi != null && html`<rect x=${x(hi) - step / 2} y=${T - 18} width=${step} height=${H - B - T + 18} fill="var(--ink)" opacity=".05" rx="4" />`}
+      ${weeksMode ? weekChart() : lineMode ? lineChart() : dayChart()}
     </svg></div>
     ${open && html`<div class="tiny muted">${cap} Only ads in Ad Lab count; Testing = your test campaign or an ad in its test that day.</div>`}
   </section>`;
