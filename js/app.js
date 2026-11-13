@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=207';
-import * as R from './rules.js?v=207';
-import { importHistory } from './importer.js?v=207';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=207';
+import { createBackend } from './data.js?v=208';
+import * as R from './rules.js?v=208';
+import { importHistory } from './importer.js?v=208';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=208';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -606,7 +606,9 @@ function Board(ctx) {
       bench: `${by('bench').length} of ${rules.benchTarget}`, next: `${by('next').length} queued, in order` };
     const empty = { main: 'Nothing in Main. Put your best Reserve ad in.', testing: others.length ? `No ${product.name} IPOs. Every slot is in use by ${usedBy.join(', ')}.` : 'No IPOs live. Launch one from the Watchlist.', bench: 'Empty reserve slot. An IPO that passes lands here.', next: 'Nothing queued. Add a new ad.' };
     const inner = (k) => { const l = by(k);
-      if (k === 'testing' && !l.length && others.length) return html`<div class="skgrid">${others.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${cardCtx(ad)} />`)}</div>`;
+      // Testing shows every live test: this product's first, then the other products' (greyed, they share the slots).
+      if (k === 'testing' && others.length) { const ps = (a) => (data.products.find((x) => x.id === a.product_id) || {}).sort || 0, oth = others.slice().sort((a, b) => ps(a) - ps(b));
+        return html`<div class="skgrid">${l.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${cardCtx(ad)} />`)}${oth.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${cardCtx(ad)} />`)}</div>`; }
       if (!l.length) return html`<div class="skgrid"><div class="skempty">${empty[k]}</div></div>`;
       if (k === 'main') return html`<div class="skgrid">${l.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${cardCtx(ad)} />`)}</div>`;
       if (k === 'bench') return html`<div class="skgrid">${l.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${cardCtx(ad)} />`)}${Array.from({ length: Math.max(0, rules.benchTarget - l.length) }, () => html`<div class="skempty">${empty.bench}</div>`)}</div>`;
