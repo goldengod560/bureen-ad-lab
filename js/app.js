@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=208';
-import * as R from './rules.js?v=208';
-import { importHistory } from './importer.js?v=208';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=208';
+import { createBackend } from './data.js?v=209';
+import * as R from './rules.js?v=209';
+import { importHistory } from './importer.js?v=209';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=209';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -763,20 +763,26 @@ function IdeaDrop({ product, reload, say }) {
 function NameIdea({ data, adId, to, close, reload, say }) {
   const ad = data.ads.find((a) => a.id === adId); const product = data.products.find((p) => p.id === ad.product_id);
   const fmt = ad.format || (/^video/.test(ad.media_type || '') ? 'video' : 'image');
-  const guess = ad.tags && ad.tags.file ? cleanName({ name: ad.tags.file }, fmt) : `${fmt === 'video' ? 'VID' : 'IMG'} |  | V1`;
-  const [name, setName] = useState(guess); const [angle, setAngle] = useState(ad.angle || ''); const [busy, setBusy] = useState(false);
+  // Suggest a name from the file name, unless it's a generic one (ChatGPT Image…, IMG_1234, Screenshot…).
+  const pre = fmt === 'video' ? 'VID' : 'IMG', fileName = ad.tags && ad.tags.file ? cleanName({ name: ad.tags.file }, fmt) : '';
+  const guess = fileName && !/chatgpt|image \w{3} \d|img_?\d|screenshot|photo|dsc_?\d|untitled|^\w{3} \| \d/i.test(fileName) ? fileName : `${pre} |  | V1`;
+  const [name, setName0] = useState(guess); const [touched, setTouched] = useState(false); const [angle, setAngle] = useState(ad.angle || ''); const [concept, setConcept0] = useState(ad.concept || ''); const [busy, setBusy] = useState(false);
+  const setName = (v) => { setTouched(true); setName0(v); };
+  // Picking a concept fills the name in, until you type your own.
+  const setConcept = (c) => { setConcept0(c); if (!touched && c) setName0(`${pre} | ${c} | V1`); };
   const go = async () => {
     if (!name.trim()) return; setBusy(true);
     const tags = { ...(ad.tags || {}) }; delete tags.unnamed;
     if (to === 'next') tags.queue = Date.now();
-    await be.update('ads', ad.id, { base_name: name.trim(), angle: angle || null, tags, ...(to ? { stage: to } : {}) });
+    await be.update('ads', ad.id, { base_name: name.trim(), angle: angle || null, concept: concept || null, tags, ...(to ? { stage: to } : {}) });
     await reload(); close(); say(to === 'next' ? 'Named and put in Up Next' : 'Named');
   };
   return html`<${Modal} title="Name this ad" sub=${to === 'next' ? 'It needs a name before it goes to Up Next' : product.name} onClose=${close}>
     <div class="row" style="gap:14px;align-items:flex-start"><span style="width:110px;flex-shrink:0"><${Media} path=${ad.media_path} type=${ad.media_type} poster=${ad.tags && ad.tags.poster} cls="" /></span>
-      <div class="form" style="flex:1"><${Field} label="Name (same as in Meta)" full><input value=${name} onInput=${(e) => setName(e.target.value)} autofocus /><//>
-      <div class="full"><div class="tiny muted" style="margin-bottom:6px">Angle (optional)</div><${AnglePicker} value=${angle} onPick=${setAngle} product=${product} reload=${reload} say=${say} /></div></div></div>
-    <div class="row"><button class="btn primary" disabled=${busy || !name.trim()} onClick=${go}>${to === 'next' ? 'Save and put in Up Next' : 'Save name'}</button><button class="btn ghost" onClick=${close}>Cancel</button></div>
+      <div class="form" style="flex:1"><${Field} label="Name (same as in Meta)" full><input value=${name} onInput=${(e) => setName(e.target.value)} autofocus />${/\|\s+\|/.test(name) ? html`<span class="tiny muted">Pick a concept or type the middle part of the name.</span>` : ''}<//>
+      <div class="full"><div class="tiny muted" style="margin-bottom:6px">Concept</div><${ConceptPicker} value=${concept} onPick=${setConcept} product=${product} data=${data} reload=${reload} say=${say} /></div>
+      <div class="full"><div class="tiny muted" style="margin-bottom:6px">Angle</div><${AnglePicker} value=${angle} onPick=${setAngle} product=${product} reload=${reload} say=${say} /></div></div></div>
+    <div class="row"><button class="btn primary" disabled=${busy || !name.trim() || /\|\s+\|/.test(name)} onClick=${go}>${to === 'next' ? 'Save and put in Up Next' : 'Save name'}</button><button class="btn ghost" onClick=${close}>Cancel</button></div>
   <//>`;
 }
 
