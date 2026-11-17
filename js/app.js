@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=221';
-import * as R from './rules.js?v=221';
-import { importHistory } from './importer.js?v=221';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=221';
+import { createBackend } from './data.js?v=222';
+import * as R from './rules.js?v=222';
+import { importHistory } from './importer.js?v=222';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=222';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2402,23 +2402,30 @@ function recordBook(data) {
   const profitOf = (p) => { let v = 0, made = ''; for (let d = p.a; d <= p.b; d = R.addDays(d, 1)) { const x = dayEnt.get(d); if (!x || x.pr.how === 'est' || x.from < p.a || x.to > p.b) return null; v += x.pr.value / x.days; if (x.created > made) made = x.created; }
     entered.set(p.a + p.b, localDay(made)); return v; };
   const money = (v) => R.money0(v), x2 = (v) => R.xroas(v);
+  // Before Shopify's ~60 days of orders, fall back to the Shopify numbers you entered in Goals (net sales + shipping + return
+  // fees, orders, packs). A period counts if your entries cover every day of it without spilling past it.
+  const dayNet = new Map(); for (const x of ent.filter((e) => e.revType === 'net')) for (let k = 0; k < x.days; k++) { const d = R.addDays(x.from, k), c = dayNet.get(d); if (!c || x.created >= c.created) dayNet.set(d, x); }
+  const fromGoals = new Set();
+  const fromEntries = (p, f) => { let v = 0; for (let d = p.a; d <= p.b; d = R.addDays(d, 1)) { const x = dayNet.get(d); if (!x || x.from < p.a || x.to > p.b) return null; const t = f(x); if (t == null) return null; v += t / x.days; } return v; };
+  const shopOr = (key, field, f) => (p) => { const o = sp(p); if (o.shopAll) return o[field]; const v = fromEntries(p, f); if (v != null) fromGoals.add(key + '|' + p.a); return v; };
+  const salesE = (x) => (x.rev ? x.rev + (x.shipIn || 0) + (x.retFees || 0) : null), ordersE = (x) => (x.orders > 0 ? x.orders : null), packsE = (x) => (x.packs > 0 ? x.packs : null);
   // [key, group, name, periods, value(p) → number|null, format, lower is better, prior periods needed before a record counts]
   const defs = [
-    ['d_orders', 'day', 'Most orders in a day', P.day, (p) => (sp(p).shopAll ? sp(p).orders : null), (v) => Math.round(v).toLocaleString(), false, 14],
-    ['d_sales', 'day', 'Best sales day', P.day, (p) => (sp(p).shopAll ? sp(p).sales : null), money, false, 14],
+    ['d_orders', 'day', 'Most orders in a day', P.day, shopOr('d_orders', 'orders', ordersE), (v) => Math.round(v).toLocaleString(), false, 14],
+    ['d_sales', 'day', 'Best sales day', P.day, shopOr('d_sales', 'sales', salesE), money, false, 14],
     ['d_profit', 'day', 'Most profit in a day', P.day, profitOf, money, false, 14],
-    ['w_orders', 'week', 'Most orders in a week', P.week, (p) => (sp(p).shopAll ? sp(p).orders : null), (v) => Math.round(v).toLocaleString(), false, 3],
-    ['w_sales', 'week', 'Best sales week', P.week, (p) => (sp(p).shopAll ? sp(p).sales : null), money, false, 3],
+    ['w_orders', 'week', 'Most orders in a week', P.week, shopOr('w_orders', 'orders', ordersE), (v) => Math.round(v).toLocaleString(), false, 3],
+    ['w_sales', 'week', 'Best sales week', P.week, shopOr('w_sales', 'sales', salesE), money, false, 3],
     ['w_roas', 'week', 'Best ROAS week', P.week, (p) => { const o = sp(p); return o.metaAll && o.spend > 0 && spendOk(p, o) ? o.rev / o.spend : null; }, x2, false, 3],
     ['w_cpo', 'week', 'Lowest cost per order', P.week, (p) => { const o = sp(p); return o.metaAll && o.shopAll && o.orders > 0 && spendOk(p, o) ? o.spend / o.orders : null; }, (v) => '$' + v.toFixed(2), true, 3],
     ['w_profit', 'week', 'Most profit in a week', P.week, profitOf, money, false, 3],
-    ['m_orders', 'month', 'Most orders in a month', P.month, (p) => (sp(p).shopAll ? sp(p).orders : null), (v) => Math.round(v).toLocaleString(), false, 1],
-    ['m_sales', 'month', 'Best sales month', P.month, (p) => (sp(p).shopAll ? sp(p).sales : null), money, false, 1],
+    ['m_orders', 'month', 'Most orders in a month', P.month, shopOr('m_orders', 'orders', ordersE), (v) => Math.round(v).toLocaleString(), false, 1],
+    ['m_sales', 'month', 'Best sales month', P.month, shopOr('m_sales', 'sales', salesE), money, false, 1],
     ['m_roas', 'month', 'Best ROAS month', P.month, (p) => { const o = sp(p); return o.metaAll && o.spend > 0 && spendOk(p, o) ? o.rev / o.spend : null; }, x2, false, 1],
-    ['m_units', 'month', 'Most packs sold in a month', P.month, (p) => (sp(p).shopAll ? sp(p).units : null), (v) => Math.round(v).toLocaleString(), false, 1],
+    ['m_units', 'month', 'Most packs sold in a month', P.month, shopOr('m_units', 'units', packsE), (v) => Math.round(v).toLocaleString(), false, 1],
     ['m_profit', 'month', 'Most profit in a month', P.month, profitOf, money, false, 1],
-    ['y_orders', 'year', 'Most orders in a year', P.year, (p) => (sp(p).shopAll ? sp(p).orders : null), (v) => Math.round(v).toLocaleString(), false, 1],
-    ['y_sales', 'year', 'Best sales year', P.year, (p) => (sp(p).shopAll ? sp(p).sales : null), money, false, 1],
+    ['y_orders', 'year', 'Most orders in a year', P.year, shopOr('y_orders', 'orders', ordersE), (v) => Math.round(v).toLocaleString(), false, 1],
+    ['y_sales', 'year', 'Best sales year', P.year, shopOr('y_sales', 'sales', salesE), money, false, 1],
     ['y_roas', 'year', 'Best ROAS year', P.year, (p) => { const o = sp(p); return o.metaAll && o.spend > 0 && spendOk(p, o) ? o.rev / o.spend : null; }, x2, false, 1],
   ];
   const events = [], best = {};
@@ -2435,12 +2442,13 @@ function recordBook(data) {
       else { all.push({ v, p }); if (b != null && bt(v, b) && n >= need) ev({ ...base, old: fmt(b.v), oldWhen: b.p.label, pct: recPct(v, b.v, lower) }); if (bt(v, b)) b = { v, p }; n++; }
       if (bt(v, bA)) bA = { v, p }; nA++;
     }
-    const recentV = all.slice(-K[group]).map((x) => x.v), avg = recentV.length ? recentV.reduce((t, v) => t + v, 0) / recentV.length : null;
+    const recentV = all.filter((x) => !b || x.p !== b.p).slice(-K[group]).map((x) => x.v), avg = recentV.length >= Math.min(2, K[group]) ? recentV.reduce((t, v) => t + v, 0) / recentV.length : null;
     const srt = (arr) => [...arr].sort((x, z) => (lower ? x.v - z.v : z.v - x.v)), sorted = srt(all);
     // Close call: the period that just ended came 2nd or 3rd
     const i = sorted.findIndex((x) => x.p.end === y);
     if ((i === 1 || i === 2) && n > need) close.push({ key, group, name, rank: i + 1, value: fmt(sorted[i].v), gap: fmt(Math.abs(sorted[0].v - sorted[i].v)), rec: fmt(sorted[0].v), recWhen: sorted[0].p.label, when: sorted[i].p.label, lower, a: sorted[i].p.a, b: sorted[i].p.b });
-    best[key] = { group, name, b, n, need, fmt, lower, top3: sorted.slice(0, 3), saleTop3: srt(sale).slice(0, 3), avg, avgN: recentV.length,
+    const tagG = (x) => ({ ...x, g: fromGoals.has(key + '|' + x.p.a) });
+    best[key] = { group, name, b, n, need, fmt, lower, top3: sorted.slice(0, 3).map(tagG), saleTop3: srt(sale).slice(0, 3).map(tagG), avg, avgN: recentV.length,
       note: /_profit$/.test(key) ? 'from numbers you enter in Goals' : '', empty: /_profit$/.test(key) ? `Enter a whole ${group}'s numbers in Goals (+ Add numbers) and it shows here.` : '' };
   }
   // Longest streak of days in a row above break-even (needs a file every day)
@@ -2459,8 +2467,8 @@ function recordBook(data) {
   // Round-number sales milestones: the first day, week, month or year (so far) to reach $X.
   const miles = {};
   for (const [g, list, nm] of [['day', P.day, 'day'], ['week', P.week, 'week'], ['month', P.month, 'month']]) {
-    let top = 0; for (const p of list) { const o = sp(p); if (!o.shopAll) continue; const hit = recMilesUpTo(o.sales, recMileFloor[g]).filter((t) => t > top);
-      if (hit.length) { const t = hit[hit.length - 1]; if (top) ev({ key: `mile_${g}|${t}`, rk: 'mile_' + g, group: 'mile', name: `First ${money(t)} ${nm}`, when: p.label, sub: p.sub, end: p.end, pa: p.a, pb: p.b, sale: isSale(g, p), value: money(o.sales), old: money(top), oldWhen: 'last milestone', pct: null }); top = t; } }
+    let top = 0; for (const p of list) { const o = sp(p), sv = o.shopAll ? o.sales : fromEntries(p, salesE); if (sv == null) continue; const hit = recMilesUpTo(sv, recMileFloor[g]).filter((t) => t > top);
+      if (hit.length) { const t = hit[hit.length - 1]; if (top) ev({ key: `mile_${g}|${t}`, rk: 'mile_' + g, group: 'mile', name: `First ${money(t)} ${nm}`, when: p.label, sub: p.sub, end: p.end, pa: p.a, pb: p.b, sale: isSale(g, p), value: money(sv), old: money(top), oldWhen: 'last milestone', pct: null }); top = t; } }
     miles[g] = top; }
   { let top = 0; for (const yr of yrs) { let run = 0; for (let d = `${yr}-01-01`; d <= y && d <= `${yr}-12-31`; d = R.addDays(d, 1)) { const s = shop.get(d); if (!s) continue; run += s.sales; const hit = recMilesUpTo(run, recMileFloor.year).filter((t) => t > top);
       if (hit.length) { const t = hit[hit.length - 1]; if (top || yr !== yrs[0]) ev({ key: `mile_year|${t}`, rk: 'mile_year', group: 'mile', name: `First ${money(t)} year`, when: `${yr} so far · ${mdLabel(d)}`, end: d, value: money(run), old: top ? money(top) : '—', oldWhen: 'last milestone', pct: null }); top = t; } } }
@@ -2534,7 +2542,7 @@ const RAVG = { day: 'last 30 days', week: 'last 4 weeks', month: 'last 3 months'
 // What it takes to beat a record, from your recent normal (non-sale) periods.
 function recTarget(r, k) {
   if (k === 'd_streak') { const run = r.run || 0, top = r.top || 0; if (!top) return null; return run && r.runStart === r.topStart ? `You're on it: day ${run} of your record streak. Every day above break-even adds to it.` : `Current streak ${run} ${run === 1 ? 'day' : 'days'} · ${top - run + 1} more in a row to beat it`; }
-  if (!r.b || r.avg == null || r.avgN < 1) return null;
+  if (!r.b || r.avg == null) return null;
   const pct = r.lower ? Math.round((1 - r.b.v / r.avg) * 100) : Math.round((r.b.v / r.avg - 1) * 100);
   if (pct <= 0) return `Your ${RAVG[r.group]} average ${r.fmt(r.avg)} is right at the record. One more good ${r.group} beats it.`;
   return `Your ${RAVG[r.group]} average ${r.fmt(r.avg)} · beat it by ${r.lower ? pct + '% lower' : '+' + pct + '%'}`;
@@ -2639,8 +2647,8 @@ function RecordsPage({ data, inRoom, setModal }) {
     if (sale && !t3.length) return null;
     return html`<section class=${'rcard' + (nw ? ' nw' : '') + (sale ? ' sale' : '')}>
       <button class="rctop rbtn" onClick=${() => open(r, t3[0], sale)} disabled=${!t3[0]}><${RecMedal} t="G" w=${46} /><div class="grow" style="min-width:0"><div class="rcn">${r.name}${nw ? html`<span class="recnew">NEW</span>` : ''}${sale ? html`<span class="salebadge">SALE</span>` : ''}</div>
-        ${t3[0] ? html`<div class="rcv">${r.fmt(t3[0].v)}${recUnit(k)}</div><div class="rcd">${t3[0].p.label}</div>` : html`<div class="rcd" style="margin-top:6px">${r.empty || `No full ${r.group} with enough data yet.`}</div>`}</div></button>
-      ${t3[0] && ['S', 'B'].map((t, i) => { const x = t3[i + 1]; return html`<button class="rcrow rbtn" onClick=${() => open(r, x, sale)} disabled=${!x}><${RecMedal} t=${t} w=${22} />${x ? html`<b>${r.fmt(x.v)}</b><span>${x.p.label}</span>` : html`<span class="muted" style="margin-left:0">not yet</span>`}</button>`; })}
+        ${t3[0] ? html`<div class="rcv">${r.fmt(t3[0].v)}${recUnit(k)}</div><div class="rcd">${t3[0].p.label}${t3[0].g ? ' · your Goals numbers' : ''}</div>` : html`<div class="rcd" style="margin-top:6px">${r.empty || `No full ${r.group} with enough data yet.`}</div>`}</div></button>
+      ${t3[0] && ['S', 'B'].map((t, i) => { const x = t3[i + 1]; return html`<button class="rcrow rbtn" onClick=${() => open(r, x, sale)} disabled=${!x}><${RecMedal} t=${t} w=${22} />${x ? html`<b>${r.fmt(x.v)}</b><span>${x.p.label}${x.g ? ' · Goals' : ''}</span>` : html`<span class="muted" style="margin-left:0">not yet</span>`}</button>`; })}
       ${tgt && html`<div class="rctgt">${tgt}</div>`}
       ${r.note && html`<div class="rcnote">${r.note}</div>`}</section>`; };
   const saleCards = keys.map((k) => card(k, true)).filter(Boolean);
@@ -2671,12 +2679,12 @@ function RecordsPage({ data, inRoom, setModal }) {
     <section class="panel"><h2>Records you've broken</h2>${byDay.length ? html`<div class="rhist">${byDay.map(([d, es]) => html`<div class="rhday"><b>${mdLabel(d)}</b>${es.map((e) => html`<button class="rhit rbtn" onClick=${() => e.pa && setWhy({ a: e.pa, b: e.pb || e.pa, name: e.name, value: e.value + recUnit(e.rk), label: e.when })}><${RecMedal} t="G" w=${16} /><span>${e.name}${e.sale ? html`<span class="salebadge">SALE</span>` : ''}</span><b>${e.value}${recUnit(e.rk)}</b></button>`)}</div>`)}</div>`
       : html`<p class="small muted" style="margin:0">None yet. ${tab === 'day' ? 'Day records start after 2 weeks of history.' : tab === 'week' ? 'Week records start after 3 full weeks.' : tab === 'month' ? 'Month records start after 1 full month.' : 'Year records start after 1 full year.'}</p>`}</section>
     <details class="panel"><summary class="small" style="cursor:pointer"><b>How records count</b></summary><div class="small" style="margin-top:8px;line-height:1.55">
-      <p><b>Orders, sales and packs</b> come from Shopify on their own. Sales match Shopify's "Total sales": after discounts and refunds, with shipping and tax.</p>
+      <p><b>Orders, sales and packs</b> come from Shopify on their own. Sales match Shopify's "Total sales": after discounts and refunds, with shipping and tax. Shopify only gives the app your last ~60 days of orders; before that, records use the Shopify numbers you entered in Goals (net sales + shipping + return fees, orders, 6-packs), marked "your Goals numbers".</p>
       <p><b>ROAS, spend and streaks</b> need your Ads Manager file for every day. ROAS is Meta-reported sales ÷ spend, the same basis as break-even (${R.xroas(book.be0)}). There's no daily ROAS record because one day can be luck. Week, month and year ROAS and lowest cost per order only count when spend was at least 75% of your normal.</p>
       <p><b>Profit</b> only uses numbers you enter in Goals (+ Add numbers). A day counts if you entered that one day; a week or month counts if your entries cover every day of it without spilling past it. Entries where the app had to guess most of the costs don't count. A profit record pops up the day you enter the numbers.</p>
       <p><b>Pop-ups</b>: any record you haven't seen from the last 8 days pops up the next time you open the app, so Saturday's record still shows on Monday. Orders, sales, packs and milestones show as soon as Shopify has them. ROAS, cost per order, streak and profit records wait until that day (or week, month) has both your Ads Manager file and your profit, so they come together; if only the file is in after 3 days, they show anyway. Each record shows once on each device.</p>
       <p><b>Sales</b> (from your Plan, like Black Friday): a sale day, a week with 2+ sale days or a month with 5+ go in the Sale list instead. They still pop up, with a SALE badge, if they beat everything.</p>
-      <p><b>Beat it by</b> compares the record to your recent normal: the last 30 days, 4 weeks or 3 months, not counting sales.</p>
+      <p><b>Beat it by</b> compares the record to your recent normal: the last 30 days, 4 weeks or 3 months, not counting sales or the record itself. It's hidden until there are at least 2 to compare.</p>
       <p>The banner shows your newest record from the last 30 days; if there isn't one, your most important record. Importance: profit, sales, orders, ROAS, then the rest. A day, week (Monday–Sunday), month or year only counts when every day in it has data. Meta keeps adding late sales to past days for up to 7 days; if that pushes an old day past a record, it's added here without a pop-up.</p></div></details>
     ${whyM}`;
 }
