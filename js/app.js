@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=220';
-import * as R from './rules.js?v=220';
-import { importHistory } from './importer.js?v=220';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=220';
+import { createBackend } from './data.js?v=221';
+import * as R from './rules.js?v=221';
+import { importHistory } from './importer.js?v=221';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=221';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2366,7 +2366,8 @@ function recordBook(data) {
   const y = R.addDays(R.today(), -1);
   const crew = data.products.find((p) => p.kind === 'crew') || data.products[0], econ = crew ? R.econOf(crew) : null, be0 = (econ && econ.opBE) || 2.85;
   const shop = new Map(), meta = new Map();
-  for (const d of data.shop_days) if (d.day <= y) shop.set(d.day, { orders: +d.orders || 0, sales: (+d.gross || 0) - (+d.refunds || 0) - (+d.tax || 0), units: +d.units || 0 });
+  // Sales = Shopify's "Total sales": order totals after discounts, with shipping and tax, minus refunds and reversals.
+  for (const d of data.shop_days) if (d.day <= y) shop.set(d.day, { orders: +d.orders || 0, sales: (+d.gross || 0) - (+d.refunds || 0), units: +d.units || 0 });
   for (const r of data.meta_days) { if (r.day > y) continue; const m = meta.get(r.day) || { spend: 0, rev: 0 }; m.spend += +r.spend || 0; m.rev += +r.revenue || 0; meta.set(r.day, m); }
   const days = [...new Set([...shop.keys(), ...meta.keys()])].sort();
   if (!days.length) return { defs: [], events: [], best: {}, y, be0 };
@@ -2541,11 +2542,11 @@ function recTarget(r, k) {
 // Tap a record: what was happening in that period.
 function recWhy(data, a, b) {
   const sh = data.shop_days.filter((d) => d.day >= a && d.day <= b), n = R.daysBetween(a, b) + 1;
-  const o = { orders: 0, sales: 0 }; sh.forEach((d) => { o.orders += +d.orders || 0; o.sales += (+d.gross || 0) - (+d.refunds || 0) - (+d.tax || 0); });
+  const o = { orders: 0, sales: 0 }; sh.forEach((d) => { o.orders += +d.orders || 0; o.sales += (+d.gross || 0) - (+d.refunds || 0); });
   const m = sumRows(data.meta_days.filter((r) => r.day >= a && r.day <= b));
   const pa = R.addDays(a, -30), pe = R.addDays(a, -1), psh = data.shop_days.filter((d) => d.day >= pa && d.day <= pe), pm = sumRows(data.meta_days.filter((r) => r.day >= pa && r.day <= pe));
   const pn = Math.max(1, new Set(psh.map((d) => d.day)).size), pmn = Math.max(1, new Set(data.meta_days.filter((r) => r.day >= pa && r.day <= pe).map((r) => r.day)).size);
-  const norm = { orders: psh.reduce((t, d) => t + (+d.orders || 0), 0) / pn * n, sales: psh.reduce((t, d) => t + (+d.gross || 0) - (+d.refunds || 0) - (+d.tax || 0), 0) / pn * n, spend: pm.spend / pmn * n, roas: pm.spend ? pm.revenue / pm.spend : null };
+  const norm = { orders: psh.reduce((t, d) => t + (+d.orders || 0), 0) / pn * n, sales: psh.reduce((t, d) => t + (+d.gross || 0) - (+d.refunds || 0), 0) / pn * n, spend: pm.spend / pmn * n, roas: pm.spend ? pm.revenue / pm.spend : null };
   const ads = data.ads.map((ad) => { const rows = rowsForAd(ad, data.meta_days).filter((r) => r.day >= a && r.day <= b); const t = sumRows(rows); return { ad, t, test: rows.some((r) => /test/i.test(r.campaign || '')) }; })
     .filter((x) => x.t.spend > 0).sort((x, z) => z.t.spend - x.t.spend).slice(0, 6);
   const tests = data.tests.filter((t) => t.stage === 1 && t.start_date && t.start_date <= b && R.addDays(t.start_date, (t.planned_days || 7) - 1) >= a).map((t) => data.ads.find((x) => x.id === t.ad_id)).filter(Boolean);
@@ -2670,7 +2671,7 @@ function RecordsPage({ data, inRoom, setModal }) {
     <section class="panel"><h2>Records you've broken</h2>${byDay.length ? html`<div class="rhist">${byDay.map(([d, es]) => html`<div class="rhday"><b>${mdLabel(d)}</b>${es.map((e) => html`<button class="rhit rbtn" onClick=${() => e.pa && setWhy({ a: e.pa, b: e.pb || e.pa, name: e.name, value: e.value + recUnit(e.rk), label: e.when })}><${RecMedal} t="G" w=${16} /><span>${e.name}${e.sale ? html`<span class="salebadge">SALE</span>` : ''}</span><b>${e.value}${recUnit(e.rk)}</b></button>`)}</div>`)}</div>`
       : html`<p class="small muted" style="margin:0">None yet. ${tab === 'day' ? 'Day records start after 2 weeks of history.' : tab === 'week' ? 'Week records start after 3 full weeks.' : tab === 'month' ? 'Month records start after 1 full month.' : 'Year records start after 1 full year.'}</p>`}</section>
     <details class="panel"><summary class="small" style="cursor:pointer"><b>How records count</b></summary><div class="small" style="margin-top:8px;line-height:1.55">
-      <p><b>Orders, sales and packs</b> come from Shopify on their own. Sales are after refunds and without sales tax.</p>
+      <p><b>Orders, sales and packs</b> come from Shopify on their own. Sales match Shopify's "Total sales": after discounts and refunds, with shipping and tax.</p>
       <p><b>ROAS, spend and streaks</b> need your Ads Manager file for every day. ROAS is Meta-reported sales ÷ spend, the same basis as break-even (${R.xroas(book.be0)}). There's no daily ROAS record because one day can be luck. Week, month and year ROAS and lowest cost per order only count when spend was at least 75% of your normal.</p>
       <p><b>Profit</b> only uses numbers you enter in Goals (+ Add numbers). A day counts if you entered that one day; a week or month counts if your entries cover every day of it without spilling past it. Entries where the app had to guess most of the costs don't count. A profit record pops up the day you enter the numbers.</p>
       <p><b>Pop-ups</b>: any record you haven't seen from the last 8 days pops up the next time you open the app, so Saturday's record still shows on Monday. Orders, sales, packs and milestones show as soon as Shopify has them. ROAS, cost per order, streak and profit records wait until that day (or week, month) has both your Ads Manager file and your profit, so they come together; if only the file is in after 3 days, they show anyway. Each record shows once on each device.</p>
