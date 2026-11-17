@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=228';
-import * as R from './rules.js?v=228';
-import { importHistory } from './importer.js?v=228';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=228';
+import { createBackend } from './data.js?v=229';
+import * as R from './rules.js?v=229';
+import { importHistory } from './importer.js?v=229';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=229';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -4369,6 +4369,8 @@ function Goal(ctx) {
   // What-ifs
   const calcBase = { spend: spendDay ? String(Math.round(spendDay)) : '100', roas: mer ? mer.toFixed(2) : '3.0', margin: String(margin ? Math.round(margin) : (R.num(st.margin) || 35)) };
   const [calcEdit, setCalc] = useState(null); const calc = calcEdit || calcBase;
+  // Read the box itself on every kind of change (typing, paste, autofill, leaving the box) so the math always matches what you see.
+  const calcIn = (k) => { const h = (e) => { const v = e.target.value; setCalc((c) => { const cur = c || calcBase; return cur[k] === v ? c : { ...cur, [k]: v }; }); }; return { onInput: h, onChange: h, onKeyUp: h, onBlur: h, autocomplete: 'off' }; };
   const cs = R.num(calc.spend) || 0, cr = R.num(calc.roas) || 0, cmg = (R.num(calc.margin) || 0) / 100;
   const perDollar = cmg * cr - 1, monthProfit = cs * 30.4 * perDollar - fixed;
   const needSpend = perDollar > 0 ? (GOAL.profit + fixed) / (30.4 * perDollar) : null;
@@ -4415,11 +4417,11 @@ function Goal(ctx) {
     <section class="panel"><div class="row"><h2 style="margin:0">Plan and what-ifs</h2><span class="spacer"></span><button class="link small" onClick=${() => setWhatif(!whatif)}>${whatif ? 'Hide' : 'Show'}</button></div>
       ${!whatif ? html`<div class="small muted">Calculator, profit per pack and what moves the needle.</div>` : html`<div class="grid2">
         <div class="stack">
-          <div class="rulerow"><label for="c-s">Ad spend per day</label><input id="c-s" inputmode="decimal" value=${calc.spend} onInput=${(e) => setCalc({ ...calc, spend: e.target.value })} /><span class="tiny muted">$</span></div>
-          <div class="rulerow"><label for="c-r">Blended ROAS</label><input id="c-r" inputmode="decimal" value=${calc.roas} onInput=${(e) => setCalc({ ...calc, roas: e.target.value })} /><span class="tiny muted">x</span></div>
-          <div class="rulerow"><label for="c-m">Margin before ads</label><input id="c-m" inputmode="decimal" value=${calc.margin} onInput=${(e) => setCalc({ ...calc, margin: e.target.value })} /><span class="tiny muted">%</span></div>
+          <div class="rulerow"><label for="c-s">Ad spend per day</label><input id="c-s" inputmode="decimal" value=${calc.spend} ...${calcIn('spend')} /><span class="tiny muted">$</span></div>
+          <div class="rulerow"><label for="c-r">Blended ROAS</label><input id="c-r" inputmode="decimal" value=${calc.roas} ...${calcIn('roas')} /><span class="tiny muted">x</span></div>
+          <div class="rulerow"><label for="c-m">Margin before ads</label><input id="c-m" inputmode="decimal" value=${calc.margin} ...${calcIn('margin')} /><span class="tiny muted">%</span></div>
           <div class=${'status ' + (monthProfit >= GOAL.profit ? 'good' : monthProfit > 0 ? 'live' : 'bad')}><b>${R.money0(monthProfit)} profit a month</b> (after ${R.money0(fixed)} fixed costs)</div>
-          <div class="small">${perDollar <= 0 ? `At ${cr.toFixed(2)}x and ${Math.round(cmg * 100)}% margin every ad dollar loses money. Break-even here is ${(1 / cmg).toFixed(2)}x.` : `To reach $12,000: about ${R.money0(needSpend)}/day at this ROAS, or ${needRoas.toFixed(2)}x at this spend.`}</div>
+          <div class="small">${perDollar <= 0 ? `At ${cr.toFixed(2)}x and ${Math.round(cmg * 100)}% margin every ad dollar loses money. Break-even here is ${(1 / cmg).toFixed(2)}x.` : `To reach ${R.money0(GOAL.profit)} a month: about ${R.money0(needSpend)}/day at this ROAS${needRoas != null && needRoas <= 15 ? `, or ${needRoas.toFixed(2)}x at this spend` : ''}.${monthProfit >= GOAL.profit ? ' You’re already there at these numbers.' : ''}`}</div>
           ${calcEdit && html`<button class="link small" style="align-self:flex-start" onClick=${() => setCalc(null)}>Reset to my numbers</button>`}
         </div>
         <div class="stack">
