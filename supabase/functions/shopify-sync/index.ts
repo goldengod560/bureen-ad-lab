@@ -37,6 +37,8 @@ async function gql(shop: string, token: string, query: string, variables: Record
 // Counted the way Shopify's Analytics page counts:
 // a sale lands on the day the order was placed (processedAt), cancelled orders included;
 // a refund or cancellation lands on the day it happened (not the order's day).
+// Order edits (an item removed, or swapped for another size) count at what the order is now: Shopify's original total
+// still includes removed items, which it books as a "sales reversal", so we use the current total plus anything refunded.
 const ORDERS = `query($q: String!, $after: String) {
   orders(first: 100, after: $after, query: $q, sortKey: UPDATED_AT) {
     pageInfo { hasNextPage endCursor }
@@ -45,6 +47,9 @@ const ORDERS = `query($q: String!, $after: String) {
       totalPriceSet { shopMoney { amount } }
       totalDiscountsSet { shopMoney { amount } }
       totalTaxSet { shopMoney { amount } }
+      currentTotalPriceSet { shopMoney { amount } }
+      currentTotalDiscountsSet { shopMoney { amount } }
+      currentTotalTaxSet { shopMoney { amount } }
       totalRefundedSet { shopMoney { amount } }
       currentSubtotalLineItemsQuantity
       refunds(first: 10) { createdAt totalRefundedSet { shopMoney { amount } } }
@@ -87,12 +92,17 @@ Deno.serve(async (req) => {
       const d = await gql(shop, token, ORDERS, { q: `updated_at:>='${qSince}' OR processed_at:>='${qSince}'`, after });
       for (const o of d.orders.nodes) {
         if (o.test) continue;
-        const total = num(o.totalPriceSet), tax = num(o.totalTaxSet), taxShare = total > 0 ? tax / total : 0;
+        let refunded = 0; for (const r of o.refunds ?? []) refunded += num(r.totalRefundedSet);
+        // Cancelled orders: the full original order on its day, then the rest reversed on the cancel day (as Shopify does).
+        // Other orders: what the order is now after edits, plus refunds (which come off on the day they happened).
+        const total = o.cancelledAt ? num(o.totalPriceSet) : num(o.currentTotalPriceSet) + refunded;
+        const taxNow = o.cancelledAt ? num(o.totalTaxSet) : num(o.currentTotalTaxSet), taxShare0 = num(o.totalPriceSet) > 0 ? num(o.totalTaxSet) / num(o.totalPriceSet) : 0;
+        const tax = o.cancelledAt ? taxNow : taxNow + refunded * taxShare0, taxShare = total > 0 ? tax / total : 0;
+        const disc = o.cancelledAt ? num(o.totalDiscountsSet) : num(o.currentTotalDiscountsSet);
         const sale = at(o.processedAt);
-        if (sale) { sale.orders += 1; sale.gross += total; sale.discounts += num(o.totalDiscountsSet); sale.tax += tax; sale.units += Number(o.currentSubtotalLineItemsQuantity) || 0; n++; }
-        let refunded = 0;
+        if (sale) { sale.orders += 1; sale.gross += total; sale.discounts += disc; sale.tax += tax; sale.units += Number(o.currentSubtotalLineItemsQuantity) || 0; n++; }
         for (const r of o.refunds ?? []) {
-          const amt = num(r.totalRefundedSet); refunded += amt;
+          const amt = num(r.totalRefundedSet);
           const day = at(r.createdAt); if (day) { day.refunds += amt; day.tax -= amt * taxShare; }
         }
         // A cancelled order that wasn't refunded in full: Shopify reverses the rest on the cancel day.
