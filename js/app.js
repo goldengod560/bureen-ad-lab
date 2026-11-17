@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=216';
-import * as R from './rules.js?v=216';
-import { importHistory } from './importer.js?v=216';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=216';
+import { createBackend } from './data.js?v=217';
+import * as R from './rules.js?v=217';
+import { importHistory } from './importer.js?v=217';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=217';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2487,49 +2487,68 @@ function RecordWatcher({ data, setView }) {
       <div class="tiny muted" style="text-align:center;margin-top:8px">Shows today until midnight · once on this device</div>
     </div></div>`;
 }
-// Records, inside Goals → Trophy room. Four pages: Days, Weeks, Months, Years.
+// Records: its own tab in Goals. Four pages (Days, Weeks, Months, Years), each a hall of fame:
+// a banner with your newest record (last 30 days) or, if none, your most important one; then a card per record
+// with gold (the record), silver (2nd best) and bronze (3rd best) and their dates. Cards stay in order of importance.
+const REC_PAGES = { day: ['Days', ['d_profit', 'd_sales', 'd_orders', 'd_pspend', 'd_streak']], week: ['Weeks', ['w_profit', 'w_sales', 'w_orders', 'w_roas', 'w_cpo']],
+  month: ['Months', ['m_profit', 'm_sales', 'm_orders', 'm_roas', 'm_units']], year: ['Years', ['y_sales', 'y_orders', 'y_roas']] };
+const recUnit = (k) => (/orders$/.test(k) ? ' orders' : /units$/.test(k) ? ' packs' : '');
+function RecMedal({ t, w }) { return html`<span class=${'rmed ' + t} style=${`width:${w}px;height:${w}px;font-size:${Math.round(w * 0.4)}px`} aria-label=${t === 'G' ? '1st' : t === 'S' ? '2nd' : '3rd'}>${t === 'G' ? 1 : t === 'S' ? 2 : 3}</span>`; }
 function RecordsPage({ data, inRoom }) {
   const book = useMemo(() => { try { return recordBook(data); } catch (e) { console.warn(e); return null; } }, [data]);
-  const [tab, setTab0] = useState(() => lsGet('adlab-rec-tab', 'day'));
+  const [tab, setTab0] = useState(() => { const t = lsGet('adlab-rec-tab', 'day'); return REC_PAGES[t] ? t : 'day'; });
   const setTab = (k) => { setTab0(k); lsSet('adlab-rec-tab', k); };
-  if (!book || !book.first) return html`<section class="panel"><h2>Records</h2><p class="muted">Records show up once the app has your Shopify orders and Ads Manager files.</p></section>`;
-  const recent = R.addDays(book.y, -6);
+  const seg = html`<div class="skseg" role="tablist" aria-label="Records">${Object.entries(REC_PAGES).map(([k, [l]]) => html`<button role="tab" aria-selected=${tab === k} class=${tab === k ? 'on' : ''} onClick=${() => setTab(k)}>${l}</button>`)}</div>`;
+  if (!book || !book.first) return html`<div class="recbar">${seg}</div><section class="panel"><p class="muted" style="margin:0">Records show up once the app has your Shopify orders and Ads Manager files.</p></section>`;
+  const keys = REC_PAGES[tab][1], bw = book.best, rank = (k) => keys.indexOf(k);
+  const recent = R.addDays(book.y, -6), month = R.addDays(book.y, -29);
   const isNew = (k) => book.events.some((e) => e.rk === k && e.end >= recent);
-  // Each record: gold = the record, silver = 2nd best, bronze = 3rd best, each with its date.
-  const tile = (k) => { const r = book.best[k]; if (!r) return null; const nw = isNew(k), t3 = r.top3 || [];
-    return html`<div class=${'recrow' + (nw ? ' nw' : '')}><div class="recrn"><b>${r.name}</b>${nw ? html` <span class="recnew">NEW</span>` : ''}${r.note ? html`<div class="tiny muted">${r.note}</div>` : ''}</div>
-      ${t3.length ? ['G', 'S', 'B'].map((t, i) => { const x = t3[i]; return html`<div class=${'recmed m' + t}>${x ? html`<${Cup} t=${t} w=${i ? 26 : 32} /><div><div class="recmv">${r.fmt(x.v)}</div><div class="tiny muted">${x.p.label}</div></div>` : html`<${Cup} t=${t} w=${i ? 26 : 32} got=${false} /><div class="tiny muted">not yet</div>`}</div>`; })
-        : html`<div class="tiny muted recnone">${r.empty || `No full ${r.group} with enough data yet.`}</div>`}</div>`; };
-  const pbar = (label, now, rec, fmt, note) => html`<div class="recpace"><div class="row small"><span>${label}</span><span class="spacer"></span><b>${fmt(now)}</b></div>
-    <div class="skbar"><i style=${`width:${rec ? Math.min(100, (now / rec) * 100).toFixed(0) : 0}%`}></i></div><div class="tiny muted">${note}</div></div>`;
-  const P = book.pace, bw = book.best, cnt = (v) => Math.round(v).toLocaleString();
+  // The banner: newest record on this page from the last 30 days (most important first on a tie), else the most important record.
+  const evs = book.events.filter((e) => keys.includes(e.rk) && e.end >= month).sort((a, b) => (a.end !== b.end ? (a.end < b.end ? 1 : -1) : rank(a.rk) - rank(b.rk)));
+  const lead = evs[0], also = lead ? evs.filter((e) => e !== lead && e.end === lead.end) : [];
+  const topK = keys.find((k) => bw[k] && bw[k].b);
+  const unitWord = { day: 'that day', week: 'that week', month: 'that month', year: 'that year' }[tab];
+  const hero = lead ? html`<section class="rhero"><div class="rhcup"><${Cup} t="G" w=${84} /></div><div class="grow">
+        <div class="rhk">LATEST RECORD · ${(lead.sub || lead.when).toUpperCase()}</div><div class="rhv">${lead.value}${recUnit(lead.rk)}</div>
+        <div class="rhs">${lead.name} · beat ${lead.old}${lead.pct != null ? html` by <b class="pos">${lead.lower ? lead.pct + '% lower' : '+' + lead.pct + '%'}</b>` : ''}</div>
+        ${also.length > 0 && html`<div class="rhm">Also ${unitWord}: ${also.map((e) => `${e.name[0].toLowerCase() + e.name.slice(1)} ${e.value}${recUnit(e.rk)}`).join(' · ')}</div>`}</div></section>`
+    : topK ? html`<section class="rhero"><div class="rhcup"><${Cup} t="G" w=${84} /></div><div class="grow"><div class="rhk">TOP RECORD · ${bw[topK].b.p.label.toUpperCase()}</div>
+        <div class="rhv">${bw[topK].fmt(bw[topK].b.v)}${recUnit(topK)}</div><div class="rhs">${bw[topK].name}</div><div class="rhm">No new ${tab} records in the last 30 days. Beat this one to see your next record here.</div></div></section>` : null;
+  const card = (k) => { const r = bw[k]; if (!r) return null; const t3 = r.top3 || [], nw = isNew(k);
+    return html`<section class=${'rcard' + (nw ? ' nw' : '')}>
+      <div class="rctop"><${RecMedal} t="G" w=${46} /><div class="grow" style="min-width:0"><div class="rcn">${r.name}${nw ? html`<span class="recnew">NEW</span>` : ''}</div>
+        ${t3[0] ? html`<div class="rcv">${r.fmt(t3[0].v)}${recUnit(k)}</div><div class="rcd">${t3[0].p.label}</div>` : html`<div class="rcd" style="margin-top:6px">${r.empty || `No full ${r.group} with enough data yet.`}</div>`}</div></div>
+      ${t3[0] && ['S', 'B'].map((t, i) => { const x = t3[i + 1]; return html`<div class="rcrow"><${RecMedal} t=${t} w=${22} />${x ? html`<b>${r.fmt(x.v)}</b><span>${x.p.label}</span>` : html`<span class="muted" style="margin-left:0">not yet</span>`}</div>`; })}
+      ${r.note && html`<div class="rcnote">${r.note}</div>`}</section>`; };
+  // This week / month / year so far, and the round-number milestone
+  const P = book.pace, cnt = (v) => Math.round(v).toLocaleString();
   const recOf = (k) => (bw[k] && bw[k].b ? bw[k].b.v : null);
-  const onPace = (v, o, total) => (o && o.n ? (v / o.n) * total : 0);
-  const pn = (o, total, rec, v, fmt) => `On pace for ${fmt(onPace(v, o, total))}${rec ? ` · record ${fmt(rec)}` : ''}`;
   const dimNow = R.daysBetween(P.ma, monthEnd(P.ma.slice(0, 7))) + 1, yr = P.ya.slice(0, 4);
-  const PAGES = { day: ['Days', 'Best day', ['d_orders', 'd_sales', 'd_profit', 'd_pspend', 'd_streak']], week: ['Weeks', 'Best week', ['w_orders', 'w_sales', 'w_roas', 'w_cpo', 'w_profit']],
-    month: ['Months', 'Best month', ['m_orders', 'm_sales', 'm_roas', 'm_units', 'm_profit']], year: ['Years', 'Best year', ['y_orders', 'y_sales', 'y_roas']] };
-  const [, title, keys] = PAGES[tab] || PAGES.day;
-  const nextMile = (g) => REC_MILES.flatMap((m) => [2, 3, 4, 5, 6, 7, 8].map((k) => m * 10 ** k)).filter((t) => t > (book.miles[g] || 0) && t >= recMileFloor[g]).sort((a, b) => a - b)[0];
-  const mine = book.events.filter((e) => e.group === tab || e.rk === 'mile_' + tab).slice(0, 30);
+  const pace = tab === 'week' && P.week ? [`This week so far · ${P.week.n} of 7 days`, P.week.sales, recOf('w_sales'), R.money0, (P.week.sales / P.week.n) * 7]
+    : tab === 'month' && P.month ? [`${MON_LONG[+P.ma.slice(5, 7) - 1]} so far · ${P.month.n} of ${dimNow} days`, P.month.sales, recOf('m_sales'), R.money0, (P.month.sales / P.month.n) * dimNow]
+    : tab === 'year' && P.year ? [`${yr} so far`, P.year.sales, null, R.money0, null]
+    : tab === 'day' ? (() => { const s = recOf('d_streak') || 0, run = (bw.d_streak && bw.d_streak.run) || 0; return [`Current streak above break-even`, run, s, (v) => v + (v === 1 ? ' day' : ' days'), null]; })() : null;
+  const nextMile = REC_MILES.flatMap((m) => [2, 3, 4, 5, 6, 7, 8].map((k) => m * 10 ** k)).filter((t) => t > (book.miles[tab] || 0) && t >= recMileFloor[tab]).sort((a, b) => a - b)[0];
+  const mine = book.events.filter((e) => keys.includes(e.rk) || e.rk === 'mile_' + tab || (tab === 'year' && /^y_pass/.test(e.rk))).slice(0, 24);
   const byDay = []; for (const e of mine) { const g = byDay.find((x) => x[0] === e.end); if (g) g[1].push(e); else byDay.push([e.end, [e]]); }
-  const unit = { day: 'day', week: 'week', month: 'month', year: 'year' }[tab];
-  return html`<div class="row" style="gap:10px;align-items:center;flex-wrap:wrap;margin-top:${inRoom ? 4 : 0}px">${inRoom ? '' : html`<h1 style="margin:0">Records</h1>`}
-      <div class="skseg" role="tablist" aria-label="Records">${Object.entries(PAGES).map(([k, [l]]) => html`<button role="tab" aria-selected=${tab === k} class=${tab === k ? 'on' : ''} onClick=${() => setTab(k)}>${l}</button>`)}</div>
-      <span class="small muted">All-time bests since ${mdLabel(book.first)}. A record you break pops up the next day, once on each device.</span></div>
-    <section class="panel" style="margin-top:12px"><div class="rechd"><h2>${title}</h2><span class="tiny muted">1st</span><span class="tiny muted">2nd</span><span class="tiny muted">3rd</span></div>${keys.map(tile)}
-      ${tab === 'week' && P.week && pbar(`This week so far (${P.week.n} of 7 days)`, P.week.orders, recOf('w_orders'), cnt, pn(P.week, 7, recOf('w_orders'), P.week.orders, cnt) + ' orders')}
-      ${tab === 'month' && P.month && pbar(`${MON_LONG[+P.ma.slice(5, 7) - 1]} so far (${P.month.n} of ${dimNow} days)`, P.month.sales, recOf('m_sales'), R.money0, pn(P.month, dimNow, recOf('m_sales'), P.month.sales, R.money0))}
-      ${tab === 'year' && P.year && pbar(`${yr} so far`, P.year.sales, null, R.money0, book.first <= `${+yr - 1}-12-31` ? `Year records start once a full year is in the app. You'll get a pop-up the day ${yr} passes all of ${+yr - 1}.` : `Year records start once a full year is in the app. In ${+yr + 1} you'll get a pop-up the day it passes all of ${yr}.`)}
-    </section>
-    <section class="panel"><div class="row"><h2>Milestone</h2><span class="spacer"></span><span class="small muted">first ${unit} to reach a round number in sales</span></div>
-      <div class="recmiles one"><div><div class="tiny muted">Reached</div><b>${book.miles[tab] ? `${R.money0(book.miles[tab])} ${unit}` : '—'}</b></div><div><div class="tiny muted">Next</div><b>${R.money0(nextMile(tab))} ${unit}</b></div></div></section>
-    <section class="panel"><h2>Records you've broken</h2>${byDay.length ? html`<div class="rechist">${byDay.map(([d, es]) => html`<div><b class="pos">${mdLabel(d)}</b>${es.map((e) => html`<span>${e.name} · ${e.value}</span>`)}</div>`)}</div>`
-      : html`<p class="small muted">None yet. ${tab === 'day' ? 'Day records start after 2 weeks of history.' : tab === 'week' ? 'Week records start after 3 full weeks.' : tab === 'month' ? 'Month records start after 1 full month.' : 'Year records start after 1 full year.'}</p>`}</section>
+  return html`<div class="recbar">${seg}<span class="small muted">All-time bests since ${mdLabel(book.first)}. Break one and it pops up the next day.</span></div>
+    ${hero}
+    <div class="rgrid">${keys.map(card)}</div>
+    <div class="rgrid2">
+      ${pace && html`<section class="rcard"><div class="rcn">${pace[0]}</div><div class="rcv" style="color:var(--ink)">${pace[3](pace[1])}</div>
+        ${pace[2] ? html`<div class="skbar" style="margin:8px 0 6px"><i style=${`width:${Math.min(100, (pace[1] / pace[2]) * 100).toFixed(0)}%`}></i></div><div class="rcd">${pace[4] != null ? `On pace for ${pace[3](pace[4])} · ` : ''}record ${pace[3](pace[2])}</div>`
+          : html`<div class="rcd">${tab === 'year' ? (book.first <= `${+yr - 1}-12-31` ? `You'll get a pop-up the day ${yr} passes all of ${+yr - 1}.` : `Year records start once a full year is in the app. In ${+yr + 1} you'll get a pop-up the day it passes all of ${yr}.`) : ''}</div>`}</section>`}
+      <section class="rcard"><div class="rcn">Sales milestone · first ${tab} to reach</div><div class="row" style="gap:22px;margin-top:4px">
+        <div><div class="rcd">Reached</div><div class="rcv sm">${book.miles[tab] ? R.money0(book.miles[tab]) : '—'}</div></div>
+        <div><div class="rcd">Next</div><div class="rcv sm" style="color:var(--ink)">${R.money0(nextMile)}</div></div></div></section>
+    </div>
+    <section class="panel"><h2>Records you've broken</h2>${byDay.length ? html`<div class="rhist">${byDay.map(([d, es]) => html`<div class="rhday"><b>${mdLabel(d)}</b>${es.map((e) => html`<div class="rhit"><${RecMedal} t="G" w=${16} /><span>${e.name}</span><b>${e.value}${recUnit(e.rk)}</b></div>`)}</div>`)}</div>`
+      : html`<p class="small muted" style="margin:0">None yet. ${tab === 'day' ? 'Day records start after 2 weeks of history.' : tab === 'week' ? 'Week records start after 3 full weeks.' : tab === 'month' ? 'Month records start after 1 full month.' : 'Year records start after 1 full year.'}</p>`}</section>
     <details class="panel"><summary class="small" style="cursor:pointer"><b>How records count</b></summary><div class="small" style="margin-top:8px;line-height:1.55">
       <p><b>Orders, sales and packs</b> come from Shopify on their own. Sales are after refunds and without sales tax.</p>
       <p><b>ROAS, spend and streaks</b> need your Ads Manager file for every day. ROAS is Meta-reported sales ÷ spend, the same basis as break-even (${R.xroas(book.be0)}). There's no daily ROAS record because one day can be luck. Week, month and year ROAS and lowest cost per order only count when spend was at least 75% of your normal.</p>
       <p><b>Profit</b> only uses numbers you enter in Goals (+ Add numbers). A day counts if you entered that one day; a week or month counts if your entries cover every day of it without spilling past it. Entries where the app had to guess most of the costs don't count. A profit record pops up the day you enter the numbers.</p>
+      <p>The banner shows your newest record from the last 30 days; if there isn't one, your most important record. Importance: profit, sales, orders, ROAS, then the rest.</p>
       <p>A day, week (Monday–Sunday), month or year only counts when every day in it has data. Meta keeps adding late sales to past days for up to 7 days; if that pushes an old day past a record, it's added here without a pop-up.</p></div></details>`;
 }
 
