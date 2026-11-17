@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=217';
-import * as R from './rules.js?v=217';
-import { importHistory } from './importer.js?v=217';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=217';
+import { createBackend } from './data.js?v=218';
+import * as R from './rules.js?v=218';
+import { importHistory } from './importer.js?v=218';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=218';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -189,6 +189,7 @@ function App() {
       ${view === 'board' && html`<${Board} key=${product.id} ...${ctx} stage=${stage} setStage=${setStage} />`}
       ${view === 'archive' && html`<${Archive} key=${product.id} ...${ctx} />`}
       ${view === 'today' && html`<${PlanStrip} data=${data} setView=${setView} />`}
+      ${view === 'today' && html`<${CloseCalls} data=${data} setView=${setView} />`}
       ${view === 'today' && html`<${Today} ...${ctx} setPid=${setPid} />`}
       ${view === 'plan' && html`<${PlanPage} ...${ctx} />`}
       ${view === 'stats' && html`<${Stats} ...${ctx} />`}
@@ -196,7 +197,7 @@ function App() {
       ${view === 'rules' && html`<${Rules} key=${product.id} ...${ctx} />`}
       ${view === 'learn' && html`<${Learn} ...${ctx} />`}
       ${view === 'goal' && html`<${Goal} ...${ctx} setPid=${setPid} />`}
-      ${view === 'records' && html`<${RecordsPage} data=${data} />`}
+      ${view === 'records' && html`<${RecordsPage} data=${data} setModal=${setModal} />`}
       ${view === 'more' && html`<${More} ...${ctx} />`}
     </main>
     <nav class="bnav" aria-label="Main">${[['today', 'Overview'], ['board', 'Board'], ['archive', 'Archive'], ['goal', 'Goal'], ['stats', 'Stats'], ['more', 'More']].map(([k, l]) => html`<button class=${view === k || (k === 'more' && (view === 'learn' || view === 'rules' || view === 'angles' || view === 'plan')) ? 'on' : ''} onClick=${() => setView(k)}>${navName(k, l)}</button>`)}</nav>
@@ -2370,6 +2371,12 @@ function recordBook(data) {
   const days = [...new Set([...shop.keys(), ...meta.keys()])].sort();
   if (!days.length) return { defs: [], events: [], best: {}, y, be0 };
   const first = days[0];
+  // Sale periods from your Plan (Black Friday and so on): a day inside a sale, a week with 2+ sale days, a month with 5+.
+  // They get a SALE badge and their own list, so a sale doesn't make your normal records unbeatable.
+  let saleSteps = []; try { saleSteps = planOf(data).steps.filter((s) => s.kind === 'sale' && s.start); } catch (e) {}
+  const saleDay = new Map(); for (const s of saleSteps) for (let d = s.start; d <= (s.end || s.start); d = R.addDays(d, 1)) saleDay.set(d, s);
+  const saleCount = (a, b) => { let n = 0; for (let d = a; d <= b; d = R.addDays(d, 1)) if (saleDay.has(d)) n++; return n; };
+  const isSale = (g, p) => (g === 'day' ? saleDay.has(p.a) : g === 'week' ? saleCount(p.a, p.b) >= 2 : g === 'month' ? saleCount(p.a, p.b) >= 5 : false);
   const span = (a, b) => { const o = { orders: 0, sales: 0, units: 0, spend: 0, rev: 0, shopAll: true, metaAll: true, n: 0 };
     for (let d = a; d <= b; d = R.addDays(d, 1)) { o.n++; const s = shop.get(d), m = meta.get(d); if (s) { o.orders += s.orders; o.sales += s.sales; o.units += s.units; } else o.shopAll = false; if (m) { o.spend += m.spend; o.rev += m.rev; } else o.metaAll = false; }
     return o; };
@@ -2416,22 +2423,31 @@ function recordBook(data) {
   ];
   const events = [], best = {};
   const ev = (o) => { const after = R.addDays(o.end, 1), made = /_profit$/.test(o.rk) ? entered.get(o.pa + o.end) : null; events.push({ ...o, show: made && made > after ? made : after }); };
+  const close = [], K = { day: 30, week: 4, month: 3, year: 1 };
   for (const [key, group, name, list, val, fmt, lower, need] of defs) {
-    let b = null, n = 0; const all = [];
+    // b = best normal (non-sale) period, bA = best of everything. A sale period only pops up if it beats everything.
+    let b = null, bA = null, n = 0, nA = 0; const all = [], sale = [];
+    const bt = (v, x) => x == null || (lower ? v < x.v : v > x.v);
     for (const p of list) {
-      const v = val(p); if (v == null || !isFinite(v)) continue; all.push({ v, p });
-      const better = b == null || (lower ? v < b.v : v > b.v);
-      if (b != null && better && n >= need) ev({ key: key + '|' + p.a, pa: p.a, rk: key, group, name, when: p.label, sub: p.sub, end: p.end, value: fmt(v), old: fmt(b.v), oldWhen: b.p.label, pct: recPct(v, b.v, lower), lower });
-      if (better) b = { v, p }; n++;
+      const v = val(p); if (v == null || !isFinite(v)) continue;
+      const isS = isSale(group, p), base = { key: key + '|' + p.a, pa: p.a, pb: p.b, rk: key, group, name, when: p.label, sub: p.sub, end: p.end, value: fmt(v), lower };
+      if (isS) { sale.push({ v, p }); if (bA != null && bt(v, bA) && nA >= need) ev({ ...base, sale: true, old: fmt(bA.v), oldWhen: bA.p.label, pct: recPct(v, bA.v, lower) }); }
+      else { all.push({ v, p }); if (b != null && bt(v, b) && n >= need) ev({ ...base, old: fmt(b.v), oldWhen: b.p.label, pct: recPct(v, b.v, lower) }); if (bt(v, b)) b = { v, p }; n++; }
+      if (bt(v, bA)) bA = { v, p }; nA++;
     }
-    all.sort((x, z) => (lower ? x.v - z.v : z.v - x.v));
-    best[key] = { group, name, b, n, need, fmt, lower, top3: all.slice(0, 3), note: /_profit$/.test(key) ? 'from numbers you enter in Goals' : '', empty: /_profit$/.test(key) ? `Enter a whole ${group}'s numbers in Goals (+ Add numbers) and it shows here.` : '' };
+    const recentV = all.slice(-K[group]).map((x) => x.v), avg = recentV.length ? recentV.reduce((t, v) => t + v, 0) / recentV.length : null;
+    const srt = (arr) => [...arr].sort((x, z) => (lower ? x.v - z.v : z.v - x.v)), sorted = srt(all);
+    // Close call: the period that just ended came 2nd or 3rd
+    const i = sorted.findIndex((x) => x.p.end === y);
+    if ((i === 1 || i === 2) && n > need) close.push({ key, group, name, rank: i + 1, value: fmt(sorted[i].v), gap: fmt(Math.abs(sorted[0].v - sorted[i].v)), rec: fmt(sorted[0].v), recWhen: sorted[0].p.label, when: sorted[i].p.label, lower, a: sorted[i].p.a, b: sorted[i].p.b });
+    best[key] = { group, name, b, n, need, fmt, lower, top3: sorted.slice(0, 3), saleTop3: srt(sale).slice(0, 3), avg, avgN: recentV.length,
+      note: /_profit$/.test(key) ? 'from numbers you enter in Goals' : '', empty: /_profit$/.test(key) ? `Enter a whole ${group}'s numbers in Goals (+ Add numbers) and it shows here.` : '' };
   }
   // Longest streak of days in a row above break-even (needs a file every day)
   { let run = 0, top = 0, topEnd = null, prev = null, n = 0, runStart = null, topStart = null; const runs = new Map();
-    for (const d of days) { const m = meta.get(d); const good = m && m.spend > 0 && m.rev / m.spend >= be0; const cont = good && prev && R.addDays(prev, 1) === d && run; run = good ? (cont ? run + 1 : 1) : 0; if (good && !cont) runStart = d; prev = d; n++; if (good) runs.set(runStart, { v: run, p: { label: run === 1 ? mdLabel(d) : `${mdLabel(runStart)} – ${mdLabel(d)}` } });
+    for (const d of days) { const m = meta.get(d); const good = m && m.spend > 0 && m.rev / m.spend >= be0; const cont = good && prev && R.addDays(prev, 1) === d && run; run = good ? (cont ? run + 1 : 1) : 0; if (good && !cont) runStart = d; prev = d; n++; if (good) runs.set(runStart, { v: run, p: { a: runStart, b: d, label: run === 1 ? mdLabel(d) : `${mdLabel(runStart)} – ${mdLabel(d)}` } });
       if (run > top) { if (top > 0 && n > 14 && topStart !== runStart) ev({ key: 'd_streak|' + d, rk: 'd_streak', group: 'day', name: 'Longest streak above break-even', when: longDate(d), end: d, value: run + ' days', old: top + ' days', oldWhen: 'ended ' + mdLabel(topEnd), pct: null }); top = run; topEnd = d; topStart = runStart; } }
-    best.d_streak = { group: 'day', name: 'Longest streak above break-even', b: top ? { v: top, p: { label: 'through ' + mdLabel(topEnd) } } : null, n, need: 14, fmt: (v) => v + (v === 1 ? ' day' : ' days'), run, top3: [...runs.values()].sort((x, z) => z.v - x.v).slice(0, 3) }; }
+    best.d_streak = { group: 'day', name: 'Longest streak above break-even', b: top ? { v: top, p: { label: 'through ' + mdLabel(topEnd) } } : null, n, need: 14, top, topStart, runStart, fmt: (v) => v + (v === 1 ? ' day' : ' days'), run, top3: [...runs.values()].sort((x, z) => z.v - x.v).slice(0, 3) }; }
   // Passed last year: the first day this year's total beats all of last year's (what the app has of it).
   const yrs = [...new Set(days.map((d) => d.slice(0, 4)))];
   for (const yr of yrs) { const prevY = String(+yr - 1); if (!yrs.includes(prevY)) continue;
@@ -2444,7 +2460,7 @@ function recordBook(data) {
   const miles = {};
   for (const [g, list, nm] of [['day', P.day, 'day'], ['week', P.week, 'week'], ['month', P.month, 'month']]) {
     let top = 0; for (const p of list) { const o = sp(p); if (!o.shopAll) continue; const hit = recMilesUpTo(o.sales, recMileFloor[g]).filter((t) => t > top);
-      if (hit.length) { const t = hit[hit.length - 1]; if (top) ev({ key: `mile_${g}|${t}`, rk: 'mile_' + g, group: 'mile', name: `First ${money(t)} ${nm}`, when: p.label, sub: p.sub, end: p.end, value: money(o.sales), old: money(top), oldWhen: 'last milestone', pct: null }); top = t; } }
+      if (hit.length) { const t = hit[hit.length - 1]; if (top) ev({ key: `mile_${g}|${t}`, rk: 'mile_' + g, group: 'mile', name: `First ${money(t)} ${nm}`, when: p.label, sub: p.sub, end: p.end, pa: p.a, pb: p.b, sale: isSale(g, p), value: money(o.sales), old: money(top), oldWhen: 'last milestone', pct: null }); top = t; } }
     miles[g] = top; }
   { let top = 0; for (const yr of yrs) { let run = 0; for (let d = `${yr}-01-01`; d <= y && d <= `${yr}-12-31`; d = R.addDays(d, 1)) { const s = shop.get(d); if (!s) continue; run += s.sales; const hit = recMilesUpTo(run, recMileFloor.year).filter((t) => t > top);
       if (hit.length) { const t = hit[hit.length - 1]; if (top || yr !== yrs[0]) ev({ key: `mile_year|${t}`, rk: 'mile_year', group: 'mile', name: `First ${money(t)} year`, when: `${yr} so far · ${mdLabel(d)}`, end: d, value: money(run), old: top ? money(top) : '—', oldWhen: 'last milestone', pct: null }); top = t; } } }
@@ -2453,15 +2469,18 @@ function recordBook(data) {
   const wa = mon(R.today()), ma = R.today().slice(0, 8) + '01', ya = R.today().slice(0, 4) + '-01-01';
   const pace = { week: wa <= y ? span(wa, y) : null, month: ma <= y ? span(ma, y) : null, year: ya <= y ? span(ya, y) : null, wa, ma, ya };
   events.sort((a, b) => (a.end < b.end ? 1 : a.end > b.end ? -1 : 0));
-  return { events, best, y, be0, miles, pace, first, normalDaily };
+  return { events, best, y, be0, miles, pace, first, normalDaily, close, saleDay };
 }
+// One record book per data load and day, shared by the pop-up, Overview and the Records tab.
+const RB_CACHE = new WeakMap();
+function recordBookOf(data) { const t = R.today(), c = RB_CACHE.get(data); if (c && c.t === t) return c.b; const b0 = recordBook(data); RB_CACHE.set(data, { t, b: b0 }); return b0; }
 // Records from yesterday's day, the week/month/year that ended yesterday, or a milestone reached yesterday.
 // Shows today until midnight, once on each device. Anything new that comes in later today (a late Meta file) shows then.
 function RecordWatcher({ data, setView }) {
   const [list, setList] = useState(null);
   useEffect(() => {
     if (!data) return;
-    let book; try { book = recordBook(data); } catch (e) { console.warn('records', e); return; }
+    let book; try { book = recordBookOf(data); } catch (e) { console.warn('records', e); return; }
     const today = R.today(), fresh = book.events.filter((e) => e.show === today);
     let seen = {}; try { seen = JSON.parse(localStorage.getItem('adlab-rec-seen') || '{}'); } catch (e) {}
     const keys = seen.day === today ? seen.keys || [] : [];
@@ -2480,76 +2499,183 @@ function RecordWatcher({ data, setView }) {
       <div class="rechead"><${Cup} t="G" w=${44} /><div><div class="reck">${n === 1 ? 'NEW RECORD' : `${n} NEW RECORDS`} · ${longDate(R.today()).toUpperCase()}</div><div class="rech">${n === 1 ? 'You broke a record' : `You broke ${n} records`}</div></div></div>
       ${groups.map(([g, l, es]) => html`<div class="recgl">${l}${g !== 'mile' && g !== 'year' ? ' · ' + (es[0].sub || es[0].when) : ''}</div>
         <div class=${'reccg' + (n === 1 ? ' one' : es.length > 1 ? ' two' : '')}>${es.map((e) => html`<div class="reccd">
-          <div class="recn">${e.name}</div><div class="recv">${e.value}</div>
+          <div class="recn">${e.name}${e.sale ? html`<span class="salebadge">SALE</span>` : ''}</div><div class="recv">${e.value}</div>
           <div class="tiny muted">${g === 'mile' || g === 'year' ? e.when + ' · ' : ''}old ${e.old}${e.oldWhen ? ' · ' + e.oldWhen : ''}</div>
           ${e.pct != null && html`<span class="recpct">${e.lower ? e.pct + '% lower' : '+' + e.pct + '%'}</span>`}</div>`)}</div>`)}
       <div class="row" style="gap:10px;margin-top:16px"><button class="btn primary grow" onClick=${() => done(false)}>Nice</button><button class="btn" onClick=${() => done(true)}>See all records</button></div>
       <div class="tiny muted" style="text-align:center;margin-top:8px">Shows today until midnight · once on this device</div>
     </div></div>`;
 }
-// Records: its own tab in Goals. Four pages (Days, Weeks, Months, Years), each a hall of fame:
-// a banner with your newest record (last 30 days) or, if none, your most important one; then a card per record
-// with gold (the record), silver (2nd best) and bronze (3rd best) and their dates. Cards stay in order of importance.
+// Records: its own tab in Goals. Pages: Days, Weeks, Months, Years (hall of fame) and Ads (your best ads ever).
+// Each period page: a banner with your newest record (last 30 days) or, if none, your most important one; then a card per
+// record with gold (the record), silver (2nd) and bronze (3rd), what it takes to beat it, and a Sale list kept apart.
+// Tap any gold, silver or bronze to see what drove it.
 const REC_PAGES = { day: ['Days', ['d_profit', 'd_sales', 'd_orders', 'd_pspend', 'd_streak']], week: ['Weeks', ['w_profit', 'w_sales', 'w_orders', 'w_roas', 'w_cpo']],
-  month: ['Months', ['m_profit', 'm_sales', 'm_orders', 'm_roas', 'm_units']], year: ['Years', ['y_sales', 'y_orders', 'y_roas']] };
+  month: ['Months', ['m_profit', 'm_sales', 'm_orders', 'm_roas', 'm_units']], year: ['Years', ['y_sales', 'y_orders', 'y_roas']], ads: ['Ads', []] };
 const recUnit = (k) => (/orders$/.test(k) ? ' orders' : /units$/.test(k) ? ' packs' : '');
 function RecMedal({ t, w }) { return html`<span class=${'rmed ' + t} style=${`width:${w}px;height:${w}px;font-size:${Math.round(w * 0.4)}px`} aria-label=${t === 'G' ? '1st' : t === 'S' ? '2nd' : '3rd'}>${t === 'G' ? 1 : t === 'S' ? 2 : 3}</span>`; }
-function RecordsPage({ data, inRoom }) {
-  const book = useMemo(() => { try { return recordBook(data); } catch (e) { console.warn(e); return null; } }, [data]);
+const RAVG = { day: 'last 30 days', week: 'last 4 weeks', month: 'last 3 months', year: 'last year' };
+// What it takes to beat a record, from your recent normal (non-sale) periods.
+function recTarget(r, k) {
+  if (k === 'd_streak') { const run = r.run || 0, top = r.top || 0; if (!top) return null; return run && r.runStart === r.topStart ? `You're on it: day ${run} of your record streak. Every day above break-even adds to it.` : `Current streak ${run} ${run === 1 ? 'day' : 'days'} · ${top - run + 1} more in a row to beat it`; }
+  if (!r.b || r.avg == null || r.avgN < 1) return null;
+  const pct = r.lower ? Math.round((1 - r.b.v / r.avg) * 100) : Math.round((r.b.v / r.avg - 1) * 100);
+  if (pct <= 0) return `Your ${RAVG[r.group]} average ${r.fmt(r.avg)} is right at the record. One more good ${r.group} beats it.`;
+  return `Your ${RAVG[r.group]} average ${r.fmt(r.avg)} · beat it by ${r.lower ? pct + '% lower' : '+' + pct + '%'}`;
+}
+// Tap a record: what was happening in that period.
+function recWhy(data, a, b) {
+  const sh = data.shop_days.filter((d) => d.day >= a && d.day <= b), n = R.daysBetween(a, b) + 1;
+  const o = { orders: 0, sales: 0 }; sh.forEach((d) => { o.orders += +d.orders || 0; o.sales += (+d.gross || 0) - (+d.refunds || 0) - (+d.tax || 0); });
+  const m = sumRows(data.meta_days.filter((r) => r.day >= a && r.day <= b));
+  const pa = R.addDays(a, -30), pe = R.addDays(a, -1), psh = data.shop_days.filter((d) => d.day >= pa && d.day <= pe), pm = sumRows(data.meta_days.filter((r) => r.day >= pa && r.day <= pe));
+  const pn = Math.max(1, new Set(psh.map((d) => d.day)).size), pmn = Math.max(1, new Set(data.meta_days.filter((r) => r.day >= pa && r.day <= pe).map((r) => r.day)).size);
+  const norm = { orders: psh.reduce((t, d) => t + (+d.orders || 0), 0) / pn * n, sales: psh.reduce((t, d) => t + (+d.gross || 0) - (+d.refunds || 0) - (+d.tax || 0), 0) / pn * n, spend: pm.spend / pmn * n, roas: pm.spend ? pm.revenue / pm.spend : null };
+  const ads = data.ads.map((ad) => { const rows = rowsForAd(ad, data.meta_days).filter((r) => r.day >= a && r.day <= b); const t = sumRows(rows); return { ad, t, test: rows.some((r) => /test/i.test(r.campaign || '')) }; })
+    .filter((x) => x.t.spend > 0).sort((x, z) => z.t.spend - x.t.spend).slice(0, 6);
+  const tests = data.tests.filter((t) => t.stage === 1 && t.start_date && t.start_date <= b && R.addDays(t.start_date, (t.planned_days || 7) - 1) >= a).map((t) => data.ads.find((x) => x.id === t.ad_id)).filter(Boolean);
+  const changes = (data.events || []).filter((e) => e.day >= R.addDays(a, -2) && e.day <= b).map((e) => ({ day: String(e.day).slice(0, 10), what: `${e.kind}${e.note ? ': ' + e.note : ''}` }));
+  const moves = (data.decisions || []).filter((d) => String(d.day || '').slice(0, 10) >= R.addDays(a, -2) && String(d.day || '').slice(0, 10) <= b).map((d) => ({ day: String(d.day).slice(0, 10), what: `${d.kind === 'budget' ? 'Budget' : d.kind}: ${d.choice || ''}${d.reason ? ' · ' + d.reason : ''}` }));
+  let sale = null; try { sale = planOf(data).steps.find((s) => s.kind === 'sale' && s.start <= b && (s.end || s.start) >= a) || null; } catch (e) {}
+  return { n, o, m, norm, ads, tests, log: [...changes, ...moves].sort((x, z) => (x.day < z.day ? -1 : 1)), sale };
+}
+function RecordWhy({ data, why, close, setModal }) {
+  const w = useMemo(() => recWhy(data, why.a, why.b), [data, why.a, why.b]);
+  const vs = (now, base) => (base ? html` <span class=${now >= base ? 'pos' : 'neg'}>${now >= base ? '+' : ''}${Math.round((now / base - 1) * 100)}% vs normal</span>` : '');
+  const roas = w.m.spend ? w.m.revenue / w.m.spend : null;
+  return html`<div class="recback" role="dialog" aria-modal="true" aria-label="What drove it" onClick=${(e) => { if (e.target === e.currentTarget) close(); }}>
+    <div class="recmod wide"><button class="recx" aria-label="Close" onClick=${close}>×</button>
+      <div class="reck">WHAT DROVE IT · ${why.label.toUpperCase()}</div><div class="rech">${why.name}: ${why.value}</div>
+      ${w.sale && html`<div class="rwsale"><span class="salebadge">SALE</span> ${w.sale.name || 'Sale'}${w.sale.offer ? ' · ' + w.sale.offer : ''}</div>`}
+      <div class="rwstats">
+        <div><span>Orders</span><b>${Math.round(w.o.orders).toLocaleString()}</b>${vs(w.o.orders, w.norm.orders)}</div>
+        <div><span>Sales</span><b>${R.money0(w.o.sales)}</b>${vs(w.o.sales, w.norm.sales)}</div>
+        <div><span>Ad spend</span><b>${R.money0(w.m.spend)}</b>${vs(w.m.spend, w.norm.spend)}</div>
+        <div><span>ROAS</span><b>${roas != null ? R.xroas(roas) : '—'}</b>${roas != null && w.norm.roas ? html` <span class=${roas >= w.norm.roas ? 'pos' : 'neg'}>normal ${R.xroas(w.norm.roas)}</span>` : ''}</div>
+      </div>
+      <div class="tiny muted">"Normal" = your 30 days before${w.n > 1 ? `, scaled to ${w.n} days` : ''}.</div>
+      <div class="recgl">Ads that ran</div>
+      ${w.ads.length ? html`<div class="rwads">${w.ads.map((x) => html`<button class="rwad" onClick=${() => { if (setModal) { close(); setModal({ type: AdDetail, props: { adId: x.ad.id } }); } }}>
+          <span class="rwname">${displayName(x.ad)}</span><span class=${'chip ' + (x.test ? 't-mid' : 't-pass')}>${x.test ? 'Test' : 'Main'}</span>
+          <span class="mono">${R.money0(x.t.spend)}</span><span class="mono">${Math.round(x.t.purchases)} ${Math.round(x.t.purchases) === 1 ? 'buy' : 'buys'}</span><b class=${x.t.spend && x.t.revenue / x.t.spend >= (R.econOf(data.products.find((p) => p.id === x.ad.product_id) || data.products[0]).opBE || 2.85) ? 'pos' : 'neg'}>${x.t.spend ? R.xroas(x.t.revenue / x.t.spend) : '—'}</b></button>`)}</div>`
+        : html`<div class="small muted">No Ads Manager file for these days.</div>`}
+      ${w.tests.length > 0 && html`<div class="recgl">Tests running</div><div class="small">${w.tests.map((ad) => displayName(ad)).join(' · ')}</div>`}
+      <div class="recgl">What changed</div>
+      ${w.log.length ? w.log.map((l) => html`<div class="rwlog"><b>${mdLabel(l.day)}</b><span>${l.what}</span></div>`)
+        : html`<div class="small muted">Nothing in your change log or decisions around these days. Log changes (emails, price, site, budget) in History so next time you'll know why.</div>`}
+    </div></div>`;
+}
+// Your best ads ever, from every Ads Manager file.
+function adFame(data) {
+  const per = data.ads.map((ad) => { const rows = rowsForAd(ad, data.meta_days); if (!rows.length) return null; const t = sumRows(rows), mainRows = rows.filter((r) => !/test/i.test(r.campaign || ''));
+    const tm = sumRows(mainRows), days = new Set(mainRows.filter((r) => +r.spend > 0).map((r) => r.day)).size; return { ad, t, tm, days }; }).filter(Boolean);
+  const tests = data.tests.filter((t) => t.stage === 1 && !isDupTest(t)).map((t) => { const ad = data.ads.find((a) => a.id === t.ad_id); const r = ad && runsFor(t, ad, data); return r && r.windowDone && r.d7 && r.d7.spend >= 30 && r.d7.roas != null ? { ad, v: r.d7.roas, when: 'test from ' + mdLabel(t.start_date) } : null; }).filter(Boolean);
+  const best = new Map(); for (const x of tests) if (!best.has(x.ad.id) || best.get(x.ad.id).v < x.v) best.set(x.ad.id, x);
+  const top = (arr, f, fmt, when) => arr.map((x) => ({ ad: x.ad, v: f(x) })).filter((x) => x.v != null && x.v > 0).sort((x, z) => z.v - x.v).slice(0, 3).map((x) => ({ ...x, fmt, when: when ? when(x) : '' }));
+  const cnt = (v) => Math.round(v).toLocaleString();
+  return [
+    ['Most purchases from one ad', top(per, (x) => x.t.purchases, (v) => cnt(v) + ' buys')],
+    ['Most sales from one ad', top(per, (x) => x.t.revenue, R.money0)],
+    ['Longest run in Main', top(per, (x) => x.days || null, (v) => v + (v === 1 ? ' day' : ' days'))],
+    ['Best Main ROAS (spend $500+)', top(per, (x) => (x.tm.spend >= 500 ? x.tm.revenue / x.tm.spend : null), R.xroas)],
+    ['Best test result', [...best.values()].sort((x, z) => z.v - x.v).slice(0, 3).map((x) => ({ ad: x.ad, v: x.v, fmt: R.xroas, when: x.when }))],
+  ];
+}
+function RecordsPage({ data, inRoom, setModal }) {
+  const book = useMemo(() => { try { return recordBookOf(data); } catch (e) { console.warn(e); return null; } }, [data]);
+  const fame = useMemo(() => { try { return adFame(data); } catch (e) { console.warn(e); return []; } }, [data]);
+  const [why, setWhy] = useState(null);
   const [tab, setTab0] = useState(() => { const t = lsGet('adlab-rec-tab', 'day'); return REC_PAGES[t] ? t : 'day'; });
   const setTab = (k) => { setTab0(k); lsSet('adlab-rec-tab', k); };
   const seg = html`<div class="skseg" role="tablist" aria-label="Records">${Object.entries(REC_PAGES).map(([k, [l]]) => html`<button role="tab" aria-selected=${tab === k} class=${tab === k ? 'on' : ''} onClick=${() => setTab(k)}>${l}</button>`)}</div>`;
+  const whyM = why && html`<${RecordWhy} data=${data} why=${why} close=${() => setWhy(null)} setModal=${setModal} />`;
+  if (tab === 'ads') {
+    const lead = fame[0] && fame[0][1][0];
+    return html`<div class="recbar">${seg}<span class="small muted">Your best ads ever, from every Ads Manager file. Tap an ad to open it.</span></div>
+      ${lead && html`<section class="rhero"><div class="rhthumb"><${Media} path=${lead.ad.media_path} type=${lead.ad.media_type} poster=${lead.ad.tags && lead.ad.tags.poster} /></div><div class="grow">
+        <div class="rhk">TOP AD · MOST PURCHASES EVER</div><div class="rhv">${lead.fmt(lead.v)}</div><div class="rhs">${displayName(lead.ad)} · ${pName(data, lead.ad.product_id)}</div>
+        <div class="rhm">${R.stageLabel(lead.ad.stage)}${lead.ad.angle ? ' · ' + lead.ad.angle : ''}</div></div></section>`}
+      <div class="rgrid">${fame.map(([name, t3]) => html`<section class="rcard">
+        ${t3[0] ? html`<button class="rctop rbtn" onClick=${() => setModal && setModal({ type: AdDetail, props: { adId: t3[0].ad.id } })}><div class="rcthumb"><${Media} path=${t3[0].ad.media_path} type=${t3[0].ad.media_type} poster=${t3[0].ad.tags && t3[0].ad.tags.poster} /><${RecMedal} t="G" w=${24} /></div>
+            <div class="grow" style="min-width:0"><div class="rcn">${name}</div><div class="rcv">${t3[0].fmt(t3[0].v)}</div><div class="rcd ell">${displayName(t3[0].ad)}${t3[0].when ? ' · ' + t3[0].when : ''}</div></div></button>`
+          : html`<div class="rcn">${name}</div><div class="rcd" style="margin-top:6px">Not enough data yet.</div>`}
+        ${t3[0] && [1, 2].map((i) => { const x = t3[i]; return html`<button class="rcrow rbtn" onClick=${() => x && setModal && setModal({ type: AdDetail, props: { adId: x.ad.id } })}><${RecMedal} t=${i === 1 ? 'S' : 'B'} w=${22} />${x ? html`<b>${x.fmt(x.v)}</b><span class="ell">${displayName(x.ad)}</span>` : html`<span class="muted" style="margin-left:0">not yet</span>`}</button>`; })}
+      </section>`)}</div>`;
+  }
   if (!book || !book.first) return html`<div class="recbar">${seg}</div><section class="panel"><p class="muted" style="margin:0">Records show up once the app has your Shopify orders and Ads Manager files.</p></section>`;
   const keys = REC_PAGES[tab][1], bw = book.best, rank = (k) => keys.indexOf(k);
   const recent = R.addDays(book.y, -6), month = R.addDays(book.y, -29);
-  const isNew = (k) => book.events.some((e) => e.rk === k && e.end >= recent);
+  const isNew = (k) => book.events.some((e) => e.rk === k && !e.sale && e.end >= recent);
+  const open = (r, x, sale) => x && x.p && x.p.a && setWhy({ a: x.p.a, b: x.p.b || x.p.a, name: r.name, value: r.fmt(x.v) + recUnit(Object.keys(bw).find((k) => bw[k] === r) || ''), label: x.p.label + (sale ? ' · sale' : '') });
   // The banner: newest record on this page from the last 30 days (most important first on a tie), else the most important record.
   const evs = book.events.filter((e) => keys.includes(e.rk) && e.end >= month).sort((a, b) => (a.end !== b.end ? (a.end < b.end ? 1 : -1) : rank(a.rk) - rank(b.rk)));
   const lead = evs[0], also = lead ? evs.filter((e) => e !== lead && e.end === lead.end) : [];
   const topK = keys.find((k) => bw[k] && bw[k].b);
   const unitWord = { day: 'that day', week: 'that week', month: 'that month', year: 'that year' }[tab];
-  const hero = lead ? html`<section class="rhero"><div class="rhcup"><${Cup} t="G" w=${84} /></div><div class="grow">
-        <div class="rhk">LATEST RECORD · ${(lead.sub || lead.when).toUpperCase()}</div><div class="rhv">${lead.value}${recUnit(lead.rk)}</div>
+  const hero = lead ? html`<section class="rhero rclick" onClick=${() => setWhy({ a: lead.pa, b: lead.pb || lead.pa, name: lead.name, value: lead.value + recUnit(lead.rk), label: lead.when })}><div class="rhcup"><${Cup} t="G" w=${84} /></div><div class="grow">
+        <div class="rhk">${lead.sale ? html`<span class="salebadge">SALE</span> ` : ''}LATEST RECORD · ${(lead.sub || lead.when).toUpperCase()}</div><div class="rhv">${lead.value}${recUnit(lead.rk)}</div>
         <div class="rhs">${lead.name} · beat ${lead.old}${lead.pct != null ? html` by <b class="pos">${lead.lower ? lead.pct + '% lower' : '+' + lead.pct + '%'}</b>` : ''}</div>
-        ${also.length > 0 && html`<div class="rhm">Also ${unitWord}: ${also.map((e) => `${e.name[0].toLowerCase() + e.name.slice(1)} ${e.value}${recUnit(e.rk)}`).join(' · ')}</div>`}</div></section>`
-    : topK ? html`<section class="rhero"><div class="rhcup"><${Cup} t="G" w=${84} /></div><div class="grow"><div class="rhk">TOP RECORD · ${bw[topK].b.p.label.toUpperCase()}</div>
+        ${also.length > 0 && html`<div class="rhm">Also ${unitWord}: ${also.map((e) => `${e.name[0].toLowerCase() + e.name.slice(1)} ${e.value}${recUnit(e.rk)}`).join(' · ')}</div>`}
+        <div class="rhm">Tap to see what drove it</div></div></section>`
+    : topK ? html`<section class="rhero rclick" onClick=${() => open(bw[topK], bw[topK].b)}><div class="rhcup"><${Cup} t="G" w=${84} /></div><div class="grow"><div class="rhk">TOP RECORD · ${bw[topK].b.p.label.toUpperCase()}</div>
         <div class="rhv">${bw[topK].fmt(bw[topK].b.v)}${recUnit(topK)}</div><div class="rhs">${bw[topK].name}</div><div class="rhm">No new ${tab} records in the last 30 days. Beat this one to see your next record here.</div></div></section>` : null;
-  const card = (k) => { const r = bw[k]; if (!r) return null; const t3 = r.top3 || [], nw = isNew(k);
-    return html`<section class=${'rcard' + (nw ? ' nw' : '')}>
-      <div class="rctop"><${RecMedal} t="G" w=${46} /><div class="grow" style="min-width:0"><div class="rcn">${r.name}${nw ? html`<span class="recnew">NEW</span>` : ''}</div>
-        ${t3[0] ? html`<div class="rcv">${r.fmt(t3[0].v)}${recUnit(k)}</div><div class="rcd">${t3[0].p.label}</div>` : html`<div class="rcd" style="margin-top:6px">${r.empty || `No full ${r.group} with enough data yet.`}</div>`}</div></div>
-      ${t3[0] && ['S', 'B'].map((t, i) => { const x = t3[i + 1]; return html`<div class="rcrow"><${RecMedal} t=${t} w=${22} />${x ? html`<b>${r.fmt(x.v)}</b><span>${x.p.label}</span>` : html`<span class="muted" style="margin-left:0">not yet</span>`}</div>`; })}
+  const card = (k, sale) => { const r = bw[k]; if (!r) return null; const t3 = (sale ? r.saleTop3 : r.top3) || [], nw = !sale && isNew(k), tgt = !sale && recTarget(r, k);
+    if (sale && !t3.length) return null;
+    return html`<section class=${'rcard' + (nw ? ' nw' : '') + (sale ? ' sale' : '')}>
+      <button class="rctop rbtn" onClick=${() => open(r, t3[0], sale)} disabled=${!t3[0]}><${RecMedal} t="G" w=${46} /><div class="grow" style="min-width:0"><div class="rcn">${r.name}${nw ? html`<span class="recnew">NEW</span>` : ''}${sale ? html`<span class="salebadge">SALE</span>` : ''}</div>
+        ${t3[0] ? html`<div class="rcv">${r.fmt(t3[0].v)}${recUnit(k)}</div><div class="rcd">${t3[0].p.label}</div>` : html`<div class="rcd" style="margin-top:6px">${r.empty || `No full ${r.group} with enough data yet.`}</div>`}</div></button>
+      ${t3[0] && ['S', 'B'].map((t, i) => { const x = t3[i + 1]; return html`<button class="rcrow rbtn" onClick=${() => open(r, x, sale)} disabled=${!x}><${RecMedal} t=${t} w=${22} />${x ? html`<b>${r.fmt(x.v)}</b><span>${x.p.label}</span>` : html`<span class="muted" style="margin-left:0">not yet</span>`}</button>`; })}
+      ${tgt && html`<div class="rctgt">${tgt}</div>`}
       ${r.note && html`<div class="rcnote">${r.note}</div>`}</section>`; };
+  const saleCards = keys.map((k) => card(k, true)).filter(Boolean);
   // This week / month / year so far, and the round-number milestone
-  const P = book.pace, cnt = (v) => Math.round(v).toLocaleString();
+  const P = book.pace;
   const recOf = (k) => (bw[k] && bw[k].b ? bw[k].b.v : null);
   const dimNow = R.daysBetween(P.ma, monthEnd(P.ma.slice(0, 7))) + 1, yr = P.ya.slice(0, 4);
-  const pace = tab === 'week' && P.week ? [`This week so far · ${P.week.n} of 7 days`, P.week.sales, recOf('w_sales'), R.money0, (P.week.sales / P.week.n) * 7]
-    : tab === 'month' && P.month ? [`${MON_LONG[+P.ma.slice(5, 7) - 1]} so far · ${P.month.n} of ${dimNow} days`, P.month.sales, recOf('m_sales'), R.money0, (P.month.sales / P.month.n) * dimNow]
-    : tab === 'year' && P.year ? [`${yr} so far`, P.year.sales, null, R.money0, null]
-    : tab === 'day' ? (() => { const s = recOf('d_streak') || 0, run = (bw.d_streak && bw.d_streak.run) || 0; return [`Current streak above break-even`, run, s, (v) => v + (v === 1 ? ' day' : ' days'), null]; })() : null;
+  const needPer = (now, rec, n, total) => { if (!rec) return ''; const left = total - n; if (now > rec) return 'Already past the record. Keep going.'; return left > 0 ? `Need ${R.money0((rec - now) / left)} a day for the last ${left} ${left === 1 ? 'day' : 'days'} to break it.` : ''; };
+  const pace = tab === 'week' && P.week ? [`This week so far · ${P.week.n} of 7 days`, P.week.sales, recOf('w_sales'), R.money0, (P.week.sales / P.week.n) * 7, needPer(P.week.sales, recOf('w_sales'), P.week.n, 7)]
+    : tab === 'month' && P.month ? [`${MON_LONG[+P.ma.slice(5, 7) - 1]} so far · ${P.month.n} of ${dimNow} days`, P.month.sales, recOf('m_sales'), R.money0, (P.month.sales / P.month.n) * dimNow, needPer(P.month.sales, recOf('m_sales'), P.month.n, dimNow)]
+    : tab === 'year' && P.year ? [`${yr} so far`, P.year.sales, null, R.money0, null, '']
+    : tab === 'day' ? [`Current streak above break-even`, (bw.d_streak && bw.d_streak.run) || 0, recOf('d_streak') || 0, (v) => v + (v === 1 ? ' day' : ' days'), null, ''] : null;
   const nextMile = REC_MILES.flatMap((m) => [2, 3, 4, 5, 6, 7, 8].map((k) => m * 10 ** k)).filter((t) => t > (book.miles[tab] || 0) && t >= recMileFloor[tab]).sort((a, b) => a - b)[0];
   const mine = book.events.filter((e) => keys.includes(e.rk) || e.rk === 'mile_' + tab || (tab === 'year' && /^y_pass/.test(e.rk))).slice(0, 24);
   const byDay = []; for (const e of mine) { const g = byDay.find((x) => x[0] === e.end); if (g) g[1].push(e); else byDay.push([e.end, [e]]); }
-  return html`<div class="recbar">${seg}<span class="small muted">All-time bests since ${mdLabel(book.first)}. Break one and it pops up the next day.</span></div>
+  return html`<div class="recbar">${seg}<span class="small muted">All-time bests since ${mdLabel(book.first)}. Tap any record to see what drove it.</span></div>
     ${hero}
-    <div class="rgrid">${keys.map(card)}</div>
+    <div class="rgrid">${keys.map((k) => card(k, false))}</div>
+    ${saleCards.length > 0 && html`<div class="rsalehd"><span class="salebadge">SALE</span><b>Sale records</b><span class="small muted">${tab === 'day' ? 'Days' : tab === 'week' ? 'Weeks with 2+ sale days' : 'Months with 5+ sale days'} from your Plan's sales. Kept apart so your normal records stay beatable.</span></div><div class="rgrid">${saleCards}</div>`}
     <div class="rgrid2">
       ${pace && html`<section class="rcard"><div class="rcn">${pace[0]}</div><div class="rcv" style="color:var(--ink)">${pace[3](pace[1])}</div>
-        ${pace[2] ? html`<div class="skbar" style="margin:8px 0 6px"><i style=${`width:${Math.min(100, (pace[1] / pace[2]) * 100).toFixed(0)}%`}></i></div><div class="rcd">${pace[4] != null ? `On pace for ${pace[3](pace[4])} · ` : ''}record ${pace[3](pace[2])}</div>`
+        ${pace[2] ? html`<div class="skbar" style="margin:8px 0 6px"><i style=${`width:${Math.min(100, (pace[1] / pace[2]) * 100).toFixed(0)}%`}></i></div><div class="rcd">${pace[4] != null ? `On pace for ${pace[3](pace[4])} · ` : ''}record ${pace[3](pace[2])}</div>${pace[5] && html`<div class="rctgt">${pace[5]}</div>`}`
           : html`<div class="rcd">${tab === 'year' ? (book.first <= `${+yr - 1}-12-31` ? `You'll get a pop-up the day ${yr} passes all of ${+yr - 1}.` : `Year records start once a full year is in the app. In ${+yr + 1} you'll get a pop-up the day it passes all of ${yr}.`) : ''}</div>`}</section>`}
       <section class="rcard"><div class="rcn">Sales milestone · first ${tab} to reach</div><div class="row" style="gap:22px;margin-top:4px">
         <div><div class="rcd">Reached</div><div class="rcv sm">${book.miles[tab] ? R.money0(book.miles[tab]) : '—'}</div></div>
         <div><div class="rcd">Next</div><div class="rcv sm" style="color:var(--ink)">${R.money0(nextMile)}</div></div></div></section>
     </div>
-    <section class="panel"><h2>Records you've broken</h2>${byDay.length ? html`<div class="rhist">${byDay.map(([d, es]) => html`<div class="rhday"><b>${mdLabel(d)}</b>${es.map((e) => html`<div class="rhit"><${RecMedal} t="G" w=${16} /><span>${e.name}</span><b>${e.value}${recUnit(e.rk)}</b></div>`)}</div>`)}</div>`
+    <section class="panel"><h2>Records you've broken</h2>${byDay.length ? html`<div class="rhist">${byDay.map(([d, es]) => html`<div class="rhday"><b>${mdLabel(d)}</b>${es.map((e) => html`<button class="rhit rbtn" onClick=${() => e.pa && setWhy({ a: e.pa, b: e.pb || e.pa, name: e.name, value: e.value + recUnit(e.rk), label: e.when })}><${RecMedal} t="G" w=${16} /><span>${e.name}${e.sale ? html`<span class="salebadge">SALE</span>` : ''}</span><b>${e.value}${recUnit(e.rk)}</b></button>`)}</div>`)}</div>`
       : html`<p class="small muted" style="margin:0">None yet. ${tab === 'day' ? 'Day records start after 2 weeks of history.' : tab === 'week' ? 'Week records start after 3 full weeks.' : tab === 'month' ? 'Month records start after 1 full month.' : 'Year records start after 1 full year.'}</p>`}</section>
     <details class="panel"><summary class="small" style="cursor:pointer"><b>How records count</b></summary><div class="small" style="margin-top:8px;line-height:1.55">
       <p><b>Orders, sales and packs</b> come from Shopify on their own. Sales are after refunds and without sales tax.</p>
       <p><b>ROAS, spend and streaks</b> need your Ads Manager file for every day. ROAS is Meta-reported sales ÷ spend, the same basis as break-even (${R.xroas(book.be0)}). There's no daily ROAS record because one day can be luck. Week, month and year ROAS and lowest cost per order only count when spend was at least 75% of your normal.</p>
       <p><b>Profit</b> only uses numbers you enter in Goals (+ Add numbers). A day counts if you entered that one day; a week or month counts if your entries cover every day of it without spilling past it. Entries where the app had to guess most of the costs don't count. A profit record pops up the day you enter the numbers.</p>
-      <p>The banner shows your newest record from the last 30 days; if there isn't one, your most important record. Importance: profit, sales, orders, ROAS, then the rest.</p>
-      <p>A day, week (Monday–Sunday), month or year only counts when every day in it has data. Meta keeps adding late sales to past days for up to 7 days; if that pushes an old day past a record, it's added here without a pop-up.</p></div></details>`;
+      <p><b>Sales</b> (from your Plan, like Black Friday): a sale day, a week with 2+ sale days or a month with 5+ go in the Sale list instead. They still pop up, with a SALE badge, if they beat everything.</p>
+      <p><b>Beat it by</b> compares the record to your recent normal: the last 30 days, 4 weeks or 3 months, not counting sales.</p>
+      <p>The banner shows your newest record from the last 30 days; if there isn't one, your most important record. Importance: profit, sales, orders, ROAS, then the rest. A day, week (Monday–Sunday), month or year only counts when every day in it has data. Meta keeps adding late sales to past days for up to 7 days; if that pushes an old day past a record, it's added here without a pop-up.</p></div></details>
+    ${whyM}`;
+}
+// On Overview, the day after: yesterday (or the week or month that just ended) came 2nd or 3rd best. Close, not a record.
+function CloseCalls({ data, setView }) {
+  const [hide, setHide] = useState(() => lsGet('adlab-close-seen', '') === R.today());
+  const book = useMemo(() => { try { return recordBookOf(data); } catch (e) { return null; } }, [data]);
+  if (hide || !book || !book.close || !book.close.length) return null;
+  const order = ['d_profit', 'd_sales', 'd_orders', 'd_pspend', 'w_profit', 'w_sales', 'w_orders', 'w_roas', 'w_cpo', 'm_profit', 'm_sales', 'm_orders', 'm_roas', 'm_units', 'y_sales', 'y_orders', 'y_roas'];
+  const list = [...book.close].sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key)).slice(0, 3);
+  const when = { day: 'Yesterday', week: 'Last week', month: 'Last month', year: 'Last year' };
+  const kind = (c) => c.name.replace(/^(Most|Best|Biggest|Lowest) /, (m) => m.toLowerCase());
+  return html`<section class="closecall"><div class="row" style="gap:10px;align-items:center"><b class="small" style="letter-spacing:.06em">CLOSE CALL${list.length > 1 ? 'S' : ''}</b><span class="spacer"></span>
+      <button class="link small" onClick=${() => { lsSet('adlab-sk-gtab', 'records'); lsSet('adlab-rec-tab', list[0].group); setView(LOOK === 'stocks' ? 'goal' : 'records'); }}>See records</button>
+      <button class="recx" style="position:static" aria-label="Hide for today" onClick=${() => { lsSet('adlab-close-seen', R.today()); setHide(true); }}>×</button></div>
+    ${list.map((c) => html`<div class="ccrow"><${RecMedal} t=${c.rank === 2 ? 'S' : 'B'} w=${24} /><span>${when[c.group]} was your <b>${c.rank === 2 ? '2nd' : '3rd'} ${kind(c)}</b> ever: <b>${c.value}${recUnit(c.key)}</b>, ${c.gap}${recUnit(c.key)} ${c.lower ? 'above' : 'short of'} the record (${c.rec} · ${c.recWhen}).</span></div>`)}</section>`;
 }
 
 // =================== Stocks look: Goals ===================
@@ -2575,7 +2701,7 @@ function StocksGoal(g) {
         <div class="sktestedlist">${sets.testedAds.slice().sort((a, b) => String(b.launched_on || '').localeCompare(String(a.launched_on || ''))).map((a) => html`<button class="skrow" onClick=${() => setModal({ type: AdDetail, props: { adId: a.id } })}><${Media} path=${a.media_path} type=${a.media_type} poster=${a.tags && a.tags.poster} cls="round" /><span class="grow small"><b>${displayName(a)}</b><br/><span class="muted">${(data.products.find((p) => p.id === a.product_id) || {}).name || ''} · ${skName(a.stage)}${a.launched_on ? ' · live ' + mdLabel(a.launched_on) : ''}</span></span></button>`)}</div></details>`}
       <div class="small muted">Bronze = habits · Silver = a solid week or month · Gold = the big money goals · Platinum = win every other one in the set.</div>`;
   }
-  if (tab === 'records') return html`${tabs}<${RecordsPage} data=${data} inRoom=${true} />`;
+  if (tab === 'records') return html`${tabs}<${RecordsPage} data=${data} inRoom=${true} setModal=${setModal} />`;
   if (tab === 'room') {
     const past = months.filter((m) => m.done).slice(-6).reverse();
     return html`${tabs}${levelBar}
