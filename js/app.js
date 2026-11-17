@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=215';
-import * as R from './rules.js?v=215';
-import { importHistory } from './importer.js?v=215';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=215';
+import { createBackend } from './data.js?v=216';
+import * as R from './rules.js?v=216';
+import { importHistory } from './importer.js?v=216';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=216';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2471,7 +2471,7 @@ function RecordWatcher({ data, setView }) {
   if (!list) return null;
   const done = (go) => { try { const today = R.today(); let seen = {}; try { seen = JSON.parse(localStorage.getItem('adlab-rec-seen') || '{}'); } catch (e) {}
     const keys = seen.day === today ? seen.keys || [] : []; localStorage.setItem('adlab-rec-seen', JSON.stringify({ day: today, keys: [...keys, ...list.map((e) => e.key)] })); } catch (e) {}
-    setList(null); if (go) { lsSet('adlab-sk-gtab', 'room'); lsSet('adlab-room-sub', 'records'); lsSet('adlab-rec-tab', list[0].group === 'mile' ? (list[0].rk || 'mile_day').replace('mile_', '') : list[0].group); setView(LOOK === 'stocks' ? 'goal' : 'records'); } };
+    setList(null); if (go) { lsSet('adlab-sk-gtab', 'records'); lsSet('adlab-rec-tab', list[0].group === 'mile' ? (list[0].rk || 'mile_day').replace('mile_', '') : list[0].group); setView(LOOK === 'stocks' ? 'goal' : 'records'); } };
   const n = list.length;
   const groups = REC_GROUPS.map(([g, l]) => [g, l, list.filter((e) => e.group === g)]).filter(([, , es]) => es.length);
   return html`<div class="recback" role="dialog" aria-modal="true" aria-label="New records">
@@ -2539,14 +2539,12 @@ function StocksGoal(g) {
   const [tab, setTab0] = useState(() => lsGet('adlab-sk-gtab', 'month'));
   const setTab = (k) => { setTab0(k); lsSet('adlab-sk-gtab', k); };
   const [tset, setTset] = useState('month');
-  const [roomSub, setRoomSub0] = useState(() => lsGet('adlab-room-sub', 'trophies'));
-  const setRoomSub = (k) => { setRoomSub0(k); lsSet('adlab-room-sub', k); };
   const sets = trophySets(g);
   const nowSet = sets.month(curYm);
   const all = [...nowSet, ...sets.season, ...sets.store], pts = all.filter((x) => x[2] >= x[3]).reduce((s, x) => s + TIER[x[0]][3], 0);
   const level = Math.floor(pts / 100) + 1, lvlPct = pts % 100;
   const count = (t) => all.filter((x) => x[0] === t && x[2] >= x[3]).length;
-  const tabs = html`<div class="row" style="gap:8px;flex-wrap:wrap"><h1 style="font-size:28px">Goals</h1><div class="skseg">${[['month', 'This month'], ['calendar', 'Calendar'], ['milestones', 'Milestones'], ['room', 'Trophy room'], ['how', 'How it works']].map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => setTab(k)}>${l}</button>`)}</div><span class="spacer"></span><button class="btn primary" onClick=${() => setModal({ type: PeriodForm, props: {} })}>+ Add numbers</button></div>`;
+  const tabs = html`<div class="row" style="gap:8px;flex-wrap:wrap"><h1 style="font-size:28px">Goals</h1><div class="skseg">${[['month', 'This month'], ['calendar', 'Calendar'], ['milestones', 'Milestones'], ['room', 'Trophy room'], ['records', 'Records'], ['how', 'How it works']].map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => setTab(k)}>${l}</button>`)}</div><span class="spacer"></span><button class="btn primary" onClick=${() => setModal({ type: PeriodForm, props: {} })}>+ Add numbers</button></div>`;
   const levelBar = html`<section class="panel skrow2"><span class="small muted">Investor level</span><b style="font-size:28px">${level}</b><div class="skbar grow"><i style=${`width:${lvlPct}%`}></i></div><span class="small muted">${lvlPct}% to level ${level + 1}</span>${['P', 'G', 'S', 'B'].map((t) => html`<span class="row" style="gap:4px"><${Cup} t=${t} w=${22} /><b>${count(t)}</b></span>`)}</section>`;
   if (tab === 'calendar') return html`${tabs}${classicBody}`;
   if (tab === 'milestones') {
@@ -2558,11 +2556,10 @@ function StocksGoal(g) {
         <div class="sktestedlist">${sets.testedAds.slice().sort((a, b) => String(b.launched_on || '').localeCompare(String(a.launched_on || ''))).map((a) => html`<button class="skrow" onClick=${() => setModal({ type: AdDetail, props: { adId: a.id } })}><${Media} path=${a.media_path} type=${a.media_type} poster=${a.tags && a.tags.poster} cls="round" /><span class="grow small"><b>${displayName(a)}</b><br/><span class="muted">${(data.products.find((p) => p.id === a.product_id) || {}).name || ''} · ${skName(a.stage)}${a.launched_on ? ' · live ' + mdLabel(a.launched_on) : ''}</span></span></button>`)}</div></details>`}
       <div class="small muted">Bronze = habits · Silver = a solid week or month · Gold = the big money goals · Platinum = win every other one in the set.</div>`;
   }
+  if (tab === 'records') return html`${tabs}<${RecordsPage} data=${data} inRoom=${true} />`;
   if (tab === 'room') {
-    const subTabs = html`<div class="skseg roomsub" role="tablist" aria-label="Trophy room">${[['trophies', 'Trophies'], ['records', 'Records']].map(([k, l]) => html`<button role="tab" aria-selected=${roomSub === k} class=${roomSub === k ? 'on' : ''} onClick=${() => setRoomSub(k)}>${l}</button>`)}</div>`;
-    if (roomSub === 'records') return html`${tabs}${subTabs}<${RecordsPage} data=${data} inRoom=${true} />`;
     const past = months.filter((m) => m.done).slice(-6).reverse();
-    return html`${tabs}${subTabs}${levelBar}
+    return html`${tabs}${levelBar}
       <section class="panel"><div class="row"><h2>Store cabinet · forever</h2><span class="spacer"></span><span class="small muted">${sets.store.filter((x) => x[2] >= x[3]).length} of ${sets.store.length}</span></div><div class="skshelf">${sets.store.map((x) => html`<div class=${'skplinth' + (x[2] >= x[3] ? '' : ' no')}><${Cup} t=${x[0]} w=${56} got=${x[2] >= x[3]} /><b class="tiny">${x[1]}</b></div>`)}</div></section>
       <section class="panel"><div class="row"><h2>Season · ${stage.name} shelf</h2><span class="spacer"></span><span class="small muted">${stage.months} · framed here when the season ends</span></div><div class="skshelf">${sets.season.map((x) => html`<div class=${'skplinth' + (x[2] >= x[3] ? '' : ' no')}><${Cup} t=${x[0]} w=${56} got=${x[2] >= x[3]} /><b class="tiny">${x[1]}</b></div>`)}</div></section>
       <section class="panel"><h2>Month by month</h2>${past.length ? past.map((m) => { const won = sets.month(m.ym).filter((x) => x[2] >= x[3]); return html`<div class="li"><b style="width:130px">${MON_LONG[+m.ym.slice(5) - 1]} ${m.ym.slice(0, 4)}</b><span class="row grow" style="gap:6px">${won.length ? won.map((x) => html`<span title=${x[1]}><${Cup} t=${x[0]} w=${30} /></span>`) : html`<span class="small muted">no trophies</span>`}</span><span class="small muted">${won.length} won · ${m.actual != null ? signMoney(m.actual) : '—'}</span></div>`; }) : html`<div class="empty">Finished months show here.</div>`}</section>`;
