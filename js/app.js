@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=222';
-import * as R from './rules.js?v=222';
-import { importHistory } from './importer.js?v=222';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=222';
+import { createBackend } from './data.js?v=223';
+import * as R from './rules.js?v=223';
+import { importHistory } from './importer.js?v=223';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=223';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2404,11 +2404,11 @@ function recordBook(data) {
   const money = (v) => R.money0(v), x2 = (v) => R.xroas(v);
   // Before Shopify's ~60 days of orders, fall back to the Shopify numbers you entered in Goals (net sales + shipping + return
   // fees, orders, packs). A period counts if your entries cover every day of it without spilling past it.
-  const dayNet = new Map(); for (const x of ent.filter((e) => e.revType === 'net')) for (let k = 0; k < x.days; k++) { const d = R.addDays(x.from, k), c = dayNet.get(d); if (!c || x.created >= c.created) dayNet.set(d, x); }
+  const dayNet = new Map(); for (const x of ent) for (let k = 0; k < x.days; k++) { const d = R.addDays(x.from, k), c = dayNet.get(d); if (!c || x.created >= c.created) dayNet.set(d, x); }
   const fromGoals = new Set();
   const fromEntries = (p, f) => { let v = 0; for (let d = p.a; d <= p.b; d = R.addDays(d, 1)) { const x = dayNet.get(d); if (!x || x.from < p.a || x.to > p.b) return null; const t = f(x); if (t == null) return null; v += t / x.days; } return v; };
   const shopOr = (key, field, f) => (p) => { const o = sp(p); if (o.shopAll) return o[field]; const v = fromEntries(p, f); if (v != null) fromGoals.add(key + '|' + p.a); return v; };
-  const salesE = (x) => (x.rev ? x.rev + (x.shipIn || 0) + (x.retFees || 0) : null), ordersE = (x) => (x.orders > 0 ? x.orders : null), packsE = (x) => (x.packs > 0 ? x.packs : null);
+  const salesE = (x) => (!x.rev ? null : x.revType === 'net' ? x.rev + (x.shipIn || 0) + (x.retFees || 0) : x.rev), ordersE = (x) => (x.orders > 0 ? x.orders : null), packsE = (x) => (x.packs > 0 ? x.packs : null);
   // [key, group, name, periods, value(p) → number|null, format, lower is better, prior periods needed before a record counts]
   const defs = [
     ['d_orders', 'day', 'Most orders in a day', P.day, shopOr('d_orders', 'orders', ordersE), (v) => Math.round(v).toLocaleString(), false, 14],
@@ -2679,7 +2679,7 @@ function RecordsPage({ data, inRoom, setModal }) {
     <section class="panel"><h2>Records you've broken</h2>${byDay.length ? html`<div class="rhist">${byDay.map(([d, es]) => html`<div class="rhday"><b>${mdLabel(d)}</b>${es.map((e) => html`<button class="rhit rbtn" onClick=${() => e.pa && setWhy({ a: e.pa, b: e.pb || e.pa, name: e.name, value: e.value + recUnit(e.rk), label: e.when })}><${RecMedal} t="G" w=${16} /><span>${e.name}${e.sale ? html`<span class="salebadge">SALE</span>` : ''}</span><b>${e.value}${recUnit(e.rk)}</b></button>`)}</div>`)}</div>`
       : html`<p class="small muted" style="margin:0">None yet. ${tab === 'day' ? 'Day records start after 2 weeks of history.' : tab === 'week' ? 'Week records start after 3 full weeks.' : tab === 'month' ? 'Month records start after 1 full month.' : 'Year records start after 1 full year.'}</p>`}</section>
     <details class="panel"><summary class="small" style="cursor:pointer"><b>How records count</b></summary><div class="small" style="margin-top:8px;line-height:1.55">
-      <p><b>Orders, sales and packs</b> come from Shopify on their own. Sales match Shopify's "Total sales": after discounts and refunds, with shipping and tax. Shopify only gives the app your last ~60 days of orders; before that, records use the Shopify numbers you entered in Goals (net sales + shipping + return fees, orders, 6-packs), marked "your Goals numbers".</p>
+      <p><b>Orders, sales and packs</b> come from Shopify on their own. Sales match Shopify's "Total sales": after discounts and refunds, with shipping and tax. Shopify only gives the app your last ~60 days of orders; before that, records use the numbers you entered in Goals (Shopify: net sales + shipping + return fees; Triple Whale: revenue; plus orders and 6-packs), marked "your Goals numbers". Every day the app syncs from Shopify is saved for good, even after Shopify's 60 days pass.</p>
       <p><b>ROAS, spend and streaks</b> need your Ads Manager file for every day. ROAS is Meta-reported sales ÷ spend, the same basis as break-even (${R.xroas(book.be0)}). There's no daily ROAS record because one day can be luck. Week, month and year ROAS and lowest cost per order only count when spend was at least 75% of your normal.</p>
       <p><b>Profit</b> only uses numbers you enter in Goals (+ Add numbers). A day counts if you entered that one day; a week or month counts if your entries cover every day of it without spilling past it. Entries where the app had to guess most of the costs don't count. A profit record pops up the day you enter the numbers.</p>
       <p><b>Pop-ups</b>: any record you haven't seen from the last 8 days pops up the next time you open the app, so Saturday's record still shows on Monday. Orders, sales, packs and milestones show as soon as Shopify has them. ROAS, cost per order, streak and profit records wait until that day (or week, month) has both your Ads Manager file and your profit, so they come together; if only the file is in after 3 days, they show anyway. Each record shows once on each device.</p>
