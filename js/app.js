@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=218';
-import * as R from './rules.js?v=218';
-import { importHistory } from './importer.js?v=218';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=218';
+import { createBackend } from './data.js?v=219';
+import * as R from './rules.js?v=219';
+import { importHistory } from './importer.js?v=219';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=219';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2405,7 +2405,6 @@ function recordBook(data) {
   const defs = [
     ['d_orders', 'day', 'Most orders in a day', P.day, (p) => (sp(p).shopAll ? sp(p).orders : null), (v) => Math.round(v).toLocaleString(), false, 14],
     ['d_sales', 'day', 'Best sales day', P.day, (p) => (sp(p).shopAll ? sp(p).sales : null), money, false, 14],
-    ['d_pspend', 'day', 'Biggest profitable spend day', P.day, (p) => { const o = sp(p); return o.metaAll && o.spend > 0 && o.rev / o.spend >= be0 ? o.spend : null; }, money, false, 14],
     ['d_profit', 'day', 'Most profit in a day', P.day, profitOf, money, false, 14],
     ['w_orders', 'week', 'Most orders in a week', P.week, (p) => (sp(p).shopAll ? sp(p).orders : null), (v) => Math.round(v).toLocaleString(), false, 3],
     ['w_sales', 'week', 'Best sales week', P.week, (p) => (sp(p).shopAll ? sp(p).sales : null), money, false, 3],
@@ -2446,7 +2445,7 @@ function recordBook(data) {
   // Longest streak of days in a row above break-even (needs a file every day)
   { let run = 0, top = 0, topEnd = null, prev = null, n = 0, runStart = null, topStart = null; const runs = new Map();
     for (const d of days) { const m = meta.get(d); const good = m && m.spend > 0 && m.rev / m.spend >= be0; const cont = good && prev && R.addDays(prev, 1) === d && run; run = good ? (cont ? run + 1 : 1) : 0; if (good && !cont) runStart = d; prev = d; n++; if (good) runs.set(runStart, { v: run, p: { a: runStart, b: d, label: run === 1 ? mdLabel(d) : `${mdLabel(runStart)} – ${mdLabel(d)}` } });
-      if (run > top) { if (top > 0 && n > 14 && topStart !== runStart) ev({ key: 'd_streak|' + d, rk: 'd_streak', group: 'day', name: 'Longest streak above break-even', when: longDate(d), end: d, value: run + ' days', old: top + ' days', oldWhen: 'ended ' + mdLabel(topEnd), pct: null }); top = run; topEnd = d; topStart = runStart; } }
+      if (run > top) { if (top > 0 && n > 14 && topStart !== runStart) ev({ key: 'd_streak|' + d, pa: d, pb: d, rk: 'd_streak', group: 'day', name: 'Longest streak above break-even', when: longDate(d), end: d, value: run + ' days', old: top + ' days', oldWhen: 'ended ' + mdLabel(topEnd), pct: null }); top = run; topEnd = d; topStart = runStart; } }
     best.d_streak = { group: 'day', name: 'Longest streak above break-even', b: top ? { v: top, p: { label: 'through ' + mdLabel(topEnd) } } : null, n, need: 14, top, topStart, runStart, fmt: (v) => v + (v === 1 ? ' day' : ' days'), run, top3: [...runs.values()].sort((x, z) => z.v - x.v).slice(0, 3) }; }
   // Passed last year: the first day this year's total beats all of last year's (what the app has of it).
   const yrs = [...new Set(days.map((d) => d.slice(0, 4)))];
@@ -2469,48 +2468,64 @@ function recordBook(data) {
   const wa = mon(R.today()), ma = R.today().slice(0, 8) + '01', ya = R.today().slice(0, 4) + '-01-01';
   const pace = { week: wa <= y ? span(wa, y) : null, month: ma <= y ? span(ma, y) : null, year: ya <= y ? span(ya, y) : null, wa, ma, ya };
   events.sort((a, b) => (a.end < b.end ? 1 : a.end > b.end ? -1 : 0));
-  return { events, best, y, be0, miles, pace, first, normalDaily, close, saleDay };
+  const metaIn = (a, b) => span(a, b).metaAll;
+  const profitIn = (a, b) => { for (let d = a; d <= b; d = R.addDays(d, 1)) { const x = dayEnt.get(d); if (!x || x.pr.how === 'est') return false; } return true; };
+  return { events, best, y, be0, miles, pace, first, normalDaily, close, saleDay, metaIn, profitIn };
 }
 // One record book per data load and day, shared by the pop-up, Overview and the Records tab.
 const RB_CACHE = new WeakMap();
 function recordBookOf(data) { const t = R.today(), c = RB_CACHE.get(data); if (c && c.t === t) return c.b; const b0 = recordBook(data); RB_CACHE.set(data, { t, b: b0 }); return b0; }
-// Records from yesterday's day, the week/month/year that ended yesterday, or a milestone reached yesterday.
-// Shows today until midnight, once on each device. Anything new that comes in later today (a late Meta file) shows then.
+// Two pop-ups at most for a day's records, each record once per device:
+// 1) Shopify records (orders, sales, packs, milestones) the day after, as soon as you open the app.
+// 2) Meta and profit records (ROAS, cost per order, streak, profit) together, once that period has both your Ads Manager file
+//    and your profit entered in Goals. If only the Meta file is in after 3 days, they show anyway.
+const recWave2 = (rk) => /^(d_streak|w_roas|w_cpo|m_roas|y_roas)$|_profit$/.test(rk || '');
+function recDue(book) {
+  const today = R.today(), y = book.y;
+  let seen = {}; try { seen = JSON.parse(localStorage.getItem('adlab-rec-seen') || '{}'); } catch (e) {}
+  const keys1 = seen.day === today ? seen.keys || [] : [];
+  const w1 = book.events.filter((e) => !recWave2(e.rk) && e.show === today && !keys1.includes(e.key));
+  const recentW2 = book.events.filter((e) => recWave2(e.rk) && e.end >= R.addDays(today, -15));
+  let seen2 = null; try { seen2 = JSON.parse(localStorage.getItem('adlab-rec-seen2') || 'null'); } catch (e) {}
+  if (!Array.isArray(seen2)) { seen2 = recentW2.filter((e) => e.end < y).map((e) => e.key); try { localStorage.setItem('adlab-rec-seen2', JSON.stringify(seen2)); } catch (e) {} } // first time: don't replay older ones
+  const ready = (e) => { const a = e.pa || e.end, b = e.pb || e.end; return (book.metaIn(a, b) && book.profitIn(a, b)) || today >= R.addDays(e.end, 3); };
+  const w2 = recentW2.filter((e) => !seen2.includes(e.key) && ready(e));
+  return { w1, w2 };
+}
 function RecordWatcher({ data, setView }) {
   const [list, setList] = useState(null);
   useEffect(() => {
     if (!data) return;
     let book; try { book = recordBookOf(data); } catch (e) { console.warn('records', e); return; }
-    const today = R.today(), fresh = book.events.filter((e) => e.show === today);
-    let seen = {}; try { seen = JSON.parse(localStorage.getItem('adlab-rec-seen') || '{}'); } catch (e) {}
-    const keys = seen.day === today ? seen.keys || [] : [];
-    const unseen = fresh.filter((e) => !keys.includes(e.key));
-    if (unseen.length) { setList(unseen); confetti(); }
+    const { w1, w2 } = recDue(book), all = [...w1, ...w2];
+    if (all.length) { setList(all); confetti(); }
   }, [data]);
   if (!list) return null;
   const done = (go) => { try { const today = R.today(); let seen = {}; try { seen = JSON.parse(localStorage.getItem('adlab-rec-seen') || '{}'); } catch (e) {}
-    const keys = seen.day === today ? seen.keys || [] : []; localStorage.setItem('adlab-rec-seen', JSON.stringify({ day: today, keys: [...keys, ...list.map((e) => e.key)] })); } catch (e) {}
+    const keys = seen.day === today ? seen.keys || [] : []; localStorage.setItem('adlab-rec-seen', JSON.stringify({ day: today, keys: [...keys, ...list.filter((e) => !recWave2(e.rk)).map((e) => e.key)] }));
+    let s2 = []; try { s2 = JSON.parse(localStorage.getItem('adlab-rec-seen2') || '[]'); } catch (e) {} localStorage.setItem('adlab-rec-seen2', JSON.stringify([...s2, ...list.filter((e) => recWave2(e.rk)).map((e) => e.key)].slice(-400))); } catch (e) {}
     setList(null); if (go) { lsSet('adlab-sk-gtab', 'records'); lsSet('adlab-rec-tab', list[0].group === 'mile' ? (list[0].rk || 'mile_day').replace('mile_', '') : list[0].group); setView(LOOK === 'stocks' ? 'goal' : 'records'); } };
   const n = list.length;
-  const groups = REC_GROUPS.map(([g, l]) => [g, l, list.filter((e) => e.group === g)]).filter(([, , es]) => es.length);
+  // Group by kind and period, so Saturday's and Sunday's records (entered Monday) each get their own heading.
+  const groups = []; for (const [g, l] of REC_GROUPS) for (const e of list.filter((x) => x.group === g)) { const k = g + '|' + (g === 'mile' || g === 'year' ? '' : e.end); let x = groups.find((q) => q[0] === k); if (!x) { x = [k, g, l + (g !== 'mile' && g !== 'year' ? ' · ' + (e.sub || e.when) : ''), []]; groups.push(x); } x[3].push(e); }
   return html`<div class="recback" role="dialog" aria-modal="true" aria-label="New records">
     <div class="recmod">
       <button class="recx" aria-label="Close" onClick=${() => done(false)}>×</button>
       <div class="rechead"><${Cup} t="G" w=${44} /><div><div class="reck">${n === 1 ? 'NEW RECORD' : `${n} NEW RECORDS`} · ${longDate(R.today()).toUpperCase()}</div><div class="rech">${n === 1 ? 'You broke a record' : `You broke ${n} records`}</div></div></div>
-      ${groups.map(([g, l, es]) => html`<div class="recgl">${l}${g !== 'mile' && g !== 'year' ? ' · ' + (es[0].sub || es[0].when) : ''}</div>
+      ${groups.map(([, g, label, es]) => html`<div class="recgl">${label}</div>
         <div class=${'reccg' + (n === 1 ? ' one' : es.length > 1 ? ' two' : '')}>${es.map((e) => html`<div class="reccd">
           <div class="recn">${e.name}${e.sale ? html`<span class="salebadge">SALE</span>` : ''}</div><div class="recv">${e.value}</div>
           <div class="tiny muted">${g === 'mile' || g === 'year' ? e.when + ' · ' : ''}old ${e.old}${e.oldWhen ? ' · ' + e.oldWhen : ''}</div>
           ${e.pct != null && html`<span class="recpct">${e.lower ? e.pct + '% lower' : '+' + e.pct + '%'}</span>`}</div>`)}</div>`)}
       <div class="row" style="gap:10px;margin-top:16px"><button class="btn primary grow" onClick=${() => done(false)}>Nice</button><button class="btn" onClick=${() => done(true)}>See all records</button></div>
-      <div class="tiny muted" style="text-align:center;margin-top:8px">Shows today until midnight · once on this device</div>
+      <div class="tiny muted" style="text-align:center;margin-top:8px">Each record shows once on this device</div>
     </div></div>`;
 }
 // Records: its own tab in Goals. Pages: Days, Weeks, Months, Years (hall of fame) and Ads (your best ads ever).
 // Each period page: a banner with your newest record (last 30 days) or, if none, your most important one; then a card per
 // record with gold (the record), silver (2nd) and bronze (3rd), what it takes to beat it, and a Sale list kept apart.
 // Tap any gold, silver or bronze to see what drove it.
-const REC_PAGES = { day: ['Days', ['d_profit', 'd_sales', 'd_orders', 'd_pspend', 'd_streak']], week: ['Weeks', ['w_profit', 'w_sales', 'w_orders', 'w_roas', 'w_cpo']],
+const REC_PAGES = { day: ['Days', ['d_profit', 'd_sales', 'd_orders', 'd_streak']], week: ['Weeks', ['w_profit', 'w_sales', 'w_orders', 'w_roas', 'w_cpo']],
   month: ['Months', ['m_profit', 'm_sales', 'm_orders', 'm_roas', 'm_units']], year: ['Years', ['y_sales', 'y_orders', 'y_roas']], ads: ['Ads', []] };
 const recUnit = (k) => (/orders$/.test(k) ? ' orders' : /units$/.test(k) ? ' packs' : '');
 function RecMedal({ t, w }) { return html`<span class=${'rmed ' + t} style=${`width:${w}px;height:${w}px;font-size:${Math.round(w * 0.4)}px`} aria-label=${t === 'G' ? '1st' : t === 'S' ? '2nd' : '3rd'}>${t === 'G' ? 1 : t === 'S' ? 2 : 3}</span>`; }
@@ -2658,6 +2673,7 @@ function RecordsPage({ data, inRoom, setModal }) {
       <p><b>Orders, sales and packs</b> come from Shopify on their own. Sales are after refunds and without sales tax.</p>
       <p><b>ROAS, spend and streaks</b> need your Ads Manager file for every day. ROAS is Meta-reported sales ÷ spend, the same basis as break-even (${R.xroas(book.be0)}). There's no daily ROAS record because one day can be luck. Week, month and year ROAS and lowest cost per order only count when spend was at least 75% of your normal.</p>
       <p><b>Profit</b> only uses numbers you enter in Goals (+ Add numbers). A day counts if you entered that one day; a week or month counts if your entries cover every day of it without spilling past it. Entries where the app had to guess most of the costs don't count. A profit record pops up the day you enter the numbers.</p>
+      <p><b>Pop-ups</b>: at most two for a day. Orders, sales, packs and milestones show the day after, as soon as Shopify has synced. ROAS, cost per order, streak and profit records show together once that day (or week, month) has both your Ads Manager file and your profit entered; if only the file is in after 3 days, they show anyway. Each record shows once on each device.</p>
       <p><b>Sales</b> (from your Plan, like Black Friday): a sale day, a week with 2+ sale days or a month with 5+ go in the Sale list instead. They still pop up, with a SALE badge, if they beat everything.</p>
       <p><b>Beat it by</b> compares the record to your recent normal: the last 30 days, 4 weeks or 3 months, not counting sales.</p>
       <p>The banner shows your newest record from the last 30 days; if there isn't one, your most important record. Importance: profit, sales, orders, ROAS, then the rest. A day, week (Monday–Sunday), month or year only counts when every day in it has data. Meta keeps adding late sales to past days for up to 7 days; if that pushes an old day past a record, it's added here without a pop-up.</p></div></details>
@@ -2668,7 +2684,7 @@ function CloseCalls({ data, setView }) {
   const [hide, setHide] = useState(() => lsGet('adlab-close-seen', '') === R.today());
   const book = useMemo(() => { try { return recordBookOf(data); } catch (e) { return null; } }, [data]);
   if (hide || !book || !book.close || !book.close.length) return null;
-  const order = ['d_profit', 'd_sales', 'd_orders', 'd_pspend', 'w_profit', 'w_sales', 'w_orders', 'w_roas', 'w_cpo', 'm_profit', 'm_sales', 'm_orders', 'm_roas', 'm_units', 'y_sales', 'y_orders', 'y_roas'];
+  const order = ['d_profit', 'd_sales', 'd_orders', 'w_profit', 'w_sales', 'w_orders', 'w_roas', 'w_cpo', 'm_profit', 'm_sales', 'm_orders', 'm_roas', 'm_units', 'y_sales', 'y_orders', 'y_roas'];
   const list = [...book.close].sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key)).slice(0, 3);
   const when = { day: 'Yesterday', week: 'Last week', month: 'Last month', year: 'Last year' };
   const kind = (c) => c.name.replace(/^(Most|Best|Biggest|Lowest) /, (m) => m.toLowerCase());
