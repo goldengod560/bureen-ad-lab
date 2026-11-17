@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=232';
-import * as R from './rules.js?v=232';
-import { importHistory } from './importer.js?v=232';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=232';
+import { createBackend } from './data.js?v=233';
+import * as R from './rules.js?v=233';
+import { importHistory } from './importer.js?v=233';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=233';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -999,7 +999,7 @@ function ConceptPanel({ ad, data, reload, say, setModal }) {
 
 function MediaGallery({ ad, setLightbox, reload, say }) {
   const tags = ad.tags || {};
-  const files = [{ path: ad.media_path, type: ad.media_type, label: '1:1', main: true }, ...((tags.files || []).map((x) => ({ ...x })))].filter((x) => x.path);
+  const files = [{ path: ad.media_path, type: ad.media_type, label: tags.ratio || '1:1', main: true }, ...((tags.files || []).map((x) => ({ ...x })))].filter((x) => x.path);
   const [i, setI] = useState(0);
   const cur = files[Math.min(i, files.length - 1)];
   const [busy, setBusy] = useState(false);
@@ -1287,8 +1287,8 @@ function AdForm(ctx) {
   const src = adId ? data.ads.find((a) => a.id === adId) : null;
   const bumpV = (n) => /V\d+\s*$/i.test(n) ? n.replace(/V(\d+)\s*$/i, (_, d) => 'V' + (+d + 1)) : n + ' | V2';
   const init = mode === 'new'
-    ? { base_name: '', short: '', variant: '', v: 1, format: 'image', angle: '', offer: OFFERS[0], headline: '', primary_text: '', notes: '', concept: '', hook: '' }
-    : { ...src, offer: offerOf(src), hook: (src.tags || {}).hook || '', aliasText: (((src.tags || {}).aliases) || []).join('\n'), short: '', variant: '', base_name: mode === 'version' ? bumpV(src.base_name) : src.base_name, notes: mode === 'version' ? (recycle ? 'Recycled. The fix: ' : 'What changed: ') : src.notes };
+    ? { base_name: '', short: '', variant: '', v: 1, format: 'image', angle: '', offer: OFFERS[0], headline: '', primary_text: '', notes: '', concept: '', hook: '', ratio: '1:1' }
+    : { ...src, offer: offerOf(src), hook: (src.tags || {}).hook || '', ratio: (src.tags || {}).ratio || '1:1', aliasText: (((src.tags || {}).aliases) || []).join('\n'), short: '', variant: '', base_name: mode === 'version' ? bumpV(src.base_name) : src.base_name, notes: mode === 'version' ? (recycle ? 'Recycled. The fix: ' : 'What changed: ') : src.notes };
   const [f, setF] = useState({ ...init, product_id: src ? src.product_id : product.id }); const [file, setFile] = useState(null); const [story, setStory] = useState(null); const [busy, setBusy] = useState(false); const [upNext, setUpNext] = useState(false);
   const hasStory = src && ((src.tags || {}).files || []).some((x) => x.label === '9:16');
   const [custom, setCustom] = useState(mode !== 'new');
@@ -1315,6 +1315,7 @@ function AdForm(ctx) {
         tags.files = [...(tags.files || []).filter((x) => x.label !== '9:16'), { path: sp, type: story.type, label: '9:16' }];
       }
       if ((f.hook || '').trim()) tags.hook = f.hook.trim(); else delete tags.hook;
+      if (f.ratio === '4:5') tags.ratio = '4:5'; else delete tags.ratio; // main (feed) file: 1:1 or 4:5
       if (mode === 'edit') { // renamed: remember the old name so Ads Manager files under it still count
         let al = String(f.aliasText || '').split('\n').map((x) => x.trim()).filter(Boolean);
         if (name.trim() !== src.base_name) al.push(src.base_name);
@@ -1333,7 +1334,9 @@ function AdForm(ctx) {
   return html`<${Modal} title=${mode === 'new' ? 'New ad' : mode === 'edit' ? 'Edit ad' : recycle ? 'Recycle with a fix' : 'New version'} sub=${mode === 'new' ? product.name : src.base_name} onClose=${close}>
     <div class="form">
       ${mode === 'edit' && html`<${Field} full label="Product (which product the ad shows)"><select value=${f.product_id} onChange=${set('product_id')}>${data.products.filter((p) => !p.archived).map((p) => html`<option value=${p.id}>${p.name}</option>`)}</select><//>`}
-      <${Field} label=${mode === 'edit' ? 'Replace 1:1 (feed, optional)' : '1:1 (feed) · main'}><input type="file" accept="image/*,video/*" onChange=${(e) => pickFile(e.target.files[0] || null)} /><//>
+      <div class="f fdiv"><div class="row" style="gap:8px;align-items:center;justify-content:space-between"><span>${mode === 'edit' ? `Replace ${f.ratio} (feed, optional)` : `${f.ratio} (feed) · main`}</span>
+        <div class="seg sm" role="group" aria-label="Feed size">${['1:1', '4:5'].map((r) => html`<button type="button" class=${f.ratio === r ? 'on' : ''} onClick=${() => setF({ ...f, ratio: r })}>${r}</button>`)}</div></div>
+        <input type="file" accept="image/*,video/*" onChange=${(e) => pickFile(e.target.files[0] || null)} /></div>
       <${Field} label=${hasStory ? 'Replace 9:16 (Stories / Reels)' : '9:16 (Stories / Reels) · optional'}><input type="file" accept="image/*,video/*" onChange=${(e) => setStory(e.target.files[0] || null)} /><//>
       ${!custom ? html`
         <${Field} label="Format"><select value=${f.format} onChange=${set('format')}><option value="image">Image</option><option value="video">Video</option><option value="carousel">Carousel</option></select><//>
