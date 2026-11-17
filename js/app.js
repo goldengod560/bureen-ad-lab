@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=227';
-import * as R from './rules.js?v=227';
-import { importHistory } from './importer.js?v=227';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=227';
+import { createBackend } from './data.js?v=228';
+import * as R from './rules.js?v=228';
+import { importHistory } from './importer.js?v=228';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=228';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2717,7 +2717,7 @@ function RecordsPage({ data, inRoom, setModal }) {
       <p><b>ROAS, spend and streaks</b> need your Ads Manager file for every day. ROAS is Meta-reported sales ÷ spend, the same basis as break-even (${R.xroas(book.be0)}). There's no daily ROAS record because one day can be luck. Week, month and year ROAS and lowest cost per order only count when spend was at least 75% of your normal.</p>
       <p><b>Biggest average order (AOV)</b> is sales ÷ orders, only on days with 10+ orders so one big order can't win it. <b>Most Meta purchases</b> is the purchases Meta credits to your ads that day. <b>Profit margin</b> is profit ÷ sales for months you entered in Goals.</p>
       <p><b>Years</b> use Shopify days plus your Goals entries. This year competes as "so far": once it's ahead of a past year it takes its place (ROAS and MER so far can still move). A year counts from its first day with numbers (so a first year shows "from …"), once 90% of the days from there to Dec 31 have numbers. Sales and orders start from your first sales numbers, ROAS from your first Ads Manager file, MER from the first day with both.</p>
-      <p><b>Sales here include shipping</b> customers paid, like Shopify's Total sales. Stats → Month by month shows net sales (no shipping), so it's a bit lower.</p>
+      <p><b>Sales</b> = net sales + shipping charges + return fees, the same as Stats → Month by month. Days the app syncs from Shopify also include sales tax, like Shopify's Total sales; your Goals entries don't have tax, so those are a few dollars lower.</p>
       <p><b>MER</b> is all your sales (Shopify's Total sales, or your Goals numbers) ÷ Meta ad spend. Meta ROAS only counts sales Meta says its ads drove; MER counts everything. When MER is well above Meta ROAS, something besides the ads (organic, email, repeat customers, word of mouth) is adding sales. Each ROAS record shows that period's MER and each MER record shows its Meta ROAS so you can compare. Weeks, months and years only, with the same 75%-of-normal spend rule.</p>
       <p>Equal records (as shown) share a place: two 96-order days are both gold and the next one is bronze.</p>
       <p><b>Profit</b> only uses numbers you enter in Goals (+ Add numbers). A day counts if you entered that one day; a week or month counts if your entries cover every day of it without spilling past it. Entries where the app had to guess most of the costs don't count. A profit record pops up the day you enter the numbers.</p>
@@ -4221,7 +4221,7 @@ function periodProfit(x, st, ce = goalCE) {
 function dayMap(periods, st) {
   const m = new Map();
   for (const x of periods) {
-    const pr = periodProfit(x, st), per = { profit: pr.value / x.days, before: pr.before / x.days, rev: x.rev / x.days, spend: x.spend / x.days, orders: x.orders / x.days, how: pr.how, est: pr.how === 'est' && !pr.est.length ? ['profit (from your margin)'] : pr.est, len: x.days, created: x.created };
+    const pr = periodProfit(x, st), per = { profit: pr.value / x.days, before: pr.before / x.days, rev: entrySales(x) / x.days, spend: x.spend / x.days, orders: x.orders / x.days, how: pr.how, est: pr.how === 'est' && !pr.est.length ? ['profit (from your margin)'] : pr.est, len: x.days, created: x.created };
     for (let k = 0; k < x.days; k++) { const d = R.addDays(x.from, k), cur = m.get(d); if (!cur || per.created >= cur.created) m.set(d, per); }
   }
   return m;
@@ -4521,12 +4521,14 @@ function ReportCard({ data, dm, months, before }) {
 // Month by month: your sales, orders and real costs per order, one row per month (entries in the same month added together).
 // Up/down compares each month's daily rate with the month before, so a month in progress compares fairly.
 // One row per month from the numbers you entered (a multi-month entry stays one row). Used by Goals and Market data.
+// Sales from a Goals entry: Shopify net sales + shipping charges + return fees (Shopify's sales before tax). Triple Whale: its revenue.
+function entrySales(x) { return x.revType === 'net' ? (x.rev || 0) + (x.shipIn || 0) + (x.retFees || 0) : x.rev || 0; }
 function costRows(periods, st) {
   const groups = new Map(), dmAll = dayMap(periods, st);
   for (const x of periods.filter((p) => p.revType === 'net' && p.orders > 0 && p.exact == null)) {
     const same = monthKey(x.from) === monthKey(x.to), key = same ? monthKey(x.from) : `${x.from}..${x.to}`;
-    const g = groups.get(key) || { key, month: same, from: x.from, to: x.to, days: 0, rev: 0, orders: 0, shipLab: 0, shipOrd: 0, fees: 0, feeSales: 0, feeOrd: 0 };
-    g.from = x.from < g.from ? x.from : g.from; g.to = x.to > g.to ? x.to : g.to; g.days += x.days; g.rev += x.rev; g.orders += x.orders;
+    const g = groups.get(key) || { key, month: same, from: x.from, to: x.to, days: 0, rev: 0, net: 0, orders: 0, shipLab: 0, shipOrd: 0, fees: 0, feeSales: 0, feeOrd: 0 };
+    g.from = x.from < g.from ? x.from : g.from; g.to = x.to > g.to ? x.to : g.to; g.days += x.days; g.rev += entrySales(x); g.net += x.rev; g.orders += x.orders;
     if (x.labels != null) { g.shipLab += x.labels; g.shipOrd += x.orders; }
     if (x.fees != null) { g.fees += x.fees; g.feeSales += x.rev + (x.shipIn || 0) + (x.retFees || 0); g.feeOrd += x.orders; }
     groups.set(key, g);
@@ -4536,7 +4538,7 @@ function costRows(periods, st) {
     const label = g.month ? `${MON_LONG[+g.key.slice(5) - 1].slice(0, 3)} ${g.key.slice(0, 4)}${g.days < dim ? ` (${g.days} days)` : ''}` : `${MON_LONG[+g.from.slice(5, 7) - 1].slice(0, 3)}–${MON_LONG[+g.to.slice(5, 7) - 1].slice(0, 3)} ${g.to.slice(0, 4)}`;
     // Profit: from every entry you made for those days (exact profits included), same as Goals.
     const pr = sumRange(dmAll, g.from, g.to), profit = pr.days ? pr.profit : null;
-    return { ...g, label, profit, profDay: profit != null ? profit / pr.days : null, perDay: g.rev / g.days, ordDay: g.orders / g.days, aov: g.rev / g.orders, ship: g.shipOrd ? g.shipLab / g.shipOrd : null, fee: g.feeSales ? (g.fees - g.feeOrd * (R.num(st.feeFixed) || 0.3)) / g.feeSales * 100 : null };
+    return { ...g, label, profit, profDay: profit != null ? profit / pr.days : null, perDay: g.rev / g.days, ordDay: g.orders / g.days, aov: g.net / g.orders, ship: g.shipOrd ? g.shipLab / g.shipOrd : null, fee: g.feeSales ? (g.fees - g.feeOrd * (R.num(st.feeFixed) || 0.3)) / g.feeSales * 100 : null };
   });
   return rows;
 }
