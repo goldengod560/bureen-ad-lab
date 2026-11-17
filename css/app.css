@@ -540,3 +540,4 @@ button.gbadge{font:inherit;font-weight:800;font-size:12px;cursor:pointer}
 .recmed .tiny{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media (max-width:760px){.rechd{grid-template-columns:1fr}.rechd .tiny{display:none}.recrow{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 10px}.recrn{grid-column:1/-1}.recnone{grid-column:1/-1}
   .recmed{flex-direction:column;align-items:flex-start;gap:4px}.recmv,.recmed.mG .recmv{font-size:16px}}
+.roomsub{margin:2px 0 10px;width:max-content;max-width:100%}.recmiles.one{grid-template-columns:repeat(2,minmax(0,220px))}

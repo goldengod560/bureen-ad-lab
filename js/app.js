@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=214';
-import * as R from './rules.js?v=214';
-import { importHistory } from './importer.js?v=214';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=214';
+import { createBackend } from './data.js?v=215';
+import * as R from './rules.js?v=215';
+import { importHistory } from './importer.js?v=215';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=215';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -165,7 +165,7 @@ function App() {
 
   const activeStage1 = { length: testingCount(data) };
   const rules0 = R.rulesOf(product);
-  const NAV = [['today', 'Overview'], ['board', 'Board'], ['plan', 'Plan'], ['archive', 'Archive'], ['goal', 'Goal'], ['records', 'Records'], ['stats', 'Stats'], ['angles', 'Angles'], ['rules', 'Rules'], ['learn', 'Learnings'], ['more', 'More']];
+  const NAV = [['today', 'Overview'], ['board', 'Board'], ['plan', 'Plan'], ['archive', 'Archive'], ['goal', 'Goal'], ['stats', 'Stats'], ['angles', 'Angles'], ['rules', 'Rules'], ['learn', 'Learnings'], ['more', 'More']];
 
   return html`
     <header class="top">
@@ -196,10 +196,10 @@ function App() {
       ${view === 'rules' && html`<${Rules} key=${product.id} ...${ctx} />`}
       ${view === 'learn' && html`<${Learn} ...${ctx} />`}
       ${view === 'goal' && html`<${Goal} ...${ctx} setPid=${setPid} />`}
-      ${view === 'records' && html`<${RecordsPage} ...${ctx} />`}
+      ${view === 'records' && html`<${RecordsPage} data=${data} />`}
       ${view === 'more' && html`<${More} ...${ctx} />`}
     </main>
-    <nav class="bnav" aria-label="Main">${[['today', 'Overview'], ['board', 'Board'], ['archive', 'Archive'], ['goal', 'Goal'], ['stats', 'Stats'], ['more', 'More']].map(([k, l]) => html`<button class=${view === k || (k === 'more' && (view === 'learn' || view === 'rules' || view === 'angles' || view === 'plan' || view === 'records')) ? 'on' : ''} onClick=${() => setView(k)}>${navName(k, l)}</button>`)}</nav>
+    <nav class="bnav" aria-label="Main">${[['today', 'Overview'], ['board', 'Board'], ['archive', 'Archive'], ['goal', 'Goal'], ['stats', 'Stats'], ['more', 'More']].map(([k, l]) => html`<button class=${view === k || (k === 'more' && (view === 'learn' || view === 'rules' || view === 'angles' || view === 'plan')) ? 'on' : ''} onClick=${() => setView(k)}>${navName(k, l)}</button>`)}</nav>
     ${modal && html`<${modal.type} ...${ctx} ...${modal.props} close=${() => setModal(null)} />`}
     <${Lightbox} item=${lightbox} onClose=${() => setLightbox(null)} />
     <${Toast} msg=${toast} />`;
@@ -2384,7 +2384,15 @@ function recordBook(data) {
   for (let a = first.slice(0, 7) + '-01'; monthEnd(a.slice(0, 7)) <= y; a = R.addDays(monthEnd(a.slice(0, 7)), 1)) { const b = monthEnd(a.slice(0, 7)); P.month.push({ a, b, label: MON_LONG[+a.slice(5, 7) - 1] + (a.slice(0, 4) !== y.slice(0, 4) ? ' ' + a.slice(0, 4) : ''), end: b }); }
   for (let yr = +first.slice(0, 4); `${yr}-12-31` <= y; yr++) P.year.push({ a: `${yr}-01-01`, b: `${yr}-12-31`, label: String(yr), end: `${yr}-12-31` });
   const cache = new Map(); const sp = (p) => { const k = p.a + p.b; if (!cache.has(k)) cache.set(k, span(p.a, p.b)); return cache.get(k); };
-  const profitOf = (p) => { const o = sp(p); if (!o.shopAll || !o.metaAll || !econ) return null; const t = periodTotals(data, p.a, p.b, econ); return t && t.profit != null ? t.profit : null; };
+  // Profit only from numbers you entered in Goals. For each day, the newest entry that covers it (like Goals does).
+  // A period counts only if every day is covered and no entry spills past the period, and the app didn't have to guess most costs.
+  if (!goalCE && econ) goalCE = econ;
+  const st = R.storeEcon(), ent = goalPeriods(data).map((x) => ({ ...x, pr: periodProfit(x, st) }));
+  const dayEnt = new Map(); for (const x of ent) for (let k = 0; k < x.days; k++) { const d = R.addDays(x.from, k), c = dayEnt.get(d); if (!c || x.created >= c.created) dayEnt.set(d, x); }
+  const localDay = (iso) => { const t = new Date(iso); return isNaN(t) ? null : t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0'); };
+  const entered = new Map();
+  const profitOf = (p) => { let v = 0, made = ''; for (let d = p.a; d <= p.b; d = R.addDays(d, 1)) { const x = dayEnt.get(d); if (!x || x.pr.how === 'est' || x.from < p.a || x.to > p.b) return null; v += x.pr.value / x.days; if (x.created > made) made = x.created; }
+    entered.set(p.a + p.b, localDay(made)); return v; };
   const money = (v) => R.money0(v), x2 = (v) => R.xroas(v);
   // [key, group, name, periods, value(p) → number|null, format, lower is better, prior periods needed before a record counts]
   const defs = [
@@ -2407,17 +2415,17 @@ function recordBook(data) {
     ['y_roas', 'year', 'Best ROAS year', P.year, (p) => { const o = sp(p); return o.metaAll && o.spend > 0 && spendOk(p, o) ? o.rev / o.spend : null; }, x2, false, 1],
   ];
   const events = [], best = {};
-  const ev = (o) => events.push({ ...o, show: R.addDays(o.end, 1) });
+  const ev = (o) => { const after = R.addDays(o.end, 1), made = /_profit$/.test(o.rk) ? entered.get(o.pa + o.end) : null; events.push({ ...o, show: made && made > after ? made : after }); };
   for (const [key, group, name, list, val, fmt, lower, need] of defs) {
     let b = null, n = 0; const all = [];
     for (const p of list) {
       const v = val(p); if (v == null || !isFinite(v)) continue; all.push({ v, p });
       const better = b == null || (lower ? v < b.v : v > b.v);
-      if (b != null && better && n >= need) ev({ key: key + '|' + p.a, rk: key, group, name, when: p.label, sub: p.sub, end: p.end, value: fmt(v), old: fmt(b.v), oldWhen: b.p.label, pct: recPct(v, b.v, lower), lower });
+      if (b != null && better && n >= need) ev({ key: key + '|' + p.a, pa: p.a, rk: key, group, name, when: p.label, sub: p.sub, end: p.end, value: fmt(v), old: fmt(b.v), oldWhen: b.p.label, pct: recPct(v, b.v, lower), lower });
       if (better) b = { v, p }; n++;
     }
     all.sort((x, z) => (lower ? x.v - z.v : z.v - x.v));
-    best[key] = { group, name, b, n, need, fmt, lower, top3: all.slice(0, 3) };
+    best[key] = { group, name, b, n, need, fmt, lower, top3: all.slice(0, 3), note: /_profit$/.test(key) ? 'from numbers you enter in Goals' : '', empty: /_profit$/.test(key) ? `Enter a whole ${group}'s numbers in Goals (+ Add numbers) and it shows here.` : '' };
   }
   // Longest streak of days in a row above break-even (needs a file every day)
   { let run = 0, top = 0, topEnd = null, prev = null, n = 0, runStart = null, topStart = null; const runs = new Map();
@@ -2463,7 +2471,7 @@ function RecordWatcher({ data, setView }) {
   if (!list) return null;
   const done = (go) => { try { const today = R.today(); let seen = {}; try { seen = JSON.parse(localStorage.getItem('adlab-rec-seen') || '{}'); } catch (e) {}
     const keys = seen.day === today ? seen.keys || [] : []; localStorage.setItem('adlab-rec-seen', JSON.stringify({ day: today, keys: [...keys, ...list.map((e) => e.key)] })); } catch (e) {}
-    setList(null); if (go) setView('records'); };
+    setList(null); if (go) { lsSet('adlab-sk-gtab', 'room'); lsSet('adlab-room-sub', 'records'); lsSet('adlab-rec-tab', list[0].group === 'mile' ? (list[0].rk || 'mile_day').replace('mile_', '') : list[0].group); setView(LOOK === 'stocks' ? 'goal' : 'records'); } };
   const n = list.length;
   const groups = REC_GROUPS.map(([g, l]) => [g, l, list.filter((e) => e.group === g)]).filter(([, , es]) => es.length);
   return html`<div class="recback" role="dialog" aria-modal="true" aria-label="New records">
@@ -2479,44 +2487,50 @@ function RecordWatcher({ data, setView }) {
       <div class="tiny muted" style="text-align:center;margin-top:8px">Shows today until midnight · once on this device</div>
     </div></div>`;
 }
-function RecordsPage({ data, setView }) {
+// Records, inside Goals → Trophy room. Four pages: Days, Weeks, Months, Years.
+function RecordsPage({ data, inRoom }) {
   const book = useMemo(() => { try { return recordBook(data); } catch (e) { console.warn(e); return null; } }, [data]);
-  if (!book || !book.first) return html`<section class="panel"><h1>Records</h1><p class="muted">Records show up once the app has your Shopify orders and Ads Manager files.</p></section>`;
+  const [tab, setTab0] = useState(() => lsGet('adlab-rec-tab', 'day'));
+  const setTab = (k) => { setTab0(k); lsSet('adlab-rec-tab', k); };
+  if (!book || !book.first) return html`<section class="panel"><h2>Records</h2><p class="muted">Records show up once the app has your Shopify orders and Ads Manager files.</p></section>`;
   const recent = R.addDays(book.y, -6);
   const isNew = (k) => book.events.some((e) => e.rk === k && e.end >= recent);
   // Each record: gold = the record, silver = 2nd best, bronze = 3rd best, each with its date.
   const tile = (k) => { const r = book.best[k]; if (!r) return null; const nw = isNew(k), t3 = r.top3 || [];
-    return html`<div class=${'recrow' + (nw ? ' nw' : '')}><div class="recrn"><b>${r.name}</b>${nw ? html` <span class="recnew">NEW</span>` : ''}</div>
+    return html`<div class=${'recrow' + (nw ? ' nw' : '')}><div class="recrn"><b>${r.name}</b>${nw ? html` <span class="recnew">NEW</span>` : ''}${r.note ? html`<div class="tiny muted">${r.note}</div>` : ''}</div>
       ${t3.length ? ['G', 'S', 'B'].map((t, i) => { const x = t3[i]; return html`<div class=${'recmed m' + t}>${x ? html`<${Cup} t=${t} w=${i ? 26 : 32} /><div><div class="recmv">${r.fmt(x.v)}</div><div class="tiny muted">${x.p.label}</div></div>` : html`<${Cup} t=${t} w=${i ? 26 : 32} got=${false} /><div class="tiny muted">not yet</div>`}</div>`; })
-        : html`<div class="tiny muted recnone">No full ${r.group} with enough data yet.</div>`}</div>`; };
+        : html`<div class="tiny muted recnone">${r.empty || `No full ${r.group} with enough data yet.`}</div>`}</div>`; };
   const pbar = (label, now, rec, fmt, note) => html`<div class="recpace"><div class="row small"><span>${label}</span><span class="spacer"></span><b>${fmt(now)}</b></div>
     <div class="skbar"><i style=${`width:${rec ? Math.min(100, (now / rec) * 100).toFixed(0) : 0}%`}></i></div><div class="tiny muted">${note}</div></div>`;
-  const P = book.pace, bw = book.best;
+  const P = book.pace, bw = book.best, cnt = (v) => Math.round(v).toLocaleString();
   const recOf = (k) => (bw[k] && bw[k].b ? bw[k].b.v : null);
-  const daysIn = (o) => (o ? o.n : 0);
   const onPace = (v, o, total) => (o && o.n ? (v / o.n) * total : 0);
-  const dimNow = R.daysBetween(P.ma, monthEnd(P.ma.slice(0, 7))) + 1;
-  const pn = (o, total, rec, v, fmt) => (rec ? `On pace for ${fmt(onPace(v, o, total))} · record ${fmt(rec)}` : `On pace for ${fmt(onPace(v, o, total))}`);
-  const cnt = (v) => Math.round(v).toLocaleString();
-  const groups = [['day', 'Best day', ['d_orders', 'd_sales', 'd_profit', 'd_pspend', 'd_streak']], ['week', 'Best week', ['w_orders', 'w_sales', 'w_roas', 'w_cpo', 'w_profit']], ['month', 'Best month', ['m_orders', 'm_sales', 'm_roas', 'm_units', 'm_profit']], ['year', 'Best year', ['y_orders', 'y_sales', 'y_roas']]];
-  const hist = book.events.slice(0, 40);
-  const byDay = []; for (const e of hist) { const g = byDay.find((x) => x[0] === e.end); if (g) g[1].push(e); else byDay.push([e.end, [e]]); }
-  const nextMile = (g) => { const t = REC_MILES.flatMap((m) => [2, 3, 4, 5, 6, 7, 8].map((k) => m * 10 ** k)).filter((t) => t > (book.miles[g] || 0) && t >= recMileFloor[g]).sort((a, b) => a - b)[0]; return t; };
-  return html`<div class="row" style="gap:10px;align-items:baseline;flex-wrap:wrap"><h1 style="margin:0">Records</h1><span class="small muted">Your all-time bests since ${mdLabel(book.first)}. A record you break pops up the next day, once on each device.</span></div>
-    <div class="recgrid">${groups.map(([g, l, ks]) => html`<section class="panel"><div class="rechd"><h2>${l}</h2><span class="tiny muted">1st</span><span class="tiny muted">2nd</span><span class="tiny muted">3rd</span></div>${ks.map(tile)}
-      ${g === 'week' && P.week && html`${pbar(`This week so far (${daysIn(P.week)} of 7 days)`, P.week.orders, recOf('w_orders'), cnt, pn(P.week, 7, recOf('w_orders'), P.week.orders, cnt) + ' orders')}`}
-      ${g === 'month' && P.month && html`${pbar(`${MON_LONG[+P.ma.slice(5, 7) - 1]} so far (${daysIn(P.month)} of ${dimNow} days)`, P.month.sales, recOf('m_sales'), R.money0, pn(P.month, dimNow, recOf('m_sales'), P.month.sales, R.money0))}`}
-      ${g === 'year' && P.year && html`${pbar(`${P.ya.slice(0, 4)} so far`, P.year.sales, null, R.money0, book.first <= `${+P.ya.slice(0, 4) - 1}-12-31` ? `Real year records start once a full year is in the app. You'll get a pop-up the day ${P.ya.slice(0, 4)} passes all of ${+P.ya.slice(0, 4) - 1}.` : `Real year records start once a full year is in the app. In ${+P.ya.slice(0, 4) + 1} you'll get a pop-up the day it passes all of ${P.ya.slice(0, 4)}.`)}`}
-    </section>`)}</div>
-    <section class="panel"><h2>Milestones</h2><div class="recmiles">${[['day', 'Day'], ['week', 'Week'], ['month', 'Month'], ['year', 'Year']].map(([g, l]) => html`<div><div class="tiny muted">${l}</div><b>${book.miles[g] ? R.money0(book.miles[g]) + ' ' + g : '—'}</b><div class="tiny muted">next: ${R.money0(nextMile(g))} ${g}</div></div>`)}</div></section>
-    <section class="panel"><h2>Record history</h2>${byDay.length ? html`<div class="rechist">${byDay.map(([d, es]) => html`<div><b class="pos">${mdLabel(d)}</b>${es.map((e) => html`<span>${e.name} · ${e.value}</span>`)}</div>`)}</div>` : html`<p class="small muted">No records broken yet. The first ones need some history to beat: 2 weeks of days, 3 full weeks, 1 full month.</p>`}</section>
+  const pn = (o, total, rec, v, fmt) => `On pace for ${fmt(onPace(v, o, total))}${rec ? ` · record ${fmt(rec)}` : ''}`;
+  const dimNow = R.daysBetween(P.ma, monthEnd(P.ma.slice(0, 7))) + 1, yr = P.ya.slice(0, 4);
+  const PAGES = { day: ['Days', 'Best day', ['d_orders', 'd_sales', 'd_profit', 'd_pspend', 'd_streak']], week: ['Weeks', 'Best week', ['w_orders', 'w_sales', 'w_roas', 'w_cpo', 'w_profit']],
+    month: ['Months', 'Best month', ['m_orders', 'm_sales', 'm_roas', 'm_units', 'm_profit']], year: ['Years', 'Best year', ['y_orders', 'y_sales', 'y_roas']] };
+  const [, title, keys] = PAGES[tab] || PAGES.day;
+  const nextMile = (g) => REC_MILES.flatMap((m) => [2, 3, 4, 5, 6, 7, 8].map((k) => m * 10 ** k)).filter((t) => t > (book.miles[g] || 0) && t >= recMileFloor[g]).sort((a, b) => a - b)[0];
+  const mine = book.events.filter((e) => e.group === tab || e.rk === 'mile_' + tab).slice(0, 30);
+  const byDay = []; for (const e of mine) { const g = byDay.find((x) => x[0] === e.end); if (g) g[1].push(e); else byDay.push([e.end, [e]]); }
+  const unit = { day: 'day', week: 'week', month: 'month', year: 'year' }[tab];
+  return html`<div class="row" style="gap:10px;align-items:center;flex-wrap:wrap;margin-top:${inRoom ? 4 : 0}px">${inRoom ? '' : html`<h1 style="margin:0">Records</h1>`}
+      <div class="skseg" role="tablist" aria-label="Records">${Object.entries(PAGES).map(([k, [l]]) => html`<button role="tab" aria-selected=${tab === k} class=${tab === k ? 'on' : ''} onClick=${() => setTab(k)}>${l}</button>`)}</div>
+      <span class="small muted">All-time bests since ${mdLabel(book.first)}. A record you break pops up the next day, once on each device.</span></div>
+    <section class="panel" style="margin-top:12px"><div class="rechd"><h2>${title}</h2><span class="tiny muted">1st</span><span class="tiny muted">2nd</span><span class="tiny muted">3rd</span></div>${keys.map(tile)}
+      ${tab === 'week' && P.week && pbar(`This week so far (${P.week.n} of 7 days)`, P.week.orders, recOf('w_orders'), cnt, pn(P.week, 7, recOf('w_orders'), P.week.orders, cnt) + ' orders')}
+      ${tab === 'month' && P.month && pbar(`${MON_LONG[+P.ma.slice(5, 7) - 1]} so far (${P.month.n} of ${dimNow} days)`, P.month.sales, recOf('m_sales'), R.money0, pn(P.month, dimNow, recOf('m_sales'), P.month.sales, R.money0))}
+      ${tab === 'year' && P.year && pbar(`${yr} so far`, P.year.sales, null, R.money0, book.first <= `${+yr - 1}-12-31` ? `Year records start once a full year is in the app. You'll get a pop-up the day ${yr} passes all of ${+yr - 1}.` : `Year records start once a full year is in the app. In ${+yr + 1} you'll get a pop-up the day it passes all of ${yr}.`)}
+    </section>
+    <section class="panel"><div class="row"><h2>Milestone</h2><span class="spacer"></span><span class="small muted">first ${unit} to reach a round number in sales</span></div>
+      <div class="recmiles one"><div><div class="tiny muted">Reached</div><b>${book.miles[tab] ? `${R.money0(book.miles[tab])} ${unit}` : '—'}</b></div><div><div class="tiny muted">Next</div><b>${R.money0(nextMile(tab))} ${unit}</b></div></div></section>
+    <section class="panel"><h2>Records you've broken</h2>${byDay.length ? html`<div class="rechist">${byDay.map(([d, es]) => html`<div><b class="pos">${mdLabel(d)}</b>${es.map((e) => html`<span>${e.name} · ${e.value}</span>`)}</div>`)}</div>`
+      : html`<p class="small muted">None yet. ${tab === 'day' ? 'Day records start after 2 weeks of history.' : tab === 'week' ? 'Week records start after 3 full weeks.' : tab === 'month' ? 'Month records start after 1 full month.' : 'Year records start after 1 full year.'}</p>`}</section>
     <details class="panel"><summary class="small" style="cursor:pointer"><b>How records count</b></summary><div class="small" style="margin-top:8px;line-height:1.55">
-      <p><b>Orders, sales and packs</b> come from Shopify. Sales are after refunds and without sales tax.</p>
-      <p><b>ROAS</b> is Meta-reported sales ÷ spend from your Ads Manager files, the same basis as your break-even (${R.xroas(book.be0)}). There's no daily ROAS record because one day can be luck. Week, month and year ROAS (and lowest cost per order) only count when spend was at least 75% of your normal, so a slow, cheap week can't win.</p>
-      <p><b>Biggest profitable spend day</b> is the most you spent in a day while ROAS stayed above break-even. <b>Streak</b> is days in a row above break-even.</p>
-      <p><b>Profit</b> is the same estimate as Overview: sales minus product cost, fees, shipping and packing, Meta spend and apps.</p>
-      <p>A day, week (Monday–Sunday), month or year only counts when every day in it has data. A record needs some history first: 2 weeks of days, 3 full weeks, 1 full month or 1 full year.</p>
-      <p>Meta keeps adding late sales to past days for up to 7 days. If that pushes an old day past a record, it's added here without a pop-up.</p></div></details>`;
+      <p><b>Orders, sales and packs</b> come from Shopify on their own. Sales are after refunds and without sales tax.</p>
+      <p><b>ROAS, spend and streaks</b> need your Ads Manager file for every day. ROAS is Meta-reported sales ÷ spend, the same basis as break-even (${R.xroas(book.be0)}). There's no daily ROAS record because one day can be luck. Week, month and year ROAS and lowest cost per order only count when spend was at least 75% of your normal.</p>
+      <p><b>Profit</b> only uses numbers you enter in Goals (+ Add numbers). A day counts if you entered that one day; a week or month counts if your entries cover every day of it without spilling past it. Entries where the app had to guess most of the costs don't count. A profit record pops up the day you enter the numbers.</p>
+      <p>A day, week (Monday–Sunday), month or year only counts when every day in it has data. Meta keeps adding late sales to past days for up to 7 days; if that pushes an old day past a record, it's added here without a pop-up.</p></div></details>`;
 }
 
 // =================== Stocks look: Goals ===================
@@ -2525,6 +2539,8 @@ function StocksGoal(g) {
   const [tab, setTab0] = useState(() => lsGet('adlab-sk-gtab', 'month'));
   const setTab = (k) => { setTab0(k); lsSet('adlab-sk-gtab', k); };
   const [tset, setTset] = useState('month');
+  const [roomSub, setRoomSub0] = useState(() => lsGet('adlab-room-sub', 'trophies'));
+  const setRoomSub = (k) => { setRoomSub0(k); lsSet('adlab-room-sub', k); };
   const sets = trophySets(g);
   const nowSet = sets.month(curYm);
   const all = [...nowSet, ...sets.season, ...sets.store], pts = all.filter((x) => x[2] >= x[3]).reduce((s, x) => s + TIER[x[0]][3], 0);
@@ -2543,8 +2559,10 @@ function StocksGoal(g) {
       <div class="small muted">Bronze = habits · Silver = a solid week or month · Gold = the big money goals · Platinum = win every other one in the set.</div>`;
   }
   if (tab === 'room') {
+    const subTabs = html`<div class="skseg roomsub" role="tablist" aria-label="Trophy room">${[['trophies', 'Trophies'], ['records', 'Records']].map(([k, l]) => html`<button role="tab" aria-selected=${roomSub === k} class=${roomSub === k ? 'on' : ''} onClick=${() => setRoomSub(k)}>${l}</button>`)}</div>`;
+    if (roomSub === 'records') return html`${tabs}${subTabs}<${RecordsPage} data=${data} inRoom=${true} />`;
     const past = months.filter((m) => m.done).slice(-6).reverse();
-    return html`${tabs}${levelBar}
+    return html`${tabs}${subTabs}${levelBar}
       <section class="panel"><div class="row"><h2>Store cabinet · forever</h2><span class="spacer"></span><span class="small muted">${sets.store.filter((x) => x[2] >= x[3]).length} of ${sets.store.length}</span></div><div class="skshelf">${sets.store.map((x) => html`<div class=${'skplinth' + (x[2] >= x[3] ? '' : ' no')}><${Cup} t=${x[0]} w=${56} got=${x[2] >= x[3]} /><b class="tiny">${x[1]}</b></div>`)}</div></section>
       <section class="panel"><div class="row"><h2>Season · ${stage.name} shelf</h2><span class="spacer"></span><span class="small muted">${stage.months} · framed here when the season ends</span></div><div class="skshelf">${sets.season.map((x) => html`<div class=${'skplinth' + (x[2] >= x[3] ? '' : ' no')}><${Cup} t=${x[0]} w=${56} got=${x[2] >= x[3]} /><b class="tiny">${x[1]}</b></div>`)}</div></section>
       <section class="panel"><h2>Month by month</h2>${past.length ? past.map((m) => { const won = sets.month(m.ym).filter((x) => x[2] >= x[3]); return html`<div class="li"><b style="width:130px">${MON_LONG[+m.ym.slice(5) - 1]} ${m.ym.slice(0, 4)}</b><span class="row grow" style="gap:6px">${won.length ? won.map((x) => html`<span title=${x[1]}><${Cup} t=${x[0]} w=${30} /></span>`) : html`<span class="small muted">no trophies</span>`}</span><span class="small muted">${won.length} won · ${m.actual != null ? signMoney(m.actual) : '—'}</span></div>`; }) : html`<div class="empty">Finished months show here.</div>`}</section>`;
@@ -5050,7 +5068,6 @@ function More(ctx) {
       <section class="panel"><h2>Angles</h2><p class="small muted" style="margin:0">How each angle and concept has done, with every ad that ran it.</p><div class="row"><button class="btn" onClick=${() => setView('angles')}>Open Angles</button></div></section>
       <${ZipAll} data=${data} />
       <section class="panel"><h2>Plan</h2><p class="small muted" style="margin:0">Which product gets the test slots and when, and which products need new ads.</p><div class="row"><button class="btn" onClick=${() => setView('plan')}>Open Plan</button></div></section>
-      <section class="panel"><h2>Records</h2><p class="small muted" style="margin:0">Your best day, week, month and year, milestones and every record you've broken.</p><div class="row"><button class="btn" onClick=${() => setView('records')}>Open Records</button></div></section>
       <section class="panel"><h2>Rules</h2><p class="small muted" style="margin:0">Testing rules, break-even and costs per product.</p><div class="row"><button class="btn" onClick=${() => setView('rules')}>Open Rules</button></div></section>
       <section class="panel"><h2>${navName('learn', 'Learnings')}</h2><p class="small muted" style="margin:0">Learnings, changes and every decision, per product.</p><div class="row"><button class="btn" onClick=${() => setView('learn')}>Open ${navName('learn', 'Learnings')}</button></div></section>
       <section class="panel"><h2>Import your ad history</h2>
