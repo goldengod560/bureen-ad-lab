@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=230';
-import * as R from './rules.js?v=230';
-import { importHistory } from './importer.js?v=230';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=230';
+import { createBackend } from './data.js?v=231';
+import * as R from './rules.js?v=231';
+import { importHistory } from './importer.js?v=231';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=231';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -103,7 +103,7 @@ function App() {
 
   const say = (m) => { setToast(m); clearTimeout(toastTimer); toastTimer = setTimeout(() => setToast(''), 2800); };
   const [loadErr, setLoadErr] = useState(null);
-  const reload = async () => { try { const d = await be.loadAll(); d.ads = d.ads.map(R.normalizeAd); R.setStoreEcon(d.store); await closeOrphanTests(d); setData(d); setLoadErr(null); } catch (e) { setLoadErr(e.message); say('Could not load: ' + e.message); } };
+  const reload = async () => { try { const d = keepBudgets(await be.loadAll()); d.ads = d.ads.map(R.normalizeAd); R.setStoreEcon(d.store); await closeOrphanTests(d); setData(d); setLoadErr(null); } catch (e) { setLoadErr(e.message); say('Could not load: ' + e.message); } };
 
   useEffect(() => {
     if (!be.configured) { setSession(null); return; }
@@ -670,6 +670,18 @@ function BudgetLine({ k, data, product, setModal }) {
     return html`<div class="budgetline">${b ? html`<b>${R.money0(b)}/day</b> Main campaign${since ? html` <span class="muted">since ${R.shortDate(since)}</span>` : ''}` : html`<span class="muted">Main budget not set</span>`} <button class="link small" onClick=${(e) => { e.stopPropagation(); setModal({ type: BudgetForm, props: { productId: product.id } }); }}>${b ? 'Change' : 'Set'}</button></div>`;
   }
   return null;
+}
+// If a product's Main budget went missing (an older Rules save dropped it), use the last budget change you logged.
+// Only fills in what's missing; it never overrides a budget that's set.
+function keepBudgets(d) {
+  for (const p of d.products || []) {
+    if (R.num((p.rules || {}).mainBudget)) continue;
+    const last = (d.decisions || []).filter((x) => x.product_id === p.id && x.kind === 'budget').sort((a, b) => String(b.day || b.created_at).localeCompare(String(a.day || a.created_at)))[0];
+    const m = last && [...String(last.choice || '').matchAll(/\$([\d,.]+)\/day/g)].pop();
+    const v = m && R.num(m[1]);
+    if (v) p.rules = { ...(p.rules || {}), mainBudget: v, mainBudgetSince: (p.rules || {}).mainBudgetSince || String(last.day || last.created_at).slice(0, 10) };
+  }
+  return d;
 }
 function BudgetForm(ctx) {
   const { data, productId, suggest, close, reload, say } = ctx;
@@ -4816,7 +4828,8 @@ function Rules(ctx) {
   const unit = (u) => html`<span class="tiny muted">${u}</span>`;
   const save = async () => {
     setBusy(true);
-    const old = R.rulesOf(product); const nr = {};
+    // Start from everything already saved (Main budget, its date, added angles and concepts), then apply the rule fields.
+    const old = R.rulesOf(product); const nr = { ...(product.rules || {}) };
     Object.keys(R.DEFAULT_RULES).forEach((k) => { nr[k] = k === 'checkins' ? rules[k] : k === 'weekendLock' ? !!rules.weekendLock : (R.num(rules[k]) ?? R.DEFAULT_RULES[k]); });
     nr.extraAngles = (product.rules || {}).extraAngles || [];
     nr.extraConcepts = (product.rules || {}).extraConcepts || [];
