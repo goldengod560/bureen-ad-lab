@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=229';
-import * as R from './rules.js?v=229';
-import { importHistory } from './importer.js?v=229';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=229';
+import { createBackend } from './data.js?v=230';
+import * as R from './rules.js?v=230';
+import { importHistory } from './importer.js?v=230';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=230';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2728,18 +2728,31 @@ function RecordsPage({ data, inRoom, setModal }) {
     ${whyM}`;
 }
 // On Overview, the day after: yesterday (or the week or month that just ended) came 2nd or 3rd best. Close, not a record.
+// On Overview, the day after: the records you broke (yesterday, or the week/month that just ended) and the close calls
+// (2nd or 3rd best, or a tie). Hide it for the day with ×.
+const recUnitN = (k, v) => { const u = recUnit(k); return String(v) === '1' ? u.replace(/s$/, '') : u; };
 function CloseCalls({ data, setView }) {
   const [hide, setHide] = useState(() => lsGet('adlab-close-seen', '') === R.today());
   const book = useMemo(() => { try { return recordBookOf(data); } catch (e) { return null; } }, [data]);
-  if (hide || !book || !book.close || !book.close.length) return null;
-  const order = ['d_profit', 'd_sales', 'd_orders', 'd_aov', 'd_buys', 'w_profit', 'w_sales', 'w_orders', 'w_roas', 'w_mer', 'w_cpo', 'm_profit', 'm_sales', 'm_orders', 'm_roas', 'm_mer', 'm_margin', 'y_sales', 'y_orders', 'y_roas', 'y_mer'];
-  const list = [...book.close].sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key)).slice(0, 3);
+  if (hide || !book) return null;
+  const order = ['d_profit', 'd_sales', 'd_orders', 'd_aov', 'd_buys', 'd_streak', 'w_profit', 'w_sales', 'w_orders', 'w_roas', 'w_mer', 'w_cpo', 'm_profit', 'm_sales', 'm_orders', 'm_roas', 'm_mer', 'm_margin', 'y_sales', 'y_orders', 'y_roas', 'y_mer'];
+  const rank = (k) => { const i = order.indexOf(k); return i < 0 ? 99 : i; };
+  const beat = book.events.filter((e) => e.end === book.y).sort((a, b) => rank(a.rk) - rank(b.rk));
+  const list = [...(book.close || [])].sort((a, b) => rank(a.key) - rank(b.key)).slice(0, 3);
+  if (!beat.length && !list.length) return null;
   const when = { day: 'Yesterday', week: 'Last week', month: 'Last month', year: 'Last year' };
-  const kind = (c) => c.name.replace(/^(Most|Best|Biggest|Lowest) /, (m) => m.toLowerCase());
-  return html`<section class="closecall"><div class="row" style="gap:10px;align-items:center"><b class="small" style="letter-spacing:.06em">CLOSE CALL${list.length > 1 ? 'S' : ''}</b><span class="spacer"></span>
-      <button class="link small" onClick=${() => { lsSet('adlab-sk-gtab', 'records'); lsSet('adlab-rec-tab', list[0].group); setView(LOOK === 'stocks' ? 'goal' : 'records'); }}>See records</button>
+  const kind = (c) => c.name.replace(/^(Most|Best|Biggest|Lowest|Longest) /, (m) => m.toLowerCase());
+  const go = (g) => { lsSet('adlab-sk-gtab', 'records'); lsSet('adlab-rec-tab', g); setView(LOOK === 'stocks' ? 'goal' : 'records'); };
+  const beatRow = (e) => { const w = e.group === 'mile' || e.group === 'year' ? 'Yesterday' : when[e.group];
+    if (e.group === 'mile') return html`${w}: <b>${e.name[0].toLowerCase() + e.name.slice(1)}</b> ever: <b>${e.value}</b>.`;
+    if (/^y_pass/.test(e.rk)) return html`${w} ${e.when.slice(0, 4)} <b>${e.name[0].toLowerCase() + e.name.slice(1)}</b>: <b>${e.value}${recUnitN(e.rk, e.value)}</b> (all of last year: ${e.old}).`;
+    return html`${w} set a <b>new record</b> for ${kind(e)}: <b>${e.value}${recUnitN(e.rk, e.value)}</b> (old ${e.old}${e.oldWhen ? ' · ' + e.oldWhen : ''}${e.pct != null ? `, ${e.lower ? e.pct + '% lower' : '+' + e.pct + '%'}` : ''}).`; };
+  return html`<section class="closecall"><div class="row" style="gap:10px;align-items:center"><b class="small" style="letter-spacing:.06em">${beat.length ? `RECORD${beat.length > 1 ? 'S' : ''} YOU BROKE` : `CLOSE CALL${list.length > 1 ? 'S' : ''}`}</b><span class="spacer"></span>
+      <button class="link small" onClick=${() => go(beat.length ? (beat[0].group === 'mile' ? (beat[0].rk || 'mile_day').replace('mile_', '') : beat[0].group) : list[0].group)}>See records</button>
       <button class="recx" style="position:static" aria-label="Hide for today" onClick=${() => { lsSet('adlab-close-seen', R.today()); setHide(true); }}>×</button></div>
-    ${list.map((c) => html`<div class="ccrow"><${RecMedal} t=${c.rank === 1 ? 'G' : c.rank === 2 ? 'S' : 'B'} w=${24} /><span>${c.tie ? html`${when[c.group]} <b>tied your ${kind(c)}</b> record: <b>${c.value}${recUnit(c.key)}</b>, same as ${c.recWhen}.` : html`${when[c.group]} was your <b>${c.rank === 2 ? '2nd' : '3rd'} ${kind(c)}</b> ever: <b>${c.value}${recUnit(c.key)}</b>, ${c.gap}${recUnit(c.key)} ${c.lower ? 'above' : 'short of'} the record (${c.rec} · ${c.recWhen}).`}</span></div>`)}</section>`;
+    ${beat.map((e) => html`<div class="ccrow"><${RecMedal} t="G" w=${24} /><span>${beatRow(e)}${e.sale ? html`<span class="salebadge">SALE</span>` : ''}</span></div>`)}
+    ${beat.length > 0 && list.length > 0 && html`<b class="small" style="letter-spacing:.06em;display:block;margin-top:10px">CLOSE CALL${list.length > 1 ? 'S' : ''}</b>`}
+    ${list.map((c) => html`<div class="ccrow"><${RecMedal} t=${c.rank === 1 ? 'G' : c.rank === 2 ? 'S' : 'B'} w=${24} /><span>${c.tie ? html`${when[c.group]} <b>tied your ${kind(c)}</b> record: <b>${c.value}${recUnitN(c.key, c.value)}</b>, same as ${c.recWhen}.` : html`${when[c.group]} was your <b>${c.rank === 2 ? '2nd' : '3rd'} ${kind(c)}</b> ever: <b>${c.value}${recUnitN(c.key, c.value)}</b>, ${c.gap}${recUnitN(c.key, c.gap)} ${c.lower ? 'above' : 'short of'} the record (${c.rec} · ${c.recWhen}).`}</span></div>`)}</section>`;
 }
 
 // =================== Stocks look: Goals ===================
