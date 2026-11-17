@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=225';
-import * as R from './rules.js?v=225';
-import { importHistory } from './importer.js?v=225';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=225';
+import { createBackend } from './data.js?v=226';
+import * as R from './rules.js?v=226';
+import { importHistory } from './importer.js?v=226';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=226';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2393,8 +2393,8 @@ function recordBook(data) {
   const mon = (d) => R.addDays(d, -((R.parseDay(d).getDay() + 6) % 7));
   for (let a = mon(first); R.addDays(a, 6) <= y; a = R.addDays(a, 7)) { const b = R.addDays(a, 6); P.week.push({ a, b, label: `Week of ${mdLabel(a)}`, sub: `${mdLabel(a)} – ${mdLabel(b)}`, end: b }); }
   for (let a = first.slice(0, 7) + '-01'; monthEnd(a.slice(0, 7)) <= y; a = R.addDays(monthEnd(a.slice(0, 7)), 1)) { const b = monthEnd(a.slice(0, 7)); P.month.push({ a, b, label: MON_LONG[+a.slice(5, 7) - 1] + (a.slice(0, 4) !== y.slice(0, 4) ? ' ' + a.slice(0, 4) : ''), end: b }); }
-  // Years: your first year counts from the day your data starts (labeled "from …").
-  for (let yr = +first.slice(0, 4); `${yr}-12-31` <= y; yr++) { const a = `${yr}-01-01`, st0 = first > a ? first : a; P.year.push({ a, b: `${yr}-12-31`, st: st0, label: String(yr) + (st0 > a ? ` · from ${mdLabel(st0)}` : ''), end: `${yr}-12-31` }); }
+  // Years: a year counts from its first day with numbers (your first year is labeled "from …").
+  for (let yr = +first.slice(0, 4); `${yr}-12-31` <= y; yr++) P.year.push({ a: `${yr}-01-01`, b: `${yr}-12-31`, label: String(yr), end: `${yr}-12-31` });
   const cache = new Map(); const sp = (p) => { const k = p.a + p.b; if (!cache.has(k)) cache.set(k, span(p.a, p.b)); return cache.get(k); };
   // Profit only from numbers you entered in Goals. For each day, the newest entry that covers it (like Goals does).
   // A period counts only if every day is covered and no entry spills past the period, and the app didn't have to guess most costs.
@@ -2412,9 +2412,16 @@ function recordBook(data) {
   const salesE = (x) => (!x.rev ? null : x.revType === 'net' ? x.rev + (x.shipIn || 0) + (x.retFees || 0) : x.rev), ordersE = (x) => (x.orders > 0 ? x.orders : null);
   // One day's sales or orders: Shopify if the app has that day, otherwise that day's share of your Goals entry.
   const dayMix = (d, k) => { const s0 = shop.get(d); if (s0) return s0[k]; const x = dayNet.get(d); if (!x) return null; const t = (k === 'sales' ? salesE : ordersE)(x); return t == null ? null : t / x.days; };
-  // A year: Shopify days plus your Goals months, counted from the day your data starts. It counts if 90%+ of those days have numbers.
-  const yearVal = (key, k) => (p) => { let v = 0, have = 0, n = 0, goals = false; for (let d = p.st || p.a; d <= p.b; d = R.addDays(d, 1)) { n++; const t = dayMix(d, k); if (t != null) { v += t; have++; if (!shop.has(d)) goals = true; } } if (!n || have / n < 0.9) return null; if (goals) fromGoals.add(key + '|' + p.a); return v; };
-  const yearMeta = (p) => { const o = span(p.st || p.a, p.b); return o.n && o.metaN / o.n >= 0.9 && o.spend > 0 ? o : null; };
+  // A year: Shopify days plus your Goals entries, counted from that year's first day with numbers (sales for sales and orders,
+  // Ads Manager files for ROAS). It counts if 90%+ of the days from there to Dec 31 have numbers.
+  const yrLab = new Map();
+  const firstWith = (a, b, has) => { for (let d = a; d <= b; d = R.addDays(d, 1)) if (has(d)) return d; return null; };
+  const fromLab = (yr, st0) => String(yr) + (st0 > `${yr}-01-01` ? ` · from ${mdLabel(st0)}` : '');
+  const yearSum = (st0, b, k) => { let v = 0, have = 0, n = 0, goals = false; for (let d = st0; d <= b; d = R.addDays(d, 1)) { n++; const t = dayMix(d, k); if (t != null) { v += t; have++; if (!shop.has(d)) goals = true; } } return n && have / n >= 0.9 ? { v, goals } : null; };
+  const yearVal = (key, k) => (p) => { const st0 = firstWith(p.a, p.b, (d) => dayMix(d, k) != null); if (!st0) return null; const r = yearSum(st0, p.b, k); if (!r) return null; if (r.goals) fromGoals.add(key + '|' + p.a); yrLab.set(key + '|' + p.a, fromLab(p.a.slice(0, 4), st0)); return r.v; };
+  const yearMeta = (key) => (p) => { const st0 = firstWith(p.a, p.b, (d) => meta.has(d)); if (!st0) return null; const o = span(st0, p.b); if (!(o.metaN / o.n >= 0.9 && o.spend > 0)) return null; yrLab.set(key + '|' + p.a, fromLab(p.a.slice(0, 4), st0)); return o; };
+  // MER for a year: from the first day that has both sales numbers and an Ads Manager file.
+  const yearMer = (key) => (p) => { const st0 = firstWith(p.a, p.b, (d) => dayMix(d, 'sales') != null && meta.has(d)); if (!st0) return null; const r = yearSum(st0, p.b, 'sales'), o = span(st0, p.b); if (!r || !(o.metaN / o.n >= 0.9 && o.spend > 0)) return null; if (r.goals) fromGoals.add(key + '|' + p.a); yrLab.set(key + '|' + p.a, fromLab(p.a.slice(0, 4), st0)); return r.v / o.spend; };
   // [key, group, name, periods, value(p) → number|null, format, lower is better, prior periods needed before a record counts]
   const defs = [
     ['d_orders', 'day', 'Most orders in a day', P.day, shopOr('d_orders', 'orders', ordersE), (v) => Math.round(v).toLocaleString(), false, 14],
@@ -2436,8 +2443,8 @@ function recordBook(data) {
     ['m_profit', 'month', 'Most profit in a month', P.month, profitOf, money, false, 1],
     ['y_orders', 'year', 'Most orders in a year', P.year, yearVal('y_orders', 'orders'), (v) => Math.round(v).toLocaleString(), false, 1],
     ['y_sales', 'year', 'Best sales year', P.year, yearVal('y_sales', 'sales'), money, false, 1],
-    ['y_roas', 'year', 'Best ROAS year', P.year, (p) => { const o = yearMeta(p); return o ? o.rev / o.spend : null; }, x2, false, 1],
-    ['y_mer', 'year', 'Best MER year', P.year, (p) => { const o = yearMeta(p), sv = yearVal('y_mer', 'sales')(p); return o && sv != null ? sv / o.spend : null; }, x2, false, 1],
+    ['y_roas', 'year', 'Best ROAS year', P.year, (p) => { const o = yearMeta('y_roas')(p); return o ? o.rev / o.spend : null; }, x2, false, 1],
+    ['y_mer', 'year', 'Best MER year', P.year, yearMer('y_mer'), x2, false, 1],
   ];
   const events = [], best = {};
   const ev = (o) => { const after = R.addDays(o.end, 1), made = /_profit$/.test(o.rk) ? entered.get(o.pa + o.end) : null; events.push({ ...o, show: made && made > after ? made : after }); };
@@ -2461,8 +2468,9 @@ function recordBook(data) {
     // Close call: the period that just ended came 2nd or 3rd, or tied the record
     const i = rk.findIndex((x) => x.p.end === y);
     if (i > 0 && rk[i].rank <= 3 && n > need) close.push({ key, group, name, rank: rk[i].rank, tie: rk[i].rank === 1, value: fmt(rk[i].v), gap: fmt(Math.abs(sorted[0].v - rk[i].v)), rec: fmt(sorted[0].v), recWhen: sorted[0].p.label, when: rk[i].p.label, lower, a: rk[i].p.a, b: rk[i].p.b });
-    const other = (x) => { const o = group === 'year' ? span(x.p.st || x.p.a, x.p.b) : sp(x.p); if (!o.spend) return ''; if (/_roas$/.test(key)) { const sv = group === 'year' ? yearVal('', 'sales')(x.p) : o.shopAll ? o.sales : fromEntries(x.p, salesE); return sv != null ? 'MER ' + x2(sv / o.spend) : ''; } if (/_mer$/.test(key)) return 'Meta ROAS ' + x2(o.rev / o.spend); return ''; };
-    const tagG = (x) => ({ ...x, g: fromGoals.has(key + '|' + x.p.a), other: other(x) });
+    const other = (x) => { if (group === 'year') { if (/_roas$/.test(key)) { const m = yearMer('')(x.p); return m != null ? 'MER ' + x2(m) : ''; } if (/_mer$/.test(key)) { const o = yearMeta('')(x.p); return o ? 'Meta ROAS ' + x2(o.rev / o.spend) : ''; } return ''; }
+      const o = sp(x.p); if (!o.spend) return ''; if (/_roas$/.test(key)) { const sv = o.shopAll ? o.sales : fromEntries(x.p, salesE); return sv != null ? 'MER ' + x2(sv / o.spend) : ''; } if (/_mer$/.test(key)) return 'Meta ROAS ' + x2(o.rev / o.spend); return ''; };
+    const tagG = (x) => { const lab = yrLab.get(key + '|' + x.p.a); return { ...x, p: lab ? { ...x.p, label: lab } : x.p, g: fromGoals.has(key + '|' + x.p.a), other: other(x) }; };
     best[key] = { group, name, b, n, need, fmt, lower, top3: rk.filter((x) => x.rank <= 3).slice(0, 5).map(tagG), saleTop3: ranked(srt(sale)).filter((x) => x.rank <= 3).slice(0, 5).map(tagG), avg, avgN: recentV.length,
       note: /_profit$/.test(key) ? 'from numbers you enter in Goals' : '', empty: /_profit$/.test(key) ? `Enter a whole ${group}'s numbers in Goals (+ Add numbers) and it shows here.` : '' };
   }
@@ -2492,8 +2500,8 @@ function recordBook(data) {
   const wa = mon(R.today()), ma = R.today().slice(0, 8) + '01', ya = R.today().slice(0, 4) + '-01-01';
   const mixSum = (a, b, k) => { let v = 0; for (let d = a; d <= b; d = R.addDays(d, 1)) v += dayMix(d, k) || 0; return v; };
   const yearSoFar = ya <= y ? { ...span(ya, y), sales: mixSum(ya, y, 'sales'), orders: mixSum(ya, y, 'orders') } : null;
-  const prevY = String(+ya.slice(0, 4) - 1), prevA = `${prevY}-01-01` < first ? first : `${prevY}-01-01`;
-  const lastYear = first <= `${prevY}-12-31` ? { yr: prevY, from: prevA, sales: mixSum(prevA, `${prevY}-12-31`, 'sales'), orders: mixSum(prevA, `${prevY}-12-31`, 'orders') } : null;
+  const prevY = String(+ya.slice(0, 4) - 1), prevA = firstWith(`${prevY}-01-01`, `${prevY}-12-31`, (d) => dayMix(d, 'sales') != null) || `${prevY}-01-01`;
+  const lastYear = first <= `${prevY}-12-31` && dayMix(prevA, 'sales') != null ? { yr: prevY, from: prevA, sales: mixSum(prevA, `${prevY}-12-31`, 'sales'), orders: mixSum(prevA, `${prevY}-12-31`, 'orders') } : null;
   const pace = { week: wa <= y ? span(wa, y) : null, month: ma <= y ? span(ma, y) : null, year: yearSoFar, lastYear, wa, ma, ya };
   events.sort((a, b) => (a.end < b.end ? 1 : a.end > b.end ? -1 : 0));
   const metaIn = (a, b) => span(a, b).metaAll;
@@ -2662,7 +2670,7 @@ function RecordsPage({ data, inRoom, setModal }) {
         <div class="rhs">${lead.name} · beat ${lead.old}${lead.pct != null ? html` by <b class="pos">${lead.lower ? lead.pct + '% lower' : '+' + lead.pct + '%'}</b>` : ''}</div>
         ${also.length > 0 && html`<div class="rhm">Also ${unitWord}: ${also.map((e) => `${e.name[0].toLowerCase() + e.name.slice(1)} ${e.value}${recUnit(e.rk)}`).join(' · ')}</div>`}
         <div class="rhm">Tap to see what drove it</div></div></section>`
-    : topK ? html`<section class="rhero rclick" onClick=${() => open(bw[topK], bw[topK].b)}><div class="rhcup"><${Cup} t="G" w=${84} /></div><div class="grow"><div class="rhk">TOP RECORD · ${bw[topK].b.p.label.toUpperCase()}</div>
+    : topK ? html`<section class="rhero rclick" onClick=${() => open(bw[topK], bw[topK].b)}><div class="rhcup"><${Cup} t="G" w=${84} /></div><div class="grow"><div class="rhk">TOP RECORD · ${((bw[topK].top3 && bw[topK].top3[0]) || bw[topK].b).p.label.toUpperCase()}</div>
         <div class="rhv">${bw[topK].fmt(bw[topK].b.v)}${recUnit(topK)}</div><div class="rhs">${bw[topK].name}</div><div class="rhm">No new ${tab} records in the last 30 days. Beat this one to see your next record here.</div></div></section>` : null;
   const card = (k, sale) => { const r = bw[k]; if (!r) return null; const t3 = (sale ? r.saleTop3 : r.top3) || [], nw = !sale && isNew(k), tgt = !sale && recTarget(r, k);
     if (sale && !t3.length) return null;
@@ -2704,7 +2712,8 @@ function RecordsPage({ data, inRoom, setModal }) {
       <p><b>Orders and sales</b> come from Shopify on their own. Sales match Shopify's "Total sales": after discounts and refunds, with shipping and tax. Shopify only gives the app your last ~60 days of orders; before that, records use the numbers you entered in Goals (Shopify: net sales + shipping + return fees; Triple Whale: revenue; plus orders), marked "your Goals numbers". Every day the app syncs from Shopify is saved for good, even after Shopify's 60 days pass.</p>
       <p><b>ROAS, spend and streaks</b> need your Ads Manager file for every day. ROAS is Meta-reported sales ÷ spend, the same basis as break-even (${R.xroas(book.be0)}). There's no daily ROAS record because one day can be luck. Week, month and year ROAS and lowest cost per order only count when spend was at least 75% of your normal.</p>
       <p><b>Biggest average order (AOV)</b> is sales ÷ orders, only on days with 10+ orders so one big order can't win it. <b>Most Meta purchases</b> is the purchases Meta credits to your ads that day. <b>Profit margin</b> is profit ÷ sales for months you entered in Goals.</p>
-      <p><b>Years</b> use Shopify days plus your Goals months. Your first year counts from the day your data starts, and a year counts once 90% of its days have numbers. Year ROAS and MER need Ads Manager files for 90% of the year.</p>
+      <p><b>Years</b> use Shopify days plus your Goals entries. A year counts from its first day with numbers (so a first year shows "from …"), once 90% of the days from there to Dec 31 have numbers. Sales and orders start from your first sales numbers, ROAS from your first Ads Manager file, MER from the first day with both.</p>
+      <p><b>Sales here include shipping</b> customers paid, like Shopify's Total sales. Stats → Month by month shows net sales (no shipping), so it's a bit lower.</p>
       <p><b>MER</b> is all your sales (Shopify's Total sales, or your Goals numbers) ÷ Meta ad spend. Meta ROAS only counts sales Meta says its ads drove; MER counts everything. When MER is well above Meta ROAS, something besides the ads (organic, email, repeat customers, word of mouth) is adding sales. Each ROAS record shows that period's MER and each MER record shows its Meta ROAS so you can compare. Weeks, months and years only, with the same 75%-of-normal spend rule.</p>
       <p>Equal records (as shown) share a place: two 96-order days are both gold and the next one is bronze.</p>
       <p><b>Profit</b> only uses numbers you enter in Goals (+ Add numbers). A day counts if you entered that one day; a week or month counts if your entries cover every day of it without spilling past it. Entries where the app had to guess most of the costs don't count. A profit record pops up the day you enter the numbers.</p>
