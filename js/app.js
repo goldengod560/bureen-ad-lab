@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=219';
-import * as R from './rules.js?v=219';
-import { importHistory } from './importer.js?v=219';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=219';
+import { createBackend } from './data.js?v=220';
+import * as R from './rules.js?v=220';
+import { importHistory } from './importer.js?v=220';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=220';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2475,35 +2475,35 @@ function recordBook(data) {
 // One record book per data load and day, shared by the pop-up, Overview and the Records tab.
 const RB_CACHE = new WeakMap();
 function recordBookOf(data) { const t = R.today(), c = RB_CACHE.get(data); if (c && c.t === t) return c.b; const b0 = recordBook(data); RB_CACHE.set(data, { t, b: b0 }); return b0; }
-// Two pop-ups at most for a day's records, each record once per device:
-// 1) Shopify records (orders, sales, packs, milestones) the day after, as soon as you open the app.
-// 2) Meta and profit records (ROAS, cost per order, streak, profit) together, once that period has both your Ads Manager file
-//    and your profit entered in Goals. If only the Meta file is in after 3 days, they show anyway.
+// Record pop-ups. Any record you haven't seen from the last 8 days pops up the next time you open the app, so a Saturday
+// record still shows on Monday if you skipped Sunday. Each record shows once on each device.
+// Shopify records (orders, sales, packs, milestones) show as soon as they're in. Meta and profit records (ROAS, cost per order,
+// streak, profit) wait until that period has both your Ads Manager file and your profit entered, so they come together;
+// if only the Meta file is in after 3 days, they show anyway.
 const recWave2 = (rk) => /^(d_streak|w_roas|w_cpo|m_roas|y_roas)$|_profit$/.test(rk || '');
+const REC_SEEN = 'adlab-rec-seen3';
+function recSeen() { try { const v = JSON.parse(localStorage.getItem(REC_SEEN) || 'null'); return Array.isArray(v) ? v : null; } catch (e) { return null; } }
 function recDue(book) {
-  const today = R.today(), y = book.y;
-  let seen = {}; try { seen = JSON.parse(localStorage.getItem('adlab-rec-seen') || '{}'); } catch (e) {}
-  const keys1 = seen.day === today ? seen.keys || [] : [];
-  const w1 = book.events.filter((e) => !recWave2(e.rk) && e.show === today && !keys1.includes(e.key));
-  const recentW2 = book.events.filter((e) => recWave2(e.rk) && e.end >= R.addDays(today, -15));
-  let seen2 = null; try { seen2 = JSON.parse(localStorage.getItem('adlab-rec-seen2') || 'null'); } catch (e) {}
-  if (!Array.isArray(seen2)) { seen2 = recentW2.filter((e) => e.end < y).map((e) => e.key); try { localStorage.setItem('adlab-rec-seen2', JSON.stringify(seen2)); } catch (e) {} } // first time: don't replay older ones
-  const ready = (e) => { const a = e.pa || e.end, b = e.pb || e.end; return (book.metaIn(a, b) && book.profitIn(a, b)) || today >= R.addDays(e.end, 3); };
-  const w2 = recentW2.filter((e) => !seen2.includes(e.key) && ready(e));
-  return { w1, w2 };
+  const today = R.today(), y = book.y, recent = book.events.filter((e) => e.end >= R.addDays(today, -8));
+  let seen = recSeen();
+  if (!seen) { // first time on this device: count what's older than yesterday (and anything already shown) as seen, so nothing old floods in
+    let d1 = {}, d2 = []; try { d1 = JSON.parse(localStorage.getItem('adlab-rec-seen') || '{}'); d2 = JSON.parse(localStorage.getItem('adlab-rec-seen2') || '[]') || []; } catch (e) {}
+    seen = [...recent.filter((e) => e.end < y).map((e) => e.key), ...(d1.keys || []), ...d2];
+    try { localStorage.setItem(REC_SEEN, JSON.stringify(seen)); } catch (e) {}
+  }
+  const ready = (e) => { if (!recWave2(e.rk)) return true; const a = e.pa || e.end, b = e.pb || e.end; return (book.metaIn(a, b) && book.profitIn(a, b)) || today >= R.addDays(e.end, 3); };
+  return recent.filter((e) => !seen.includes(e.key) && ready(e)).sort((x, z) => (x.end < z.end ? -1 : x.end > z.end ? 1 : 0));
 }
 function RecordWatcher({ data, setView }) {
   const [list, setList] = useState(null);
   useEffect(() => {
     if (!data) return;
     let book; try { book = recordBookOf(data); } catch (e) { console.warn('records', e); return; }
-    const { w1, w2 } = recDue(book), all = [...w1, ...w2];
+    const all = recDue(book);
     if (all.length) { setList(all); confetti(); }
   }, [data]);
   if (!list) return null;
-  const done = (go) => { try { const today = R.today(); let seen = {}; try { seen = JSON.parse(localStorage.getItem('adlab-rec-seen') || '{}'); } catch (e) {}
-    const keys = seen.day === today ? seen.keys || [] : []; localStorage.setItem('adlab-rec-seen', JSON.stringify({ day: today, keys: [...keys, ...list.filter((e) => !recWave2(e.rk)).map((e) => e.key)] }));
-    let s2 = []; try { s2 = JSON.parse(localStorage.getItem('adlab-rec-seen2') || '[]'); } catch (e) {} localStorage.setItem('adlab-rec-seen2', JSON.stringify([...s2, ...list.filter((e) => recWave2(e.rk)).map((e) => e.key)].slice(-400))); } catch (e) {}
+  const done = (go) => { try { localStorage.setItem(REC_SEEN, JSON.stringify([...(recSeen() || []), ...list.map((e) => e.key)].slice(-600))); } catch (e) {}
     setList(null); if (go) { lsSet('adlab-sk-gtab', 'records'); lsSet('adlab-rec-tab', list[0].group === 'mile' ? (list[0].rk || 'mile_day').replace('mile_', '') : list[0].group); setView(LOOK === 'stocks' ? 'goal' : 'records'); } };
   const n = list.length;
   // Group by kind and period, so Saturday's and Sunday's records (entered Monday) each get their own heading.
@@ -2673,7 +2673,7 @@ function RecordsPage({ data, inRoom, setModal }) {
       <p><b>Orders, sales and packs</b> come from Shopify on their own. Sales are after refunds and without sales tax.</p>
       <p><b>ROAS, spend and streaks</b> need your Ads Manager file for every day. ROAS is Meta-reported sales ÷ spend, the same basis as break-even (${R.xroas(book.be0)}). There's no daily ROAS record because one day can be luck. Week, month and year ROAS and lowest cost per order only count when spend was at least 75% of your normal.</p>
       <p><b>Profit</b> only uses numbers you enter in Goals (+ Add numbers). A day counts if you entered that one day; a week or month counts if your entries cover every day of it without spilling past it. Entries where the app had to guess most of the costs don't count. A profit record pops up the day you enter the numbers.</p>
-      <p><b>Pop-ups</b>: at most two for a day. Orders, sales, packs and milestones show the day after, as soon as Shopify has synced. ROAS, cost per order, streak and profit records show together once that day (or week, month) has both your Ads Manager file and your profit entered; if only the file is in after 3 days, they show anyway. Each record shows once on each device.</p>
+      <p><b>Pop-ups</b>: any record you haven't seen from the last 8 days pops up the next time you open the app, so Saturday's record still shows on Monday. Orders, sales, packs and milestones show as soon as Shopify has them. ROAS, cost per order, streak and profit records wait until that day (or week, month) has both your Ads Manager file and your profit, so they come together; if only the file is in after 3 days, they show anyway. Each record shows once on each device.</p>
       <p><b>Sales</b> (from your Plan, like Black Friday): a sale day, a week with 2+ sale days or a month with 5+ go in the Sale list instead. They still pop up, with a SALE badge, if they beat everything.</p>
       <p><b>Beat it by</b> compares the record to your recent normal: the last 30 days, 4 weeks or 3 months, not counting sales.</p>
       <p>The banner shows your newest record from the last 30 days; if there isn't one, your most important record. Importance: profit, sales, orders, ROAS, then the rest. A day, week (Monday–Sunday), month or year only counts when every day in it has data. Meta keeps adding late sales to past days for up to 7 days; if that pushes an old day past a record, it's added here without a pop-up.</p></div></details>
