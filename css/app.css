@@ -506,3 +506,27 @@ button.gbadge{font:inherit;font-weight:800;font-size:12px;cursor:pointer}
 .pdkeys{display:flex;gap:12px;flex-wrap:wrap;justify-content:flex-end;font-size:12px;font-weight:700;white-space:nowrap}
 .pdkey{display:inline-flex;align-items:center;gap:5px}.pdkey i{width:11px;height:11px;border-radius:3px;display:inline-block}
 @media (max-width:600px){.pdhead{flex-direction:column-reverse;gap:4px}.pdkeys{align-self:flex-end}}
+/* Records: the pop-up the day after you break one, and the Records page */
+.recback{position:fixed;inset:0;z-index:90;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:16px}
+.recmod{position:relative;width:min(560px,100%);max-height:calc(100vh - 32px);overflow:auto;background:var(--panel);border:1px solid color-mix(in srgb,var(--pass) 45%,transparent);border-radius:22px;padding:22px 24px 16px;box-shadow:0 20px 70px color-mix(in srgb,var(--pass) 18%,transparent)}
+.recmod.wide,.recmod:has(.reccg.two){width:min(860px,100%)}
+.recx{position:absolute;right:12px;top:8px;background:none;border:0;color:var(--muted);font-size:22px;cursor:pointer}
+.rechead{display:flex;gap:12px;align-items:center;justify-content:center;margin-bottom:6px}
+.reck{color:var(--pass);font-size:11.5px;font-weight:800;letter-spacing:.08em}.rech{font-size:21px;font-weight:800}
+.recgl{color:var(--muted);font-size:11.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;margin:14px 0 6px}
+.reccg{display:grid;gap:8px}.reccg.two{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+.reccd{position:relative;background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:11px 13px}
+.reccg.one .reccd{text-align:center;padding:16px}.reccg.one .recv{font-size:40px}.reccg.one .recpct{position:static;display:inline-block;margin-top:6px}
+.recn{font-size:13px;font-weight:600;color:var(--soft,var(--ink));padding-right:64px}.reccg.one .recn{padding:0}
+.recv{font-size:26px;font-weight:900;color:var(--pass);margin:2px 0;font-variant-numeric:tabular-nums}
+.recpct{position:absolute;right:12px;top:11px;color:var(--pass);font-weight:800;font-size:12px;background:color-mix(in srgb,var(--pass) 13%,transparent);border-radius:6px;padding:1px 6px}
+.recgrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:12px;align-items:start}
+.recgrid .panel{margin:0}
+.rectile{padding:10px 0;border-top:1px solid var(--line)}.recgrid h2+.rectile{border-top:0}
+.rectile .recn{padding:0}.rectile .recv{color:var(--ink);font-size:24px}.rectile.nw .recv{color:var(--pass)}
+.recnew{background:var(--pass);color:#000;font-size:10px;font-weight:800;border-radius:5px;padding:1px 5px;vertical-align:1px}
+.recpace{margin-top:8px;padding-top:10px;border-top:1px solid var(--line)}.recpace .skbar{margin:6px 0 4px}
+.recmiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.recmiles b{font-size:18px}
+.rechist{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}.rechist div{display:flex;flex-direction:column;gap:3px;font-size:13.5px}
+@media (max-width:1100px){.recgrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:600px){.recgrid{grid-template-columns:1fr}.recmiles{grid-template-columns:1fr 1fr}.recmod{padding:18px 16px 14px;border-radius:18px}.reccg.two{grid-template-columns:1fr 1fr}.reccg.two .recn{padding-right:0}.reccg.two .recpct{position:static;display:inline-block;margin-top:5px}.recv{font-size:22px}}

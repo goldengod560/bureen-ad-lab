@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=212';
-import * as R from './rules.js?v=212';
-import { importHistory } from './importer.js?v=212';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=212';
+import { createBackend } from './data.js?v=213';
+import * as R from './rules.js?v=213';
+import { importHistory } from './importer.js?v=213';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=213';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -89,7 +89,7 @@ function App() {
   const [data, setData] = useState(null);
   const [pid, setPid] = useState(() => { try { return localStorage.getItem('adlab-pid'); } catch (e) { return null; } });
   // Remember the page, so a refresh stays where you were.
-  const [view, setViewRaw] = useState(() => { const v = lsGet('adlab-view', 'board'); return ['today', 'board', 'plan', 'archive', 'goal', 'stats', 'angles', 'rules', 'learn', 'more'].includes(v) ? v : 'board'; });
+  const [view, setViewRaw] = useState(() => { const v = lsGet('adlab-view', 'board'); return ['today', 'board', 'plan', 'archive', 'goal', 'records', 'stats', 'angles', 'rules', 'learn', 'more'].includes(v) ? v : 'board'; });
   const setView = (v) => { setViewRaw(v); lsSet('adlab-view', v); };
   const [look, setLookRaw] = useState(LOOK);
   const setLook = (v) => { LOOK = v; setLookRaw(v); lsSet('adlab-look', v); };
@@ -165,7 +165,7 @@ function App() {
 
   const activeStage1 = { length: testingCount(data) };
   const rules0 = R.rulesOf(product);
-  const NAV = [['today', 'Overview'], ['board', 'Board'], ['plan', 'Plan'], ['archive', 'Archive'], ['goal', 'Goal'], ['stats', 'Stats'], ['angles', 'Angles'], ['rules', 'Rules'], ['learn', 'Learnings'], ['more', 'More']];
+  const NAV = [['today', 'Overview'], ['board', 'Board'], ['plan', 'Plan'], ['archive', 'Archive'], ['goal', 'Goal'], ['records', 'Records'], ['stats', 'Stats'], ['angles', 'Angles'], ['rules', 'Rules'], ['learn', 'Learnings'], ['more', 'More']];
 
   return html`
     <header class="top">
@@ -181,6 +181,7 @@ function App() {
     </header>
     ${look === 'stocks' && html`<${Ticker} data=${data} />`}
     ${look === 'stocks' && html`<${TrophyWatcher} data=${data} setView=${setView} />`}
+    <${RecordWatcher} data=${data} setView=${setView} />
     <main class="wrap">
       ${data.missingTables && data.missingTables.length > 0 && html`<div class="banner"><b>One setup step left.</b> Stats needs two new database tables. In Supabase, open SQL Editor, paste <code>schema.sql</code> from the repo and press Run.</div>`}
       ${R.isWeekendLock() && html`<div class="banner"><b>Weekend lock.</b> Your rule: no new ads, reactivations or budget changes Friday night through Sunday.</div>`}
@@ -195,9 +196,10 @@ function App() {
       ${view === 'rules' && html`<${Rules} key=${product.id} ...${ctx} />`}
       ${view === 'learn' && html`<${Learn} ...${ctx} />`}
       ${view === 'goal' && html`<${Goal} ...${ctx} setPid=${setPid} />`}
+      ${view === 'records' && html`<${RecordsPage} ...${ctx} />`}
       ${view === 'more' && html`<${More} ...${ctx} />`}
     </main>
-    <nav class="bnav" aria-label="Main">${[['today', 'Overview'], ['board', 'Board'], ['archive', 'Archive'], ['goal', 'Goal'], ['stats', 'Stats'], ['more', 'More']].map(([k, l]) => html`<button class=${view === k || (k === 'more' && (view === 'learn' || view === 'rules' || view === 'angles' || view === 'plan')) ? 'on' : ''} onClick=${() => setView(k)}>${navName(k, l)}</button>`)}</nav>
+    <nav class="bnav" aria-label="Main">${[['today', 'Overview'], ['board', 'Board'], ['archive', 'Archive'], ['goal', 'Goal'], ['stats', 'Stats'], ['more', 'More']].map(([k, l]) => html`<button class=${view === k || (k === 'more' && (view === 'learn' || view === 'rules' || view === 'angles' || view === 'plan' || view === 'records')) ? 'on' : ''} onClick=${() => setView(k)}>${navName(k, l)}</button>`)}</nav>
     ${modal && html`<${modal.type} ...${ctx} ...${modal.props} close=${() => setModal(null)} />`}
     <${Lightbox} item=${lightbox} onClose=${() => setLightbox(null)} />
     <${Toast} msg=${toast} />`;
@@ -2347,6 +2349,172 @@ function TrophyWatcher({ data, setView }) {
     <div class="tro-fullin"><${Cup} t="P" w=${200} /><div class="tro-tag">PLATINUM TROPHY</div><h1>${name}</h1><div class="small muted">You won every other trophy in this set.</div>
       <div class="row" style="gap:10px;justify-content:center;margin-top:14px"><button class="btn primary" onClick=${(e) => { e.stopPropagation(); next(); setView('goal'); }}>See the Trophy room</button><button class="btn" onClick=${next}>Close</button></div></div></div>`;
   return html`<button class="tro-pop" aria-live="polite" onClick=${() => { next(); setView('goal'); }}><${Cup} t=${t} w=${46} /><span><span class="tiny muted">You earned a trophy</span><br/><b style=${'color:' + TIER[t][1]}>${TIER[t][0]}</b> · <b>${name}</b></span><span class="tro-x" onClick=${(e) => { e.stopPropagation(); next(); }}>×</span></button>`;
+}
+
+// =================== Records ===================
+// All-time bests from your real numbers. Orders, sales and packs come from Shopify (sales after refunds, no tax);
+// ROAS, spend and streaks from your Ads Manager files (Meta-reported sales ÷ spend, the same basis as break-even);
+// profit is the same estimate as Overview. A day, week (Mon–Sun), month or year only counts when every day in it has data,
+// so a half-covered month can't set a fake record. A record you break pops up the next day, once on each device.
+const REC_MILES = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 7.5];
+const recMileFloor = { day: 500, week: 2500, month: 10000, year: 50000 };
+const recMilesUpTo = (v, floor) => { const out = []; for (let k = 2; k < 9; k++) for (const m of REC_MILES) { const t = m * 10 ** k; if (t >= floor && t <= v) out.push(t); } return out; };
+const recPct = (v, old, lower) => (old ? Math.round(((lower ? old - v : v - old) / old) * 100) : null);
+const REC_GROUPS = [['day', 'Day'], ['week', 'Week'], ['month', 'Month'], ['year', 'Year'], ['mile', 'Milestones']];
+function recordBook(data) {
+  const y = R.addDays(R.today(), -1);
+  const crew = data.products.find((p) => p.kind === 'crew') || data.products[0], econ = crew ? R.econOf(crew) : null, be0 = (econ && econ.opBE) || 2.85;
+  const shop = new Map(), meta = new Map();
+  for (const d of data.shop_days) if (d.day <= y) shop.set(d.day, { orders: +d.orders || 0, sales: (+d.gross || 0) - (+d.refunds || 0) - (+d.tax || 0), units: +d.units || 0 });
+  for (const r of data.meta_days) { if (r.day > y) continue; const m = meta.get(r.day) || { spend: 0, rev: 0 }; m.spend += +r.spend || 0; m.rev += +r.revenue || 0; meta.set(r.day, m); }
+  const days = [...new Set([...shop.keys(), ...meta.keys()])].sort();
+  if (!days.length) return { defs: [], events: [], best: {}, y, be0 };
+  const first = days[0];
+  const span = (a, b) => { const o = { orders: 0, sales: 0, units: 0, spend: 0, rev: 0, shopAll: true, metaAll: true, n: 0 };
+    for (let d = a; d <= b; d = R.addDays(d, 1)) { o.n++; const s = shop.get(d), m = meta.get(d); if (s) { o.orders += s.orders; o.sales += s.sales; o.units += s.units; } else o.shopAll = false; if (m) { o.spend += m.spend; o.rev += m.rev; } else o.metaAll = false; }
+    return o; };
+  // Normal spend: average daily spend over the 30 days before a period starts (days that have a file).
+  const normalDaily = (a) => { let s = 0, n = 0; for (let d = R.addDays(a, -30); d < a; d = R.addDays(d, 1)) { const m = meta.get(d); if (m) { s += m.spend; n++; } } return n >= 7 ? s / n : null; };
+  const spendOk = (p, o) => { const nd = normalDaily(p.a); return nd != null && o.spend >= 0.75 * nd * o.n; };
+  // The periods
+  const P = { day: [], week: [], month: [], year: [] };
+  for (const d of days) P.day.push({ a: d, b: d, label: longDate(d), end: d });
+  const mon = (d) => R.addDays(d, -((R.parseDay(d).getDay() + 6) % 7));
+  for (let a = mon(first); R.addDays(a, 6) <= y; a = R.addDays(a, 7)) { const b = R.addDays(a, 6); P.week.push({ a, b, label: `Week of ${mdLabel(a)}`, sub: `${mdLabel(a)} – ${mdLabel(b)}`, end: b }); }
+  for (let a = first.slice(0, 7) + '-01'; monthEnd(a.slice(0, 7)) <= y; a = R.addDays(monthEnd(a.slice(0, 7)), 1)) { const b = monthEnd(a.slice(0, 7)); P.month.push({ a, b, label: MON_LONG[+a.slice(5, 7) - 1] + (a.slice(0, 4) !== y.slice(0, 4) ? ' ' + a.slice(0, 4) : ''), end: b }); }
+  for (let yr = +first.slice(0, 4); `${yr}-12-31` <= y; yr++) P.year.push({ a: `${yr}-01-01`, b: `${yr}-12-31`, label: String(yr), end: `${yr}-12-31` });
+  const cache = new Map(); const sp = (p) => { const k = p.a + p.b; if (!cache.has(k)) cache.set(k, span(p.a, p.b)); return cache.get(k); };
+  const profitOf = (p) => { const o = sp(p); if (!o.shopAll || !o.metaAll || !econ) return null; const t = periodTotals(data, p.a, p.b, econ); return t && t.profit != null ? t.profit : null; };
+  const money = (v) => R.money0(v), x2 = (v) => R.xroas(v);
+  // [key, group, name, periods, value(p) → number|null, format, lower is better, prior periods needed before a record counts]
+  const defs = [
+    ['d_orders', 'day', 'Most orders in a day', P.day, (p) => (sp(p).shopAll ? sp(p).orders : null), (v) => Math.round(v).toLocaleString(), false, 14],
+    ['d_sales', 'day', 'Best sales day', P.day, (p) => (sp(p).shopAll ? sp(p).sales : null), money, false, 14],
+    ['d_pspend', 'day', 'Biggest profitable spend day', P.day, (p) => { const o = sp(p); return o.metaAll && o.spend > 0 && o.rev / o.spend >= be0 ? o.spend : null; }, money, false, 14],
+    ['w_orders', 'week', 'Most orders in a week', P.week, (p) => (sp(p).shopAll ? sp(p).orders : null), (v) => Math.round(v).toLocaleString(), false, 3],
+    ['w_sales', 'week', 'Best sales week', P.week, (p) => (sp(p).shopAll ? sp(p).sales : null), money, false, 3],
+    ['w_roas', 'week', 'Best ROAS week', P.week, (p) => { const o = sp(p); return o.metaAll && o.spend > 0 && spendOk(p, o) ? o.rev / o.spend : null; }, x2, false, 3],
+    ['w_cpo', 'week', 'Lowest cost per order', P.week, (p) => { const o = sp(p); return o.metaAll && o.shopAll && o.orders > 0 && spendOk(p, o) ? o.spend / o.orders : null; }, (v) => '$' + v.toFixed(2), true, 3],
+    ['w_profit', 'week', 'Most profit in a week', P.week, profitOf, money, false, 3],
+    ['m_orders', 'month', 'Most orders in a month', P.month, (p) => (sp(p).shopAll ? sp(p).orders : null), (v) => Math.round(v).toLocaleString(), false, 1],
+    ['m_sales', 'month', 'Best sales month', P.month, (p) => (sp(p).shopAll ? sp(p).sales : null), money, false, 1],
+    ['m_roas', 'month', 'Best ROAS month', P.month, (p) => { const o = sp(p); return o.metaAll && o.spend > 0 && spendOk(p, o) ? o.rev / o.spend : null; }, x2, false, 1],
+    ['m_units', 'month', 'Most packs sold in a month', P.month, (p) => (sp(p).shopAll ? sp(p).units : null), (v) => Math.round(v).toLocaleString(), false, 1],
+    ['m_profit', 'month', 'Most profit in a month', P.month, profitOf, money, false, 1],
+    ['y_orders', 'year', 'Most orders in a year', P.year, (p) => (sp(p).shopAll ? sp(p).orders : null), (v) => Math.round(v).toLocaleString(), false, 1],
+    ['y_sales', 'year', 'Best sales year', P.year, (p) => (sp(p).shopAll ? sp(p).sales : null), money, false, 1],
+    ['y_roas', 'year', 'Best ROAS year', P.year, (p) => { const o = sp(p); return o.metaAll && o.spend > 0 && spendOk(p, o) ? o.rev / o.spend : null; }, x2, false, 1],
+  ];
+  const events = [], best = {};
+  const ev = (o) => events.push({ ...o, show: R.addDays(o.end, 1) });
+  for (const [key, group, name, list, val, fmt, lower, need] of defs) {
+    let b = null, n = 0;
+    for (const p of list) {
+      const v = val(p); if (v == null || !isFinite(v)) continue;
+      const better = b == null || (lower ? v < b.v : v > b.v);
+      if (b != null && better && n >= need) ev({ key: key + '|' + p.a, rk: key, group, name, when: p.label, sub: p.sub, end: p.end, value: fmt(v), old: fmt(b.v), oldWhen: b.p.label, pct: recPct(v, b.v, lower), lower });
+      if (better) b = { v, p }; n++;
+    }
+    best[key] = { group, name, b, n, need, fmt, lower };
+  }
+  // Longest streak of days in a row above break-even (needs a file every day)
+  { let run = 0, top = 0, topEnd = null, prev = null, n = 0, runStart = null, topStart = null;
+    for (const d of days) { const m = meta.get(d); const good = m && m.spend > 0 && m.rev / m.spend >= be0; const cont = good && prev && R.addDays(prev, 1) === d && run; run = good ? (cont ? run + 1 : 1) : 0; if (good && !cont) runStart = d; prev = d; n++;
+      if (run > top) { if (top > 0 && n > 14 && topStart !== runStart) ev({ key: 'd_streak|' + d, rk: 'd_streak', group: 'day', name: 'Longest streak above break-even', when: longDate(d), end: d, value: run + ' days', old: top + ' days', oldWhen: 'ended ' + mdLabel(topEnd), pct: null }); top = run; topEnd = d; topStart = runStart; } }
+    best.d_streak = { group: 'day', name: 'Longest streak above break-even', b: top ? { v: top, p: { label: 'through ' + mdLabel(topEnd) } } : null, n, need: 14, fmt: (v) => v + ' days', run }; }
+  // Passed last year: the first day this year's total beats all of last year's (what the app has of it).
+  const yrs = [...new Set(days.map((d) => d.slice(0, 4)))];
+  for (const yr of yrs) { const prevY = String(+yr - 1); if (!yrs.includes(prevY)) continue;
+    const last = span(`${prevY}-01-01`, `${prevY}-12-31`);
+    for (const [k, nm, f, fmt] of [['orders', 'orders', (o) => o.orders, (v) => Math.round(v).toLocaleString()], ['sales', 'sales', (o) => o.sales, money]]) {
+      const target = f(last); if (!target) continue; let run = 0;
+      for (let d = `${yr}-01-01`; d <= y && d <= `${yr}-12-31`; d = R.addDays(d, 1)) { const s = shop.get(d); if (s) run += k === 'orders' ? s.orders : s.sales;
+        if (run > target) { ev({ key: `y_pass_${k}|${yr}`, rk: 'y_pass_' + k, group: 'year', name: `Passed all of ${prevY}'s ${nm}`, when: `${yr} so far · ${mdLabel(d)}`, end: d, value: fmt(run), old: fmt(target), oldWhen: `all of ${prevY}`, pct: null }); break; } } } }
+  // Round-number sales milestones: the first day, week, month or year (so far) to reach $X.
+  const miles = {};
+  for (const [g, list, nm] of [['day', P.day, 'day'], ['week', P.week, 'week'], ['month', P.month, 'month']]) {
+    let top = 0; for (const p of list) { const o = sp(p); if (!o.shopAll) continue; const hit = recMilesUpTo(o.sales, recMileFloor[g]).filter((t) => t > top);
+      if (hit.length) { const t = hit[hit.length - 1]; if (top) ev({ key: `mile_${g}|${t}`, rk: 'mile_' + g, group: 'mile', name: `First ${money(t)} ${nm}`, when: p.label, sub: p.sub, end: p.end, value: money(o.sales), old: money(top), oldWhen: 'last milestone', pct: null }); top = t; } }
+    miles[g] = top; }
+  { let top = 0; for (const yr of yrs) { let run = 0; for (let d = `${yr}-01-01`; d <= y && d <= `${yr}-12-31`; d = R.addDays(d, 1)) { const s = shop.get(d); if (!s) continue; run += s.sales; const hit = recMilesUpTo(run, recMileFloor.year).filter((t) => t > top);
+      if (hit.length) { const t = hit[hit.length - 1]; if (top || yr !== yrs[0]) ev({ key: `mile_year|${t}`, rk: 'mile_year', group: 'mile', name: `First ${money(t)} year`, when: `${yr} so far · ${mdLabel(d)}`, end: d, value: money(run), old: top ? money(top) : '—', oldWhen: 'last milestone', pct: null }); top = t; } } }
+    miles.year = top; }
+  // Pace for the week, month and year still running
+  const wa = mon(R.today()), ma = R.today().slice(0, 8) + '01', ya = R.today().slice(0, 4) + '-01-01';
+  const pace = { week: wa <= y ? span(wa, y) : null, month: ma <= y ? span(ma, y) : null, year: ya <= y ? span(ya, y) : null, wa, ma, ya };
+  events.sort((a, b) => (a.end < b.end ? 1 : a.end > b.end ? -1 : 0));
+  return { events, best, y, be0, miles, pace, first, normalDaily };
+}
+// Records from yesterday's day, the week/month/year that ended yesterday, or a milestone reached yesterday.
+// Shows today until midnight, once on each device. Anything new that comes in later today (a late Meta file) shows then.
+function RecordWatcher({ data, setView }) {
+  const [list, setList] = useState(null);
+  useEffect(() => {
+    if (!data) return;
+    let book; try { book = recordBook(data); } catch (e) { console.warn('records', e); return; }
+    const today = R.today(), fresh = book.events.filter((e) => e.show === today);
+    let seen = {}; try { seen = JSON.parse(localStorage.getItem('adlab-rec-seen') || '{}'); } catch (e) {}
+    const keys = seen.day === today ? seen.keys || [] : [];
+    const unseen = fresh.filter((e) => !keys.includes(e.key));
+    if (unseen.length) { setList(unseen); confetti(); }
+  }, [data]);
+  if (!list) return null;
+  const done = (go) => { try { const today = R.today(); let seen = {}; try { seen = JSON.parse(localStorage.getItem('adlab-rec-seen') || '{}'); } catch (e) {}
+    const keys = seen.day === today ? seen.keys || [] : []; localStorage.setItem('adlab-rec-seen', JSON.stringify({ day: today, keys: [...keys, ...list.map((e) => e.key)] })); } catch (e) {}
+    setList(null); if (go) setView('records'); };
+  const n = list.length;
+  const groups = REC_GROUPS.map(([g, l]) => [g, l, list.filter((e) => e.group === g)]).filter(([, , es]) => es.length);
+  return html`<div class="recback" role="dialog" aria-modal="true" aria-label="New records">
+    <div class="recmod">
+      <button class="recx" aria-label="Close" onClick=${() => done(false)}>×</button>
+      <div class="rechead"><${Cup} t="G" w=${44} /><div><div class="reck">${n === 1 ? 'NEW RECORD' : `${n} NEW RECORDS`} · ${longDate(R.today()).toUpperCase()}</div><div class="rech">${n === 1 ? 'You broke a record' : `You broke ${n} records`}</div></div></div>
+      ${groups.map(([g, l, es]) => html`<div class="recgl">${l}${g !== 'mile' && g !== 'year' ? ' · ' + (es[0].sub || es[0].when) : ''}</div>
+        <div class=${'reccg' + (n === 1 ? ' one' : es.length > 1 ? ' two' : '')}>${es.map((e) => html`<div class="reccd">
+          <div class="recn">${e.name}</div><div class="recv">${e.value}</div>
+          <div class="tiny muted">${g === 'mile' || g === 'year' ? e.when + ' · ' : ''}old ${e.old}${e.oldWhen ? ' · ' + e.oldWhen : ''}</div>
+          ${e.pct != null && html`<span class="recpct">${e.lower ? e.pct + '% lower' : '+' + e.pct + '%'}</span>`}</div>`)}</div>`)}
+      <div class="row" style="gap:10px;margin-top:16px"><button class="btn primary grow" onClick=${() => done(false)}>Nice</button><button class="btn" onClick=${() => done(true)}>See all records</button></div>
+      <div class="tiny muted" style="text-align:center;margin-top:8px">Shows today until midnight · once on this device</div>
+    </div></div>`;
+}
+function RecordsPage({ data, setView }) {
+  const book = useMemo(() => { try { return recordBook(data); } catch (e) { console.warn(e); return null; } }, [data]);
+  if (!book || !book.first) return html`<section class="panel"><h1>Records</h1><p class="muted">Records show up once the app has your Shopify orders and Ads Manager files.</p></section>`;
+  const recent = R.addDays(book.y, -6);
+  const isNew = (k) => book.events.some((e) => e.rk === k && e.end >= recent);
+  const prevOf = (k) => { const e = book.events.find((x) => x.rk === k); return e ? `old ${e.old}` : ''; };
+  const tile = (k) => { const r = book.best[k]; if (!r) return null; const nw = isNew(k);
+    return html`<div class=${'rectile' + (nw ? ' nw' : '')}><div class="recn">${r.name}${nw ? html` <span class="recnew">NEW</span>` : ''}</div>
+      ${r.b ? html`<div class="recv">${r.fmt(r.b.v)}</div><div class="tiny muted">${r.b.p.label}${nw ? ' · ' + prevOf(k) : ''}</div>`
+        : html`<div class="tiny muted" style="margin-top:4px">No full ${r.group} with enough data yet.</div>`}</div>`; };
+  const pbar = (label, now, rec, fmt, note) => html`<div class="recpace"><div class="row small"><span>${label}</span><span class="spacer"></span><b>${fmt(now)}</b></div>
+    <div class="skbar"><i style=${`width:${rec ? Math.min(100, (now / rec) * 100).toFixed(0) : 0}%`}></i></div><div class="tiny muted">${note}</div></div>`;
+  const P = book.pace, bw = book.best;
+  const recOf = (k) => (bw[k] && bw[k].b ? bw[k].b.v : null);
+  const daysIn = (o) => (o ? o.n : 0);
+  const onPace = (v, o, total) => (o && o.n ? (v / o.n) * total : 0);
+  const dimNow = R.daysBetween(P.ma, monthEnd(P.ma.slice(0, 7))) + 1;
+  const pn = (o, total, rec, v, fmt) => (rec ? `On pace for ${fmt(onPace(v, o, total))} · record ${fmt(rec)}` : `On pace for ${fmt(onPace(v, o, total))}`);
+  const cnt = (v) => Math.round(v).toLocaleString();
+  const groups = [['day', 'Best day', ['d_orders', 'd_sales', 'd_pspend', 'd_streak']], ['week', 'Best week', ['w_orders', 'w_sales', 'w_roas', 'w_cpo', 'w_profit']], ['month', 'Best month', ['m_orders', 'm_sales', 'm_roas', 'm_units', 'm_profit']], ['year', 'Best year', ['y_orders', 'y_sales', 'y_roas']]];
+  const hist = book.events.slice(0, 40);
+  const byDay = []; for (const e of hist) { const g = byDay.find((x) => x[0] === e.end); if (g) g[1].push(e); else byDay.push([e.end, [e]]); }
+  const nextMile = (g) => { const t = REC_MILES.flatMap((m) => [2, 3, 4, 5, 6, 7, 8].map((k) => m * 10 ** k)).filter((t) => t > (book.miles[g] || 0) && t >= recMileFloor[g]).sort((a, b) => a - b)[0]; return t; };
+  return html`<div class="row" style="gap:10px;align-items:baseline;flex-wrap:wrap"><h1 style="margin:0">Records</h1><span class="small muted">Your all-time bests since ${mdLabel(book.first)}. A record you break pops up the next day, once on each device.</span></div>
+    <div class="recgrid">${groups.map(([g, l, ks]) => html`<section class="panel"><h2>${l}</h2>${ks.map(tile)}
+      ${g === 'week' && P.week && html`${pbar(`This week so far (${daysIn(P.week)} of 7 days)`, P.week.orders, recOf('w_orders'), cnt, pn(P.week, 7, recOf('w_orders'), P.week.orders, cnt) + ' orders')}`}
+      ${g === 'month' && P.month && html`${pbar(`${MON_LONG[+P.ma.slice(5, 7) - 1]} so far (${daysIn(P.month)} of ${dimNow} days)`, P.month.sales, recOf('m_sales'), R.money0, pn(P.month, dimNow, recOf('m_sales'), P.month.sales, R.money0))}`}
+      ${g === 'year' && P.year && html`${pbar(`${P.ya.slice(0, 4)} so far`, P.year.sales, null, R.money0, book.first <= `${+P.ya.slice(0, 4) - 1}-12-31` ? `Real year records start once a full year is in the app. You'll get a pop-up the day ${P.ya.slice(0, 4)} passes all of ${+P.ya.slice(0, 4) - 1}.` : `Real year records start once a full year is in the app. In ${+P.ya.slice(0, 4) + 1} you'll get a pop-up the day it passes all of ${P.ya.slice(0, 4)}.`)}`}
+    </section>`)}</div>
+    <section class="panel"><h2>Milestones</h2><div class="recmiles">${[['day', 'Day'], ['week', 'Week'], ['month', 'Month'], ['year', 'Year']].map(([g, l]) => html`<div><div class="tiny muted">${l}</div><b>${book.miles[g] ? R.money0(book.miles[g]) + ' ' + g : '—'}</b><div class="tiny muted">next: ${R.money0(nextMile(g))} ${g}</div></div>`)}</div></section>
+    <section class="panel"><h2>Record history</h2>${byDay.length ? html`<div class="rechist">${byDay.map(([d, es]) => html`<div><b class="pos">${mdLabel(d)}</b>${es.map((e) => html`<span>${e.name} · ${e.value}</span>`)}</div>`)}</div>` : html`<p class="small muted">No records broken yet. The first ones need some history to beat: 2 weeks of days, 3 full weeks, 1 full month.</p>`}</section>
+    <details class="panel"><summary class="small" style="cursor:pointer"><b>How records count</b></summary><div class="small" style="margin-top:8px;line-height:1.55">
+      <p><b>Orders, sales and packs</b> come from Shopify. Sales are after refunds and without sales tax.</p>
+      <p><b>ROAS</b> is Meta-reported sales ÷ spend from your Ads Manager files, the same basis as your break-even (${R.xroas(book.be0)}). There's no daily ROAS record because one day can be luck. Week, month and year ROAS (and lowest cost per order) only count when spend was at least 75% of your normal, so a slow, cheap week can't win.</p>
+      <p><b>Biggest profitable spend day</b> is the most you spent in a day while ROAS stayed above break-even. <b>Streak</b> is days in a row above break-even.</p>
+      <p><b>Profit</b> is the same estimate as Overview: sales minus product cost, fees, shipping and packing, Meta spend and apps.</p>
+      <p>A day, week (Monday–Sunday), month or year only counts when every day in it has data. A record needs some history first: 2 weeks of days, 3 full weeks, 1 full month or 1 full year.</p>
+      <p>Meta keeps adding late sales to past days for up to 7 days. If that pushes an old day past a record, it's added here without a pop-up.</p></div></details>`;
 }
 
 // =================== Stocks look: Goals ===================
@@ -4880,6 +5048,7 @@ function More(ctx) {
       <section class="panel"><h2>Angles</h2><p class="small muted" style="margin:0">How each angle and concept has done, with every ad that ran it.</p><div class="row"><button class="btn" onClick=${() => setView('angles')}>Open Angles</button></div></section>
       <${ZipAll} data=${data} />
       <section class="panel"><h2>Plan</h2><p class="small muted" style="margin:0">Which product gets the test slots and when, and which products need new ads.</p><div class="row"><button class="btn" onClick=${() => setView('plan')}>Open Plan</button></div></section>
+      <section class="panel"><h2>Records</h2><p class="small muted" style="margin:0">Your best day, week, month and year, milestones and every record you've broken.</p><div class="row"><button class="btn" onClick=${() => setView('records')}>Open Records</button></div></section>
       <section class="panel"><h2>Rules</h2><p class="small muted" style="margin:0">Testing rules, break-even and costs per product.</p><div class="row"><button class="btn" onClick=${() => setView('rules')}>Open Rules</button></div></section>
       <section class="panel"><h2>${navName('learn', 'Learnings')}</h2><p class="small muted" style="margin:0">Learnings, changes and every decision, per product.</p><div class="row"><button class="btn" onClick=${() => setView('learn')}>Open ${navName('learn', 'Learnings')}</button></div></section>
       <section class="panel"><h2>Import your ad history</h2>
