@@ -520,7 +520,7 @@ button.gbadge{font:inherit;font-weight:800;font-size:12px;cursor:pointer}
 .recn{font-size:13px;font-weight:600;color:var(--soft,var(--ink));padding-right:64px}.reccg.one .recn{padding:0}
 .recv{font-size:26px;font-weight:900;color:var(--pass);margin:2px 0;font-variant-numeric:tabular-nums}
 .recpct{position:absolute;right:12px;top:11px;color:var(--pass);font-weight:800;font-size:12px;background:color-mix(in srgb,var(--pass) 13%,transparent);border-radius:6px;padding:1px 6px}
-.recgrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:12px;align-items:start}
+.recgrid{display:grid;grid-template-columns:1fr;gap:12px;margin-top:12px}
 .recgrid .panel{margin:0}
 .rectile{padding:10px 0;border-top:1px solid var(--line)}.recgrid h2+.rectile{border-top:0}
 .rectile .recn{padding:0}.rectile .recv{color:var(--ink);font-size:24px}.rectile.nw .recv{color:var(--pass)}
@@ -528,5 +528,15 @@ button.gbadge{font:inherit;font-weight:800;font-size:12px;cursor:pointer}
 .recpace{margin-top:8px;padding-top:10px;border-top:1px solid var(--line)}.recpace .skbar{margin:6px 0 4px}
 .recmiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.recmiles b{font-size:18px}
 .rechist{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}.rechist div{display:flex;flex-direction:column;gap:3px;font-size:13.5px}
-@media (max-width:1100px){.recgrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media (max-width:600px){.recgrid{grid-template-columns:1fr}.recmiles{grid-template-columns:1fr 1fr}.recmod{padding:18px 16px 14px;border-radius:18px}.reccg.two{grid-template-columns:1fr 1fr}.reccg.two .recn{padding-right:0}.reccg.two .recpct{position:static;display:inline-block;margin-top:5px}.recv{font-size:22px}}
+@media (max-width:600px){.recmiles{grid-template-columns:1fr 1fr}.recmod{padding:18px 16px 14px;border-radius:18px}.reccg.two{grid-template-columns:1fr 1fr}.reccg.two .recn{padding-right:0}.reccg.two .recpct{position:static;display:inline-block;margin-top:5px}.recv{font-size:22px}}
+/* Records page: one row per record with gold (the record), silver (2nd) and bronze (3rd) */
+.rechd,.recrow{display:grid;grid-template-columns:minmax(200px,1.1fr) repeat(3,minmax(0,1fr));gap:14px;align-items:center}
+.rechd{margin-bottom:2px}.rechd h2{margin:0}.rechd .tiny{padding-left:2px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+.recrow{padding:10px 0;border-top:1px solid var(--line)}
+.recrn b{font-size:14.5px}.recnone{grid-column:2/5}
+.recmed{display:flex;gap:10px;align-items:center;min-width:0}.recmed>div{min-width:0}
+.recmv{font-size:18px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}.recmed.mG .recmv{font-size:22px;color:var(--ink)}.recrow.nw .recmed.mG .recmv{color:var(--pass)}
+.recmed.mS .recmv,.recmed.mB .recmv{color:var(--soft,var(--ink))}
+.recmed .tiny{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:760px){.rechd{grid-template-columns:1fr}.rechd .tiny{display:none}.recrow{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 10px}.recrn{grid-column:1/-1}.recnone{grid-column:1/-1}
+  .recmed{flex-direction:column;align-items:flex-start;gap:4px}.recmv,.recmed.mG .recmv{font-size:16px}}

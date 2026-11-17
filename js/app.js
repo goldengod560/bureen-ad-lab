@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=213';
-import * as R from './rules.js?v=213';
-import { importHistory } from './importer.js?v=213';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=213';
+import { createBackend } from './data.js?v=214';
+import * as R from './rules.js?v=214';
+import { importHistory } from './importer.js?v=214';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=214';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2391,6 +2391,7 @@ function recordBook(data) {
     ['d_orders', 'day', 'Most orders in a day', P.day, (p) => (sp(p).shopAll ? sp(p).orders : null), (v) => Math.round(v).toLocaleString(), false, 14],
     ['d_sales', 'day', 'Best sales day', P.day, (p) => (sp(p).shopAll ? sp(p).sales : null), money, false, 14],
     ['d_pspend', 'day', 'Biggest profitable spend day', P.day, (p) => { const o = sp(p); return o.metaAll && o.spend > 0 && o.rev / o.spend >= be0 ? o.spend : null; }, money, false, 14],
+    ['d_profit', 'day', 'Most profit in a day', P.day, profitOf, money, false, 14],
     ['w_orders', 'week', 'Most orders in a week', P.week, (p) => (sp(p).shopAll ? sp(p).orders : null), (v) => Math.round(v).toLocaleString(), false, 3],
     ['w_sales', 'week', 'Best sales week', P.week, (p) => (sp(p).shopAll ? sp(p).sales : null), money, false, 3],
     ['w_roas', 'week', 'Best ROAS week', P.week, (p) => { const o = sp(p); return o.metaAll && o.spend > 0 && spendOk(p, o) ? o.rev / o.spend : null; }, x2, false, 3],
@@ -2408,20 +2409,21 @@ function recordBook(data) {
   const events = [], best = {};
   const ev = (o) => events.push({ ...o, show: R.addDays(o.end, 1) });
   for (const [key, group, name, list, val, fmt, lower, need] of defs) {
-    let b = null, n = 0;
+    let b = null, n = 0; const all = [];
     for (const p of list) {
-      const v = val(p); if (v == null || !isFinite(v)) continue;
+      const v = val(p); if (v == null || !isFinite(v)) continue; all.push({ v, p });
       const better = b == null || (lower ? v < b.v : v > b.v);
       if (b != null && better && n >= need) ev({ key: key + '|' + p.a, rk: key, group, name, when: p.label, sub: p.sub, end: p.end, value: fmt(v), old: fmt(b.v), oldWhen: b.p.label, pct: recPct(v, b.v, lower), lower });
       if (better) b = { v, p }; n++;
     }
-    best[key] = { group, name, b, n, need, fmt, lower };
+    all.sort((x, z) => (lower ? x.v - z.v : z.v - x.v));
+    best[key] = { group, name, b, n, need, fmt, lower, top3: all.slice(0, 3) };
   }
   // Longest streak of days in a row above break-even (needs a file every day)
-  { let run = 0, top = 0, topEnd = null, prev = null, n = 0, runStart = null, topStart = null;
-    for (const d of days) { const m = meta.get(d); const good = m && m.spend > 0 && m.rev / m.spend >= be0; const cont = good && prev && R.addDays(prev, 1) === d && run; run = good ? (cont ? run + 1 : 1) : 0; if (good && !cont) runStart = d; prev = d; n++;
+  { let run = 0, top = 0, topEnd = null, prev = null, n = 0, runStart = null, topStart = null; const runs = new Map();
+    for (const d of days) { const m = meta.get(d); const good = m && m.spend > 0 && m.rev / m.spend >= be0; const cont = good && prev && R.addDays(prev, 1) === d && run; run = good ? (cont ? run + 1 : 1) : 0; if (good && !cont) runStart = d; prev = d; n++; if (good) runs.set(runStart, { v: run, p: { label: run === 1 ? mdLabel(d) : `${mdLabel(runStart)} – ${mdLabel(d)}` } });
       if (run > top) { if (top > 0 && n > 14 && topStart !== runStart) ev({ key: 'd_streak|' + d, rk: 'd_streak', group: 'day', name: 'Longest streak above break-even', when: longDate(d), end: d, value: run + ' days', old: top + ' days', oldWhen: 'ended ' + mdLabel(topEnd), pct: null }); top = run; topEnd = d; topStart = runStart; } }
-    best.d_streak = { group: 'day', name: 'Longest streak above break-even', b: top ? { v: top, p: { label: 'through ' + mdLabel(topEnd) } } : null, n, need: 14, fmt: (v) => v + ' days', run }; }
+    best.d_streak = { group: 'day', name: 'Longest streak above break-even', b: top ? { v: top, p: { label: 'through ' + mdLabel(topEnd) } } : null, n, need: 14, fmt: (v) => v + (v === 1 ? ' day' : ' days'), run, top3: [...runs.values()].sort((x, z) => z.v - x.v).slice(0, 3) }; }
   // Passed last year: the first day this year's total beats all of last year's (what the app has of it).
   const yrs = [...new Set(days.map((d) => d.slice(0, 4)))];
   for (const yr of yrs) { const prevY = String(+yr - 1); if (!yrs.includes(prevY)) continue;
@@ -2482,11 +2484,11 @@ function RecordsPage({ data, setView }) {
   if (!book || !book.first) return html`<section class="panel"><h1>Records</h1><p class="muted">Records show up once the app has your Shopify orders and Ads Manager files.</p></section>`;
   const recent = R.addDays(book.y, -6);
   const isNew = (k) => book.events.some((e) => e.rk === k && e.end >= recent);
-  const prevOf = (k) => { const e = book.events.find((x) => x.rk === k); return e ? `old ${e.old}` : ''; };
-  const tile = (k) => { const r = book.best[k]; if (!r) return null; const nw = isNew(k);
-    return html`<div class=${'rectile' + (nw ? ' nw' : '')}><div class="recn">${r.name}${nw ? html` <span class="recnew">NEW</span>` : ''}</div>
-      ${r.b ? html`<div class="recv">${r.fmt(r.b.v)}</div><div class="tiny muted">${r.b.p.label}${nw ? ' · ' + prevOf(k) : ''}</div>`
-        : html`<div class="tiny muted" style="margin-top:4px">No full ${r.group} with enough data yet.</div>`}</div>`; };
+  // Each record: gold = the record, silver = 2nd best, bronze = 3rd best, each with its date.
+  const tile = (k) => { const r = book.best[k]; if (!r) return null; const nw = isNew(k), t3 = r.top3 || [];
+    return html`<div class=${'recrow' + (nw ? ' nw' : '')}><div class="recrn"><b>${r.name}</b>${nw ? html` <span class="recnew">NEW</span>` : ''}</div>
+      ${t3.length ? ['G', 'S', 'B'].map((t, i) => { const x = t3[i]; return html`<div class=${'recmed m' + t}>${x ? html`<${Cup} t=${t} w=${i ? 26 : 32} /><div><div class="recmv">${r.fmt(x.v)}</div><div class="tiny muted">${x.p.label}</div></div>` : html`<${Cup} t=${t} w=${i ? 26 : 32} got=${false} /><div class="tiny muted">not yet</div>`}</div>`; })
+        : html`<div class="tiny muted recnone">No full ${r.group} with enough data yet.</div>`}</div>`; };
   const pbar = (label, now, rec, fmt, note) => html`<div class="recpace"><div class="row small"><span>${label}</span><span class="spacer"></span><b>${fmt(now)}</b></div>
     <div class="skbar"><i style=${`width:${rec ? Math.min(100, (now / rec) * 100).toFixed(0) : 0}%`}></i></div><div class="tiny muted">${note}</div></div>`;
   const P = book.pace, bw = book.best;
@@ -2496,12 +2498,12 @@ function RecordsPage({ data, setView }) {
   const dimNow = R.daysBetween(P.ma, monthEnd(P.ma.slice(0, 7))) + 1;
   const pn = (o, total, rec, v, fmt) => (rec ? `On pace for ${fmt(onPace(v, o, total))} · record ${fmt(rec)}` : `On pace for ${fmt(onPace(v, o, total))}`);
   const cnt = (v) => Math.round(v).toLocaleString();
-  const groups = [['day', 'Best day', ['d_orders', 'd_sales', 'd_pspend', 'd_streak']], ['week', 'Best week', ['w_orders', 'w_sales', 'w_roas', 'w_cpo', 'w_profit']], ['month', 'Best month', ['m_orders', 'm_sales', 'm_roas', 'm_units', 'm_profit']], ['year', 'Best year', ['y_orders', 'y_sales', 'y_roas']]];
+  const groups = [['day', 'Best day', ['d_orders', 'd_sales', 'd_profit', 'd_pspend', 'd_streak']], ['week', 'Best week', ['w_orders', 'w_sales', 'w_roas', 'w_cpo', 'w_profit']], ['month', 'Best month', ['m_orders', 'm_sales', 'm_roas', 'm_units', 'm_profit']], ['year', 'Best year', ['y_orders', 'y_sales', 'y_roas']]];
   const hist = book.events.slice(0, 40);
   const byDay = []; for (const e of hist) { const g = byDay.find((x) => x[0] === e.end); if (g) g[1].push(e); else byDay.push([e.end, [e]]); }
   const nextMile = (g) => { const t = REC_MILES.flatMap((m) => [2, 3, 4, 5, 6, 7, 8].map((k) => m * 10 ** k)).filter((t) => t > (book.miles[g] || 0) && t >= recMileFloor[g]).sort((a, b) => a - b)[0]; return t; };
   return html`<div class="row" style="gap:10px;align-items:baseline;flex-wrap:wrap"><h1 style="margin:0">Records</h1><span class="small muted">Your all-time bests since ${mdLabel(book.first)}. A record you break pops up the next day, once on each device.</span></div>
-    <div class="recgrid">${groups.map(([g, l, ks]) => html`<section class="panel"><h2>${l}</h2>${ks.map(tile)}
+    <div class="recgrid">${groups.map(([g, l, ks]) => html`<section class="panel"><div class="rechd"><h2>${l}</h2><span class="tiny muted">1st</span><span class="tiny muted">2nd</span><span class="tiny muted">3rd</span></div>${ks.map(tile)}
       ${g === 'week' && P.week && html`${pbar(`This week so far (${daysIn(P.week)} of 7 days)`, P.week.orders, recOf('w_orders'), cnt, pn(P.week, 7, recOf('w_orders'), P.week.orders, cnt) + ' orders')}`}
       ${g === 'month' && P.month && html`${pbar(`${MON_LONG[+P.ma.slice(5, 7) - 1]} so far (${daysIn(P.month)} of ${dimNow} days)`, P.month.sales, recOf('m_sales'), R.money0, pn(P.month, dimNow, recOf('m_sales'), P.month.sales, R.money0))}`}
       ${g === 'year' && P.year && html`${pbar(`${P.ya.slice(0, 4)} so far`, P.year.sales, null, R.money0, book.first <= `${+P.ya.slice(0, 4) - 1}-12-31` ? `Real year records start once a full year is in the app. You'll get a pop-up the day ${P.ya.slice(0, 4)} passes all of ${+P.ya.slice(0, 4) - 1}.` : `Real year records start once a full year is in the app. In ${+P.ya.slice(0, 4) + 1} you'll get a pop-up the day it passes all of ${P.ya.slice(0, 4)}.`)}`}
