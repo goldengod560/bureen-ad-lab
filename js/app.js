@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=223';
-import * as R from './rules.js?v=223';
-import { importHistory } from './importer.js?v=223';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=223';
+import { createBackend } from './data.js?v=224';
+import * as R from './rules.js?v=224';
+import { importHistory } from './importer.js?v=224';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=224';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2417,16 +2417,19 @@ function recordBook(data) {
     ['w_orders', 'week', 'Most orders in a week', P.week, shopOr('w_orders', 'orders', ordersE), (v) => Math.round(v).toLocaleString(), false, 3],
     ['w_sales', 'week', 'Best sales week', P.week, shopOr('w_sales', 'sales', salesE), money, false, 3],
     ['w_roas', 'week', 'Best ROAS week', P.week, (p) => { const o = sp(p); return o.metaAll && o.spend > 0 && spendOk(p, o) ? o.rev / o.spend : null; }, x2, false, 3],
+    ['w_mer', 'week', 'Best MER week', P.week, (p) => { const o = sp(p), sv = shopOr('w_mer', 'sales', salesE)(p); return o.metaAll && o.spend > 0 && sv != null && spendOk(p, o) ? sv / o.spend : null; }, x2, false, 3],
     ['w_cpo', 'week', 'Lowest cost per order', P.week, (p) => { const o = sp(p); return o.metaAll && o.shopAll && o.orders > 0 && spendOk(p, o) ? o.spend / o.orders : null; }, (v) => '$' + v.toFixed(2), true, 3],
     ['w_profit', 'week', 'Most profit in a week', P.week, profitOf, money, false, 3],
     ['m_orders', 'month', 'Most orders in a month', P.month, shopOr('m_orders', 'orders', ordersE), (v) => Math.round(v).toLocaleString(), false, 1],
     ['m_sales', 'month', 'Best sales month', P.month, shopOr('m_sales', 'sales', salesE), money, false, 1],
     ['m_roas', 'month', 'Best ROAS month', P.month, (p) => { const o = sp(p); return o.metaAll && o.spend > 0 && spendOk(p, o) ? o.rev / o.spend : null; }, x2, false, 1],
+    ['m_mer', 'month', 'Best MER month', P.month, (p) => { const o = sp(p), sv = shopOr('m_mer', 'sales', salesE)(p); return o.metaAll && o.spend > 0 && sv != null && spendOk(p, o) ? sv / o.spend : null; }, x2, false, 1],
     ['m_units', 'month', 'Most packs sold in a month', P.month, shopOr('m_units', 'units', packsE), (v) => Math.round(v).toLocaleString(), false, 1],
     ['m_profit', 'month', 'Most profit in a month', P.month, profitOf, money, false, 1],
     ['y_orders', 'year', 'Most orders in a year', P.year, shopOr('y_orders', 'orders', ordersE), (v) => Math.round(v).toLocaleString(), false, 1],
     ['y_sales', 'year', 'Best sales year', P.year, shopOr('y_sales', 'sales', salesE), money, false, 1],
     ['y_roas', 'year', 'Best ROAS year', P.year, (p) => { const o = sp(p); return o.metaAll && o.spend > 0 && spendOk(p, o) ? o.rev / o.spend : null; }, x2, false, 1],
+    ['y_mer', 'year', 'Best MER year', P.year, (p) => { const o = sp(p), sv = shopOr('y_mer', 'sales', salesE)(p); return o.metaAll && o.spend > 0 && sv != null && spendOk(p, o) ? sv / o.spend : null; }, x2, false, 1],
   ];
   const events = [], best = {};
   const ev = (o) => { const after = R.addDays(o.end, 1), made = /_profit$/.test(o.rk) ? entered.get(o.pa + o.end) : null; events.push({ ...o, show: made && made > after ? made : after }); };
@@ -2444,18 +2447,22 @@ function recordBook(data) {
     }
     const recentV = all.filter((x) => !b || x.p !== b.p).slice(-K[group]).map((x) => x.v), avg = recentV.length >= Math.min(2, K[group]) ? recentV.reduce((t, v) => t + v, 0) / recentV.length : null;
     const srt = (arr) => [...arr].sort((x, z) => (lower ? x.v - z.v : z.v - x.v)), sorted = srt(all);
-    // Close call: the period that just ended came 2nd or 3rd
-    const i = sorted.findIndex((x) => x.p.end === y);
-    if ((i === 1 || i === 2) && n > need) close.push({ key, group, name, rank: i + 1, value: fmt(sorted[i].v), gap: fmt(Math.abs(sorted[0].v - sorted[i].v)), rec: fmt(sorted[0].v), recWhen: sorted[0].p.label, when: sorted[i].p.label, lower, a: sorted[i].p.a, b: sorted[i].p.b });
-    const tagG = (x) => ({ ...x, g: fromGoals.has(key + '|' + x.p.a) });
-    best[key] = { group, name, b, n, need, fmt, lower, top3: sorted.slice(0, 3).map(tagG), saleTop3: srt(sale).slice(0, 3).map(tagG), avg, avgN: recentV.length,
+    // Ranks: equal values (as shown) share a place, so 96, 96, 90 is 1st, 1st, 3rd.
+    const ranked = (arr) => { const out = []; arr.forEach((x, j) => { const r = j && fmt(x.v) === fmt(arr[j - 1].v) ? out[j - 1].rank : j + 1; out.push({ ...x, rank: r }); }); return out; };
+    const rk = ranked(sorted);
+    // Close call: the period that just ended came 2nd or 3rd, or tied the record
+    const i = rk.findIndex((x) => x.p.end === y);
+    if (i > 0 && rk[i].rank <= 3 && n > need) close.push({ key, group, name, rank: rk[i].rank, tie: rk[i].rank === 1, value: fmt(rk[i].v), gap: fmt(Math.abs(sorted[0].v - rk[i].v)), rec: fmt(sorted[0].v), recWhen: sorted[0].p.label, when: rk[i].p.label, lower, a: rk[i].p.a, b: rk[i].p.b });
+    const other = (x) => { const o = sp(x.p); if (!o.spend) return ''; if (/_roas$/.test(key)) { const sv = o.shopAll ? o.sales : fromEntries(x.p, salesE); return sv != null ? 'MER ' + x2(sv / o.spend) : ''; } if (/_mer$/.test(key)) return 'Meta ROAS ' + x2(o.rev / o.spend); return ''; };
+    const tagG = (x) => ({ ...x, g: fromGoals.has(key + '|' + x.p.a), other: other(x) });
+    best[key] = { group, name, b, n, need, fmt, lower, top3: rk.filter((x) => x.rank <= 3).slice(0, 5).map(tagG), saleTop3: ranked(srt(sale)).filter((x) => x.rank <= 3).slice(0, 5).map(tagG), avg, avgN: recentV.length,
       note: /_profit$/.test(key) ? 'from numbers you enter in Goals' : '', empty: /_profit$/.test(key) ? `Enter a whole ${group}'s numbers in Goals (+ Add numbers) and it shows here.` : '' };
   }
   // Longest streak of days in a row above break-even (needs a file every day)
   { let run = 0, top = 0, topEnd = null, prev = null, n = 0, runStart = null, topStart = null; const runs = new Map();
     for (const d of days) { const m = meta.get(d); const good = m && m.spend > 0 && m.rev / m.spend >= be0; const cont = good && prev && R.addDays(prev, 1) === d && run; run = good ? (cont ? run + 1 : 1) : 0; if (good && !cont) runStart = d; prev = d; n++; if (good) runs.set(runStart, { v: run, p: { a: runStart, b: d, label: run === 1 ? mdLabel(d) : `${mdLabel(runStart)} – ${mdLabel(d)}` } });
       if (run > top) { if (top > 0 && n > 14 && topStart !== runStart) ev({ key: 'd_streak|' + d, pa: d, pb: d, rk: 'd_streak', group: 'day', name: 'Longest streak above break-even', when: longDate(d), end: d, value: run + ' days', old: top + ' days', oldWhen: 'ended ' + mdLabel(topEnd), pct: null }); top = run; topEnd = d; topStart = runStart; } }
-    best.d_streak = { group: 'day', name: 'Longest streak above break-even', b: top ? { v: top, p: { label: 'through ' + mdLabel(topEnd) } } : null, n, need: 14, top, topStart, runStart, fmt: (v) => v + (v === 1 ? ' day' : ' days'), run, top3: [...runs.values()].sort((x, z) => z.v - x.v).slice(0, 3) }; }
+    best.d_streak = { group: 'day', name: 'Longest streak above break-even', b: top ? { v: top, p: { label: 'through ' + mdLabel(topEnd) } } : null, n, need: 14, top, topStart, runStart, fmt: (v) => v + (v === 1 ? ' day' : ' days'), run, top3: (() => { const arr = [...runs.values()].sort((x, z) => z.v - x.v), out = []; arr.forEach((r, j) => out.push({ ...r, rank: j && r.v === arr[j - 1].v ? out[j - 1].rank : j + 1 })); return out.filter((r) => r.rank <= 3).slice(0, 5); })() }; }
   // Passed last year: the first day this year's total beats all of last year's (what the app has of it).
   const yrs = [...new Set(days.map((d) => d.slice(0, 4)))];
   for (const yr of yrs) { const prevY = String(+yr - 1); if (!yrs.includes(prevY)) continue;
@@ -2489,7 +2496,7 @@ function recordBookOf(data) { const t = R.today(), c = RB_CACHE.get(data); if (c
 // Shopify records (orders, sales, packs, milestones) show as soon as they're in. Meta and profit records (ROAS, cost per order,
 // streak, profit) wait until that period has both your Ads Manager file and your profit entered, so they come together;
 // if only the Meta file is in after 3 days, they show anyway.
-const recWave2 = (rk) => /^(d_streak|w_roas|w_cpo|m_roas|y_roas)$|_profit$/.test(rk || '');
+const recWave2 = (rk) => /^(d_streak|w_roas|w_cpo|m_roas|y_roas)$|_profit$|_mer$/.test(rk || '');
 const REC_SEEN = 'adlab-rec-seen3';
 function recSeen() { try { const v = JSON.parse(localStorage.getItem(REC_SEEN) || 'null'); return Array.isArray(v) ? v : null; } catch (e) { return null; } }
 function recDue(book) {
@@ -2534,8 +2541,8 @@ function RecordWatcher({ data, setView }) {
 // Each period page: a banner with your newest record (last 30 days) or, if none, your most important one; then a card per
 // record with gold (the record), silver (2nd) and bronze (3rd), what it takes to beat it, and a Sale list kept apart.
 // Tap any gold, silver or bronze to see what drove it.
-const REC_PAGES = { day: ['Days', ['d_profit', 'd_sales', 'd_orders', 'd_streak']], week: ['Weeks', ['w_profit', 'w_sales', 'w_orders', 'w_roas', 'w_cpo']],
-  month: ['Months', ['m_profit', 'm_sales', 'm_orders', 'm_roas', 'm_units']], year: ['Years', ['y_sales', 'y_orders', 'y_roas']], ads: ['Ads', []] };
+const REC_PAGES = { day: ['Days', ['d_profit', 'd_sales', 'd_orders', 'd_streak']], week: ['Weeks', ['w_profit', 'w_sales', 'w_orders', 'w_roas', 'w_mer', 'w_cpo']],
+  month: ['Months', ['m_profit', 'm_sales', 'm_orders', 'm_roas', 'm_mer', 'm_units']], year: ['Years', ['y_sales', 'y_orders', 'y_roas', 'y_mer']], ads: ['Ads', []] };
 const recUnit = (k) => (/orders$/.test(k) ? ' orders' : /units$/.test(k) ? ' packs' : '');
 function RecMedal({ t, w }) { return html`<span class=${'rmed ' + t} style=${`width:${w}px;height:${w}px;font-size:${Math.round(w * 0.4)}px`} aria-label=${t === 'G' ? '1st' : t === 'S' ? '2nd' : '3rd'}>${t === 'G' ? 1 : t === 'S' ? 2 : 3}</span>`; }
 const RAVG = { day: 'last 30 days', week: 'last 4 weeks', month: 'last 3 months', year: 'last year' };
@@ -2576,6 +2583,7 @@ function RecordWhy({ data, why, close, setModal }) {
         <div><span>Sales</span><b>${R.money0(w.o.sales)}</b>${vs(w.o.sales, w.norm.sales)}</div>
         <div><span>Ad spend</span><b>${R.money0(w.m.spend)}</b>${vs(w.m.spend, w.norm.spend)}</div>
         <div><span>ROAS</span><b>${roas != null ? R.xroas(roas) : '—'}</b>${roas != null && w.norm.roas ? html` <span class=${roas >= w.norm.roas ? 'pos' : 'neg'}>normal ${R.xroas(w.norm.roas)}</span>` : ''}</div>
+        <div><span>MER (all sales ÷ spend)</span><b>${w.m.spend ? R.xroas(w.o.sales / w.m.spend) : '—'}</b>${w.m.spend && roas != null ? html` <span class="muted">${w.o.sales / w.m.spend > roas * 1.3 ? 'well above Meta ROAS: sales beyond the ads' : 'close to Meta ROAS'}</span>` : ''}</div>
       </div>
       <div class="tiny muted">"Normal" = your 30 days before${w.n > 1 ? `, scaled to ${w.n} days` : ''}.</div>
       <div class="recgl">Ads that ran</div>
@@ -2595,14 +2603,15 @@ function adFame(data) {
     const tm = sumRows(mainRows), days = new Set(mainRows.filter((r) => +r.spend > 0).map((r) => r.day)).size; return { ad, t, tm, days }; }).filter(Boolean);
   const tests = data.tests.filter((t) => t.stage === 1 && !isDupTest(t)).map((t) => { const ad = data.ads.find((a) => a.id === t.ad_id); const r = ad && runsFor(t, ad, data); return r && r.windowDone && r.d7 && r.d7.spend >= 30 && r.d7.roas != null ? { ad, v: r.d7.roas, when: 'test from ' + mdLabel(t.start_date) } : null; }).filter(Boolean);
   const best = new Map(); for (const x of tests) if (!best.has(x.ad.id) || best.get(x.ad.id).v < x.v) best.set(x.ad.id, x);
-  const top = (arr, f, fmt, when) => arr.map((x) => ({ ad: x.ad, v: f(x) })).filter((x) => x.v != null && x.v > 0).sort((x, z) => z.v - x.v).slice(0, 3).map((x) => ({ ...x, fmt, when: when ? when(x) : '' }));
+  const rankIt = (arr) => { const out = []; arr.forEach((x, j) => { out.push({ ...x, rank: j && x.fmt(x.v) === x.fmt(arr[j - 1].v) ? out[j - 1].rank : j + 1 }); }); return out.filter((x) => x.rank <= 3).slice(0, 5); };
+  const top = (arr, f, fmt, when) => rankIt(arr.map((x) => ({ ad: x.ad, v: f(x) })).filter((x) => x.v != null && x.v > 0).sort((x, z) => z.v - x.v).map((x) => ({ ...x, fmt, when: when ? when(x) : '' })));
   const cnt = (v) => Math.round(v).toLocaleString();
   return [
     ['Most purchases from one ad', top(per, (x) => x.t.purchases, (v) => cnt(v) + ' buys')],
     ['Most sales from one ad', top(per, (x) => x.t.revenue, R.money0)],
     ['Longest run in Main', top(per, (x) => x.days || null, (v) => v + (v === 1 ? ' day' : ' days'))],
     ['Best Main ROAS (spend $500+)', top(per, (x) => (x.tm.spend >= 500 ? x.tm.revenue / x.tm.spend : null), R.xroas)],
-    ['Best test result', [...best.values()].sort((x, z) => z.v - x.v).slice(0, 3).map((x) => ({ ad: x.ad, v: x.v, fmt: R.xroas, when: x.when }))],
+    ['Best test result', rankIt([...best.values()].sort((x, z) => z.v - x.v).map((x) => ({ ad: x.ad, v: x.v, fmt: R.xroas, when: x.when })))],
   ];
 }
 function RecordsPage({ data, inRoom, setModal }) {
@@ -2623,7 +2632,7 @@ function RecordsPage({ data, inRoom, setModal }) {
         ${t3[0] ? html`<button class="rctop rbtn" onClick=${() => setModal && setModal({ type: AdDetail, props: { adId: t3[0].ad.id } })}><div class="rcthumb"><${Media} path=${t3[0].ad.media_path} type=${t3[0].ad.media_type} poster=${t3[0].ad.tags && t3[0].ad.tags.poster} /><${RecMedal} t="G" w=${24} /></div>
             <div class="grow" style="min-width:0"><div class="rcn">${name}</div><div class="rcv">${t3[0].fmt(t3[0].v)}</div><div class="rcd ell">${displayName(t3[0].ad)}${t3[0].when ? ' · ' + t3[0].when : ''}</div></div></button>`
           : html`<div class="rcn">${name}</div><div class="rcd" style="margin-top:6px">Not enough data yet.</div>`}
-        ${t3[0] && [1, 2].map((i) => { const x = t3[i]; return html`<button class="rcrow rbtn" onClick=${() => x && setModal && setModal({ type: AdDetail, props: { adId: x.ad.id } })}><${RecMedal} t=${i === 1 ? 'S' : 'B'} w=${22} />${x ? html`<b>${x.fmt(x.v)}</b><span class="ell">${displayName(x.ad)}</span>` : html`<span class="muted" style="margin-left:0">not yet</span>`}</button>`; })}
+        ${t3[0] && [...t3.slice(1), null, null].slice(0, Math.max(2, t3.length - 1)).map((x, i) => { const rank = x ? x.rank : i + 2; return html`<button class="rcrow rbtn" onClick=${() => x && setModal && setModal({ type: AdDetail, props: { adId: x.ad.id } })}><${RecMedal} t=${rank === 1 ? 'G' : rank === 2 ? 'S' : 'B'} w=${22} />${x ? html`<b>${x.fmt(x.v)}</b><span class="ell">${displayName(x.ad)}</span>` : html`<span class="muted" style="margin-left:0">not yet</span>`}</button>`; })}
       </section>`)}</div>`;
   }
   if (!book || !book.first) return html`<div class="recbar">${seg}</div><section class="panel"><p class="muted" style="margin:0">Records show up once the app has your Shopify orders and Ads Manager files.</p></section>`;
@@ -2647,8 +2656,8 @@ function RecordsPage({ data, inRoom, setModal }) {
     if (sale && !t3.length) return null;
     return html`<section class=${'rcard' + (nw ? ' nw' : '') + (sale ? ' sale' : '')}>
       <button class="rctop rbtn" onClick=${() => open(r, t3[0], sale)} disabled=${!t3[0]}><${RecMedal} t="G" w=${46} /><div class="grow" style="min-width:0"><div class="rcn">${r.name}${nw ? html`<span class="recnew">NEW</span>` : ''}${sale ? html`<span class="salebadge">SALE</span>` : ''}</div>
-        ${t3[0] ? html`<div class="rcv">${r.fmt(t3[0].v)}${recUnit(k)}</div><div class="rcd">${t3[0].p.label}${t3[0].g ? ' · your Goals numbers' : ''}</div>` : html`<div class="rcd" style="margin-top:6px">${r.empty || `No full ${r.group} with enough data yet.`}</div>`}</div></button>
-      ${t3[0] && ['S', 'B'].map((t, i) => { const x = t3[i + 1]; return html`<button class="rcrow rbtn" onClick=${() => open(r, x, sale)} disabled=${!x}><${RecMedal} t=${t} w=${22} />${x ? html`<b>${r.fmt(x.v)}</b><span>${x.p.label}${x.g ? ' · Goals' : ''}</span>` : html`<span class="muted" style="margin-left:0">not yet</span>`}</button>`; })}
+        ${t3[0] ? html`<div class="rcv">${r.fmt(t3[0].v)}${recUnit(k)}</div><div class="rcd">${t3[0].p.label}${t3[0].g ? ' · your Goals numbers' : ''}${t3[0].other ? html` · <b>${t3[0].other}</b>` : ''}</div>` : html`<div class="rcd" style="margin-top:6px">${r.empty || `No full ${r.group} with enough data yet.`}</div>`}</div></button>
+      ${t3[0] && [...t3.slice(1), ...[null, null]].slice(0, Math.max(2, t3.length - 1)).map((x, i) => { const rank = x ? x.rank : i + 2, t = rank === 1 ? 'G' : rank === 2 ? 'S' : 'B'; return html`<button class="rcrow rbtn" onClick=${() => open(r, x, sale)} disabled=${!x}><${RecMedal} t=${t} w=${22} />${x ? html`<b>${r.fmt(x.v)}</b><span>${x.p.label}${x.g ? ' · Goals' : ''}${x.other ? ' · ' + x.other : ''}</span>` : html`<span class="muted" style="margin-left:0">not yet</span>`}</button>`; })}
       ${tgt && html`<div class="rctgt">${tgt}</div>`}
       ${r.note && html`<div class="rcnote">${r.note}</div>`}</section>`; };
   const saleCards = keys.map((k) => card(k, true)).filter(Boolean);
@@ -2681,6 +2690,8 @@ function RecordsPage({ data, inRoom, setModal }) {
     <details class="panel"><summary class="small" style="cursor:pointer"><b>How records count</b></summary><div class="small" style="margin-top:8px;line-height:1.55">
       <p><b>Orders, sales and packs</b> come from Shopify on their own. Sales match Shopify's "Total sales": after discounts and refunds, with shipping and tax. Shopify only gives the app your last ~60 days of orders; before that, records use the numbers you entered in Goals (Shopify: net sales + shipping + return fees; Triple Whale: revenue; plus orders and 6-packs), marked "your Goals numbers". Every day the app syncs from Shopify is saved for good, even after Shopify's 60 days pass.</p>
       <p><b>ROAS, spend and streaks</b> need your Ads Manager file for every day. ROAS is Meta-reported sales ÷ spend, the same basis as break-even (${R.xroas(book.be0)}). There's no daily ROAS record because one day can be luck. Week, month and year ROAS and lowest cost per order only count when spend was at least 75% of your normal.</p>
+      <p><b>MER</b> is all your sales (Shopify's Total sales, or your Goals numbers) ÷ Meta ad spend. Meta ROAS only counts sales Meta says its ads drove; MER counts everything. When MER is well above Meta ROAS, something besides the ads (organic, email, repeat customers, word of mouth) is adding sales. Each ROAS record shows that period's MER and each MER record shows its Meta ROAS so you can compare. Weeks, months and years only, with the same 75%-of-normal spend rule.</p>
+      <p>Equal records (as shown) share a place: two 96-order days are both gold and the next one is bronze.</p>
       <p><b>Profit</b> only uses numbers you enter in Goals (+ Add numbers). A day counts if you entered that one day; a week or month counts if your entries cover every day of it without spilling past it. Entries where the app had to guess most of the costs don't count. A profit record pops up the day you enter the numbers.</p>
       <p><b>Pop-ups</b>: any record you haven't seen from the last 8 days pops up the next time you open the app, so Saturday's record still shows on Monday. Orders, sales, packs and milestones show as soon as Shopify has them. ROAS, cost per order, streak and profit records wait until that day (or week, month) has both your Ads Manager file and your profit, so they come together; if only the file is in after 3 days, they show anyway. Each record shows once on each device.</p>
       <p><b>Sales</b> (from your Plan, like Black Friday): a sale day, a week with 2+ sale days or a month with 5+ go in the Sale list instead. They still pop up, with a SALE badge, if they beat everything.</p>
@@ -2693,14 +2704,14 @@ function CloseCalls({ data, setView }) {
   const [hide, setHide] = useState(() => lsGet('adlab-close-seen', '') === R.today());
   const book = useMemo(() => { try { return recordBookOf(data); } catch (e) { return null; } }, [data]);
   if (hide || !book || !book.close || !book.close.length) return null;
-  const order = ['d_profit', 'd_sales', 'd_orders', 'w_profit', 'w_sales', 'w_orders', 'w_roas', 'w_cpo', 'm_profit', 'm_sales', 'm_orders', 'm_roas', 'm_units', 'y_sales', 'y_orders', 'y_roas'];
+  const order = ['d_profit', 'd_sales', 'd_orders', 'w_profit', 'w_sales', 'w_orders', 'w_roas', 'w_mer', 'w_cpo', 'm_profit', 'm_sales', 'm_orders', 'm_roas', 'm_mer', 'm_units', 'y_sales', 'y_orders', 'y_roas', 'y_mer'];
   const list = [...book.close].sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key)).slice(0, 3);
   const when = { day: 'Yesterday', week: 'Last week', month: 'Last month', year: 'Last year' };
   const kind = (c) => c.name.replace(/^(Most|Best|Biggest|Lowest) /, (m) => m.toLowerCase());
   return html`<section class="closecall"><div class="row" style="gap:10px;align-items:center"><b class="small" style="letter-spacing:.06em">CLOSE CALL${list.length > 1 ? 'S' : ''}</b><span class="spacer"></span>
       <button class="link small" onClick=${() => { lsSet('adlab-sk-gtab', 'records'); lsSet('adlab-rec-tab', list[0].group); setView(LOOK === 'stocks' ? 'goal' : 'records'); }}>See records</button>
       <button class="recx" style="position:static" aria-label="Hide for today" onClick=${() => { lsSet('adlab-close-seen', R.today()); setHide(true); }}>×</button></div>
-    ${list.map((c) => html`<div class="ccrow"><${RecMedal} t=${c.rank === 2 ? 'S' : 'B'} w=${24} /><span>${when[c.group]} was your <b>${c.rank === 2 ? '2nd' : '3rd'} ${kind(c)}</b> ever: <b>${c.value}${recUnit(c.key)}</b>, ${c.gap}${recUnit(c.key)} ${c.lower ? 'above' : 'short of'} the record (${c.rec} · ${c.recWhen}).</span></div>`)}</section>`;
+    ${list.map((c) => html`<div class="ccrow"><${RecMedal} t=${c.rank === 1 ? 'G' : c.rank === 2 ? 'S' : 'B'} w=${24} /><span>${c.tie ? html`${when[c.group]} <b>tied your ${kind(c)}</b> record: <b>${c.value}${recUnit(c.key)}</b>, same as ${c.recWhen}.` : html`${when[c.group]} was your <b>${c.rank === 2 ? '2nd' : '3rd'} ${kind(c)}</b> ever: <b>${c.value}${recUnit(c.key)}</b>, ${c.gap}${recUnit(c.key)} ${c.lower ? 'above' : 'short of'} the record (${c.rec} · ${c.recWhen}).`}</span></div>`)}</section>`;
 }
 
 // =================== Stocks look: Goals ===================
