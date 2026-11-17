@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=231';
-import * as R from './rules.js?v=231';
-import { importHistory } from './importer.js?v=231';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=231';
+import { createBackend } from './data.js?v=232';
+import * as R from './rules.js?v=232';
+import { importHistory } from './importer.js?v=232';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=232';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -304,10 +304,14 @@ function trendAfter(r) {
 const isPassRes = (x) => x === 'pass' || x === 'strong_pass';
 // Passed on day 7, but the full run fell under the fail line.
 const slipped = (test, r) => r && isPassRes(test.result) && r.full.roas != null && r.after && r.after.spend > 0 && r.full.roas < r.rules.failRoas;
-// Newer files changed what the rules say about the standard window since you finalized.
-function lateChange(test, r) {
+// Newer files (late Meta sales) or a rule change since you finalized changed what the rules say about the test.
+// Only worth a look while the result is fresh: not once the ad is in Main (judge it on how it runs there),
+// and not more than 14 days after the test ended (Meta stops adding sales after 7 days).
+function lateChange(test, r, ad) {
   const c = test.conditions || {};
   if (!r || !c.d7 || !c.d7.rule || !r.rule || test.status === 'active') return null;
+  if (ad && ad.stage === 'main') return null;
+  if (test.start_date && R.addDays(test.start_date, (test.planned_days || 7) - 1 + 14) < R.today()) return null;
   if (r.rule === c.d7.rule || c.lateAck === r.rule) return null;
   return { was: c.d7.rule, now: r.rule };
 }
@@ -341,7 +345,7 @@ function cardInfo(ad, ctx) {
     const lt = lastStage1(ad, data), rr = lt && runsFor(lt, ad, data);
     if (rr && rr.d7) {
       const base = ad.stage === 'bench' ? { tone: 'pass', glow: 'pass', chip: ad.result === 'strong_pass' ? 'Strong' : null } : { chip: null };
-      const lc = lateChange(lt, rr), sl = slipped(lt, rr);
+      const lc = lateChange(lt, rr, ad), sl = slipped(lt, rr);
       return { ...base, line: `Day 7 ${R.xroas(rr.d7.roas)} · ${rr.d7.purchases} buys`, line2: rr.after && rr.after.spend ? `Full run ${R.xroas(rr.full.roas)} · ${rr.full.purchases} buys` : null,
         ...(lc ? { chip: 'Check result', tone: 'mid' } : sl ? { chip: 'Slipped', tone: 'fail' } : {}) };
     }
@@ -1247,7 +1251,7 @@ function TestPanel({ data, test, rules, econ, setModal, reload, say }) {
       const rr = runsFor(test, ad, data); if (!rr) return null;
       const done = test.status !== 'active';
       if (!done && !(rr.windowDone && rr.after && rr.after.spend)) return null;
-      const lc = done && lateChange(test, rr), tr = trendAfter(rr);
+      const lc = done && lateChange(test, rr, ad), tr = trendAfter(rr);
       const ack = async () => { await be.update('tests', test.id, { conditions: { ...(test.conditions || {}), lateAck: lc.now } }); await reload(); say('Kept as filed'); };
       return html`<div class="stack" style="gap:8px">
         <${RunBlock} title="Day-7 result" sub=${`${R.shortDate(rr.from)} to ${R.shortDate(rr.end)}${rr.from < test.start_date ? ' (incl. partial launch day)' : ''}`} m=${rr.d7} />
@@ -1730,8 +1734,8 @@ function Today(ctx) {
     else if (!whole.costFinal) items.push({ kind: 'todo', tone: 'amber', title: `${mn}: put in the final Sada bill when you pay it`, sub: `${mn}'s profit still uses Shopify's estimated product cost. When you pay Sada for ${mn}, open that entry, put the bill in Product cost and tick "final Sada bill".`, tag: 'SADA', go: () => setModal({ type: PeriodForm, props: { id: whole.id } }) }); }
   for (const t of data.tests.filter((x) => x.stage === 1 && x.status === 'complete')) {
     const ad = data.ads.find((a) => a.id === t.ad_id); if (!ad) continue;
-    const rr = runsFor(t, ad, data), lc = lateChange(t, rr);
-    if (lc) items.push({ ad, kind: 'todo', tone: 'amber', title: `Check result: ${displayName(ad)}`, sub: `Newer files: your rules now say ${R.RESULTS[lc.now].label} (filed as ${R.RESULTS[t.result] ? R.RESULTS[t.result].label : t.result}).`, tag: 'REVIEW', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) });
+    const rr = runsFor(t, ad, data), lc = lateChange(t, rr, ad);
+    if (lc) items.push({ ad, kind: 'todo', tone: 'amber', title: `Check result: ${displayName(ad)}`, sub: `Newer files or a rule change: your rules now say ${R.RESULTS[lc.now].label} (filed as ${R.RESULTS[t.result] ? R.RESULTS[t.result].label : t.result}).`, tag: 'REVIEW', go: () => setModal({ type: AdDetail, props: { adId: ad.id } }) });
   }
   for (const p of products) {
     const bh = benchHealth(data, p);
