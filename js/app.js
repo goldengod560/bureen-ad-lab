@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=233';
-import * as R from './rules.js?v=233';
-import { importHistory } from './importer.js?v=233';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=233';
+import { createBackend } from './data.js?v=234';
+import * as R from './rules.js?v=234';
+import { importHistory } from './importer.js?v=234';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=234';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2441,6 +2441,11 @@ function recordBook(data) {
   const yearSum = (st0, b, k) => { let v = 0, have = 0, n = 0, goals = false; for (let d = st0; d <= b; d = R.addDays(d, 1)) { n++; const t = dayMix(d, k); if (t != null) { v += t; have++; if (!shop.has(d)) goals = true; } } return n && have / n >= 0.9 ? { v, goals } : null; };
   const yearVal = (key, k) => (p) => { const st0 = firstWith(p.a, p.b, (d) => dayMix(d, k) != null); if (!st0) return null; const r = yearSum(st0, p.b, k); if (!r) return null; if (r.goals) fromGoals.add(key + '|' + p.a); yrLab.set(key + '|' + p.a, fromLab(p.a.slice(0, 4), st0)); return r.v; };
   const yearMeta = (key) => (p) => { const st0 = firstWith(p.a, p.b, (d) => meta.has(d)); if (!st0) return null; const o = span(st0, p.b); if (!(o.metaN / o.n >= 0.9 && o.spend > 0)) return null; yrLab.set(key + '|' + p.a, fromLab(p.a.slice(0, 4), st0)); return o; };
+  // Profit for a year: your Goals entries (not mostly-guessed ones), from that year's first entered day; 90%+ of days covered.
+  const yearProfit = (key) => (p) => { const ok = (d) => { const x = dayEnt.get(d); return x && x.pr.how !== 'est' ? x : null; }; const st0 = firstWith(p.a, p.b, ok); if (!st0) return null;
+    let v = 0, have = 0, n = 0; for (let d = st0; d <= p.b; d = R.addDays(d, 1)) { n++; const x = ok(d); if (x) { v += x.pr.value / x.days; have++; } } if (have / n < 0.9) return null; yrLab.set(key + '|' + p.a, fromLab(p.a.slice(0, 4), st0)); return v; };
+  // Cost per order for a year: Meta spend ÷ orders, from the first day with both orders and an Ads Manager file. Lower is better.
+  const yearCpo = (key) => (p) => { const st0 = firstWith(p.a, p.b, (d) => dayMix(d, 'orders') != null && meta.has(d)); if (!st0) return null; const r = yearSum(st0, p.b, 'orders'), o = span(st0, p.b); if (!r || !r.v || !(o.metaN / o.n >= 0.9 && o.spend > 0)) return null; if (r.goals) fromGoals.add(key + '|' + p.a); yrLab.set(key + '|' + p.a, fromLab(p.a.slice(0, 4), st0)); return o.spend / r.v; };
   // MER for a year: from the first day that has both sales numbers and an Ads Manager file.
   const yearMer = (key) => (p) => { const st0 = firstWith(p.a, p.b, (d) => dayMix(d, 'sales') != null && meta.has(d)); if (!st0) return null; const r = yearSum(st0, p.b, 'sales'), o = span(st0, p.b); if (!r || !(o.metaN / o.n >= 0.9 && o.spend > 0)) return null; if (r.goals) fromGoals.add(key + '|' + p.a); yrLab.set(key + '|' + p.a, fromLab(p.a.slice(0, 4), st0)); return r.v / o.spend; };
   // [key, group, name, periods, value(p) → number|null, format, lower is better, prior periods needed before a record counts]
@@ -2466,6 +2471,8 @@ function recordBook(data) {
     ['y_sales', 'year', 'Best sales year', P.year, yearVal('y_sales', 'sales'), money, false, 1],
     ['y_roas', 'year', 'Best ROAS year', P.year, (p) => { const o = yearMeta('y_roas')(p); return o ? o.rev / o.spend : null; }, x2, false, 1],
     ['y_mer', 'year', 'Best MER year', P.year, yearMer('y_mer'), x2, false, 1],
+    ['y_profit', 'year', 'Most profit in a year', P.year, yearProfit('y_profit'), money, false, 1],
+    ['y_cpo', 'year', 'Lowest cost per order (year)', P.year, yearCpo('y_cpo'), (v) => '$' + v.toFixed(2), true, 1],
   ];
   const events = [], best = {};
   const ev = (o) => { const after = R.addDays(o.end, 1), made = /_profit$/.test(o.rk) ? entered.get(o.pa + o.end) : null; events.push({ ...o, show: made && made > after ? made : after }); };
@@ -2539,7 +2546,7 @@ function recordBookOf(data) { const t = R.today(), c = RB_CACHE.get(data); if (c
 // Shopify records (orders, sales, average order, milestones) show as soon as they're in. Meta and profit records (ROAS, cost per order,
 // streak, profit) wait until that period has both your Ads Manager file and your profit entered, so they come together;
 // if only the Meta file is in after 3 days, they show anyway.
-const recWave2 = (rk) => /^(d_streak|d_buys|w_roas|w_cpo|m_roas|m_margin|y_roas)$|_profit$|_mer$/.test(rk || '');
+const recWave2 = (rk) => /^(d_streak|d_buys|w_roas|w_cpo|m_roas|m_margin|y_roas|y_cpo)$|_profit$|_mer$/.test(rk || '');
 const REC_SEEN = 'adlab-rec-seen3';
 function recSeen() { try { const v = JSON.parse(localStorage.getItem(REC_SEEN) || 'null'); return Array.isArray(v) ? v : null; } catch (e) { return null; } }
 function recDue(book) {
@@ -2585,7 +2592,7 @@ function RecordWatcher({ data, setView }) {
 // record with gold (the record), silver (2nd) and bronze (3rd), what it takes to beat it, and a Sale list kept apart.
 // Tap any gold, silver or bronze to see what drove it.
 const REC_PAGES = { day: ['Days', ['d_profit', 'd_sales', 'd_orders', 'd_aov', 'd_buys', 'd_streak']], week: ['Weeks', ['w_profit', 'w_sales', 'w_orders', 'w_roas', 'w_mer', 'w_cpo']],
-  month: ['Months', ['m_profit', 'm_sales', 'm_orders', 'm_roas', 'm_mer', 'm_margin']], year: ['Years', ['y_sales', 'y_orders', 'y_roas', 'y_mer']], ads: ['Ads', []] };
+  month: ['Months', ['m_profit', 'm_sales', 'm_orders', 'm_roas', 'm_mer', 'm_margin']], year: ['Years', ['y_profit', 'y_sales', 'y_orders', 'y_roas', 'y_mer', 'y_cpo']], ads: ['Ads', []] };
 const recUnit = (k) => (/orders$/.test(k) ? ' orders' : /buys$/.test(k) ? ' purchases' : '');
 function RecMedal({ t, w }) { return html`<span class=${'rmed ' + t} style=${`width:${w}px;height:${w}px;font-size:${Math.round(w * 0.4)}px`} aria-label=${t === 'G' ? '1st' : t === 'S' ? '2nd' : '3rd'}>${t === 'G' ? 1 : t === 'S' ? 2 : 3}</span>`; }
 const RAVG = { day: 'last 30 days', week: 'last 4 weeks', month: 'last 3 months', year: 'last year' };
@@ -2754,7 +2761,7 @@ function CloseCalls({ data, setView }) {
   const [hide, setHide] = useState(() => lsGet('adlab-close-seen', '') === R.today());
   const book = useMemo(() => { try { return recordBookOf(data); } catch (e) { return null; } }, [data]);
   if (hide || !book) return null;
-  const order = ['d_profit', 'd_sales', 'd_orders', 'd_aov', 'd_buys', 'd_streak', 'w_profit', 'w_sales', 'w_orders', 'w_roas', 'w_mer', 'w_cpo', 'm_profit', 'm_sales', 'm_orders', 'm_roas', 'm_mer', 'm_margin', 'y_sales', 'y_orders', 'y_roas', 'y_mer'];
+  const order = ['d_profit', 'd_sales', 'd_orders', 'd_aov', 'd_buys', 'd_streak', 'w_profit', 'w_sales', 'w_orders', 'w_roas', 'w_mer', 'w_cpo', 'm_profit', 'm_sales', 'm_orders', 'm_roas', 'm_mer', 'm_margin', 'y_profit', 'y_sales', 'y_orders', 'y_roas', 'y_mer', 'y_cpo'];
   const rank = (k) => { const i = order.indexOf(k); return i < 0 ? 99 : i; };
   const beat = book.events.filter((e) => e.end === book.y).sort((a, b) => rank(a.rk) - rank(b.rk));
   const list = [...(book.close || [])].sort((a, b) => rank(a.key) - rank(b.key)).slice(0, 3);
