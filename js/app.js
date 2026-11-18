@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=236';
-import * as R from './rules.js?v=236';
-import { importHistory } from './importer.js?v=236';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=236';
+import { createBackend } from './data.js?v=237';
+import * as R from './rules.js?v=237';
+import { importHistory } from './importer.js?v=237';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=237';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2651,12 +2651,12 @@ function RecordWhy({ data, why, close, setModal }) {
 function adFame(data) {
   const per = data.ads.map((ad) => { const rows = rowsForAd(ad, data.meta_days); if (!rows.length) return null; const t = sumRows(rows), mainRows = rows.filter((r) => !/test/i.test(r.campaign || ''));
     const tm = sumRows(mainRows), days = new Set(mainRows.filter((r) => +r.spend > 0).map((r) => r.day)).size;
-    // Best 30 days in a row in Main ($500+ spent in them): ads wear out, so judge them at their peak, not all-time.
+    // Best 30 days in a row in Main (it ran on 28+ of them and spent $500+): ads wear out, so judge them at their peak, not all-time.
     const byDay = new Map(); for (const r of mainRows) { const x = byDay.get(r.day) || { s: 0, rv: 0, b: 0 }; x.s += +r.spend || 0; x.rv += +r.revenue || 0; x.b += +r.purchases || 0; byDay.set(r.day, x); }
-    const ds = [...byDay.keys()].sort(); let bestR = null, bestC = null, i0 = 0, S = 0, RV = 0, B = 0;
-    for (let j = 0; j < ds.length; j++) { const x = byDay.get(ds[j]); S += x.s; RV += x.rv; B += x.b;
-      while (ds[i0] < R.addDays(ds[j], -29)) { const y0 = byDay.get(ds[i0]); S -= y0.s; RV -= y0.rv; B -= y0.b; i0++; }
-      if (S >= 500) { const w = `${mdLabel(R.addDays(ds[j], -29) > ds[i0] ? ds[i0] : R.addDays(ds[j], -29))} – ${mdLabel(ds[j])}`;
+    const ds = [...byDay.keys()].sort(); let bestR = null, bestC = null, i0 = 0, S = 0, RV = 0, B = 0, N = 0;
+    for (let j = 0; j < ds.length; j++) { const x = byDay.get(ds[j]); S += x.s; RV += x.rv; B += x.b; if (x.s > 0) N++;
+      while (ds[i0] < R.addDays(ds[j], -29)) { const y0 = byDay.get(ds[i0]); S -= y0.s; RV -= y0.rv; B -= y0.b; if (y0.s > 0) N--; i0++; }
+      if (S >= 500 && N >= 28) { const w = `${mdLabel(R.addDays(ds[j], -29) > ds[i0] ? ds[i0] : R.addDays(ds[j], -29))} – ${mdLabel(ds[j])}`;
         if (!bestR || RV / S > bestR.v) bestR = { v: RV / S, when: w };
         if (B > 0 && (!bestC || S / B < bestC.v)) bestC = { v: S / B, when: w }; } }
     return { ad, t, tm, days, bestR, bestC }; }).filter(Boolean);
@@ -2684,7 +2684,7 @@ function RecordsPage({ data, inRoom, setModal }) {
   const whyM = why && html`<${RecordWhy} data=${data} why=${why} close=${() => setWhy(null)} setModal=${setModal} />`;
   if (tab === 'ads') {
     const lead = fame[0] && fame[0][1][0];
-    return html`<div class="recbar">${seg}<span class="small muted">Your best ads ever, from every Ads Manager file. ROAS and cost per purchase use each ad's best 30 days in a row in Main ($500+ spent), so wear-out later doesn't drag them down. Tap an ad to open it.</span></div>
+    return html`<div class="recbar">${seg}<span class="small muted">Your best ads ever, from every Ads Manager file. ROAS and cost per purchase use each ad's best 30 days in a row in Main (it ran on 28+ of them and spent $500+), so wear-out later doesn't drag them down and a short hot streak can't win. Tap an ad to open it.</span></div>
       ${lead && html`<section class="rhero"><div class="rhthumb"><${Media} path=${lead.ad.media_path} type=${lead.ad.media_type} poster=${lead.ad.tags && lead.ad.tags.poster} /></div><div class="grow">
         <div class="rhk">TOP AD · MOST PURCHASES EVER</div><div class="rhv">${lead.fmt(lead.v)}</div><div class="rhs">${displayName(lead.ad)} · ${pName(data, lead.ad.product_id)}</div>
         <div class="rhm">${R.stageLabel(lead.ad.stage)}${lead.ad.angle ? ' · ' + lead.ad.angle : ''}</div></div></section>`}
