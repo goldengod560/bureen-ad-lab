@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=238';
-import * as R from './rules.js?v=238';
-import { importHistory } from './importer.js?v=238';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=238';
+import { createBackend } from './data.js?v=239';
+import * as R from './rules.js?v=239';
+import { importHistory } from './importer.js?v=239';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=239';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -188,6 +188,7 @@ function App() {
       ${['board', 'archive', 'angles', 'rules', 'learn'].includes(view) && html`<${ProductTabs} ...${ctx} setPid=${setPid} />`}
       ${view === 'board' && html`<${Board} key=${product.id} ...${ctx} stage=${stage} setStage=${setStage} />`}
       ${view === 'archive' && html`<${Archive} key=${product.id} ...${ctx} />`}
+      ${view === 'today' && html`<${TodoCheckins} data=${data} reload=${reload} say=${say} compact=${true} />`}
       ${view === 'today' && html`<${PlanStrip} data=${data} setView=${setView} />`}
       ${view === 'today' && html`<${CloseCalls} data=${data} setView=${setView} />`}
       ${view === 'today' && html`<${Today} ...${ctx} setPid=${setPid} />`}
@@ -5112,7 +5113,8 @@ const saleLast = (s) => s.lastLaunch || R.addDays(s.start, -8);
 function planTodos(data, plan) {
   const out = [], td = R.today(), dk = plan.doneKeys || {};
   // doneOn: the day it was done (your tick, or when the app saw it). Done items sit in Completed for 14 days.
-  const push = (x) => { x.done = !!(x.auto || dk[x.key]); x.byApp = !!x.auto && !dk[x.key]; x.doneOn = dk[x.key] || x.autoOn || td; out.push(x); };
+  const sk = plan.skipKeys || {};
+  const push = (x) => { x.done = !!(x.auto || dk[x.key]); x.byApp = !!x.auto && !dk[x.key]; x.doneOn = dk[x.key] || x.autoOn || td; x.skipped = !x.byApp && !!sk[x.key]; out.push(x); };
   const tDone = (t) => String((t.conditions || {}).stoppedOn || t.updated_at || '').slice(0, 10) || [td, R.addDays(t.start_date, (t.planned_days || 7) + 1)].sort()[0];
   data.tests.filter((t) => t.stage === 1 && t.start_date >= R.addDays(td, -45)).forEach((t) => {
     const ad = data.ads.find((a) => a.id === t.ad_id); if (!ad) return;
@@ -5124,7 +5126,7 @@ function planTodos(data, plan) {
   });
   plan.steps.forEach((s) => {
     const dd = stepDates(s, plan, data);
-    if (s.kind === 'task') { if (s.start) out.push({ key: 'task:' + s.id, d: s.start, end: s.end, t: s.name || 'To-do', c: 'task', task: s.id, done: !!s.done, doneOn: s.doneOn || td, late: !s.done && (s.end || s.start) < td }); return; }
+    if (s.kind === 'task') { if (s.start) out.push({ key: 'task:' + s.id, d: s.start, end: s.end, t: s.name || 'To-do', c: 'task', task: s.id, done: !!s.done, skipped: !!s.done && !!s.skipped, doneOn: s.doneOn || td, late: !s.done && (s.end || s.start) < td }); return; }
     if (s.kind === 'sale') {
       const ll = saleLast(s), lt = data.tests.filter((t) => t.stage === 1 && t.start_date >= R.addDays(ll, -3) && t.start_date <= ll).map((t) => t.start_date).sort();
       push({ key: 'last:' + s.id, d: ll, t: `Last day to launch a normal test before ${s.name || 'the sale'}`, c: 'sale', auto: lt.length > 0, autoOn: lt[0] });
@@ -5200,8 +5202,8 @@ function PlanPage(ctx) {
   const prods = data.products.filter((p) => !p.archived).sort((a, b) => a.sort - b.sort).map((p) => ({ p, st: productStatus(data, p, plan) }));
   const allTodos = planTodos(data, plan), todos = allTodos.filter((x) => !x.done), doneList = allTodos.filter((x) => x.done).sort((a, b) => b.doneOn.localeCompare(a.doneOn));
   const [showDone, setShowDone] = useState(false);
-  const todoRow = (x) => html`<div class=${'li small pltodo' + (x.done ? ' done' : '')}>${x.noTick ? html`<i class=${'dot t-' + x.c}></i>` : html`<button class=${'pltick' + (x.done ? ' on' : '')} disabled=${x.byApp} title=${x.byApp ? 'Ticked by the app' : x.done ? 'Untick' : 'Tick it off'} onClick=${() => tick(x)}>${x.done ? '✓' : ''}</button>`}<b class=${x.late ? 'bad' : ''}>${x.late ? 'Late · ' : ''}${x.d === td ? 'Today' : R.parseDay(x.d).toLocaleDateString('en-US', { weekday: 'short' }) + ' ' + mdLabel(x.d)}${x.end ? ' – ' + mdLabel(x.end) : ''}${x.est ? ' (est.)' : ''}</b><span>${x.t}${x.done ? html` <span class="tiny muted">· ${x.byApp ? 'the app saw it' : 'done'} ${mdLabel(x.doneOn)}</span>` : ''}</span></div>`;
-  const tick = (x) => act((p2) => { if (x.task) { const t = p2.steps.find((y) => y.id === x.task); if (t) { t.done = !t.done; t.doneOn = t.done ? td : null; } return; } const dk = { ...(p2.doneKeys || {}) }; if (dk[x.key]) delete dk[x.key]; else dk[x.key] = td; p2.doneKeys = dk; }, x.done ? 'Unticked' : 'Done ✓');
+  const todoRow = (x) => html`<div class=${'li small pltodo' + (x.done ? ' done' : '')}>${x.noTick ? html`<i class=${'dot t-' + x.c}></i>` : html`<button class=${'pltick' + (x.done ? ' on' : '')} disabled=${x.byApp} title=${x.byApp ? 'Ticked by the app' : x.done ? 'Untick' : 'Tick it off'} onClick=${() => tick(x)}>${x.skipped ? '–' : x.done ? '✓' : ''}</button>`}<b class=${x.late ? 'bad' : ''}>${x.late ? 'Late · ' : ''}${x.d === td ? 'Today' : R.parseDay(x.d).toLocaleDateString('en-US', { weekday: 'short' }) + ' ' + mdLabel(x.d)}${x.end ? ' – ' + mdLabel(x.end) : ''}${x.est ? ' (est.)' : ''}</b><span>${x.t}${x.done ? html` <span class="tiny muted">· ${x.byApp ? 'the app saw it' : x.skipped ? 'skipped' : 'done'} ${mdLabel(x.doneOn)}</span>` : ''}</span></div>`;
+  const tick = (x) => act((p2) => { if (x.task) { const t = p2.steps.find((y) => y.id === x.task); if (t) { t.done = !t.done; t.doneOn = t.done ? td : null; delete t.skipped; } return; } const dk = { ...(p2.doneKeys || {}) }; if (dk[x.key]) delete dk[x.key]; else dk[x.key] = td; p2.doneKeys = dk; if (p2.skipKeys) delete p2.skipKeys[x.key]; }, x.done ? 'Unticked' : 'Done ✓');
   const act = async (fn, msg) => { const p2 = JSON.parse(JSON.stringify(plan)); fn(p2); await savePlan(p2, reload); say(msg); };
   const card = ({ p, st }) => {
     const sug = planSuggest(data, p, plan, st);
@@ -5223,6 +5225,7 @@ function PlanPage(ctx) {
   return html`
     <div class="row" style="flex-wrap:wrap;gap:10px"><h1 style="font-size:30px">Plan</h1><span class="small muted">which product gets the test slots, and when</span><span class="spacer"></span><button class="btn" onClick=${() => setModal({ type: PlanTask, props: {} })}>+ Add to-do</button><button class="btn" onClick=${() => setModal({ type: PlanEdit, props: {} })}>Edit plan</button></div>
     ${plan.isDefault && html`<div class="status live small">This is the plan you described: Long Sleeve now, Thermal (3) + Crew (1) Nov 16, Black Friday, Crew Dec 2, then V-Neck once Thermal is stable. Change anything in Edit plan.</div>`}
+    <${TodoCheckins} data=${data} reload=${reload} say=${say} />
     <section class="panel"><div class="row"><h2 style="margin:0">Next 6 weeks</h2><span class="spacer"></span><span class="tiny muted">your test slots are shared by all products · dashed = estimated</span></div>
       <${PlanBar} data=${data} plan=${plan} w0=${w0} days=${days} onTickTodo=${(x) => tick(x)} onTick=${(id) => act((p2) => { const t = p2.steps.find((x) => x.id === id); if (t) { t.done = !t.done; t.doneOn = t.done ? td : null; } }, 'Updated')} onEdit=${() => setModal({ type: PlanEdit, props: {} })} /></section>
     <div class="plgrid">
@@ -5293,6 +5296,46 @@ function PlanEdit({ data, close, reload, say }) {
     </div><//>`;
 }
 // Overview strip: the plan in one line, and any product that needs new ads.
+// Check-ins: once a to-do's day comes (its end day, if it spans days) and it isn't ticked, ask about it
+// on Overview and on Plan: done, give it more time, or drop it. Keyed plan items (like the last test launch) get done / not needed / ask tomorrow.
+const CHECKIN_KEYS = /^(last|ready|launch):/;
+function checkinsDue(data, plan) {
+  const td = R.today(), later = plan.askLater || {};
+  return planTodos(data, plan).filter((x) => !x.done && !x.noTick && (x.task || CHECKIN_KEYS.test(x.key)) && (x.end || x.d) <= td && !(later[x.key] > td))
+    .sort((a, b) => (a.end || a.d).localeCompare(b.end || b.d));
+}
+function TodoCheckins({ data, reload, say, compact }) {
+  const plan = planOf(data), td = R.today();
+  const [open, setOpen] = useState(null), [pick, setPick] = useState('');
+  const due = checkinsDue(data, plan);
+  if (!due.length) return null;
+  const act = async (fn, msg) => { const p2 = JSON.parse(JSON.stringify(plan)); fn(p2); setOpen(null); await savePlan(p2, reload); say(msg); };
+  const task = (p2, x) => p2.steps.find((y) => y.id === x.task);
+  const done = (x) => act((p2) => { if (x.task) { const t = task(p2, x); if (t) { t.done = true; t.doneOn = td; delete t.skipped; } } else { p2.doneKeys = { ...(p2.doneKeys || {}), [x.key]: td }; } }, 'Done ✓');
+  const skip = (x) => act((p2) => { if (x.task) { const t = task(p2, x); if (t) { t.done = true; t.skipped = true; t.doneOn = td; } } else { p2.doneKeys = { ...(p2.doneKeys || {}), [x.key]: td }; p2.skipKeys = { ...(p2.skipKeys || {}), [x.key]: true }; } }, x.task ? 'Dropped it. It’s in Completed as skipped.' : 'Got it, not needed.');
+  const extend = (x, day) => { if (!day || day <= td) return say('Pick a day after today.'); act((p2) => { const t = task(p2, x); if (t) t.end = day; }, `Moved to ${mdLabel(day)}`); };
+  const tomorrow = (x) => act((p2) => { p2.askLater = { ...(p2.askLater || {}), [x.key]: R.addDays(td, 1) }; }, 'I’ll ask again tomorrow.');
+  const dayName = (d) => R.parseDay(d).toLocaleDateString('en-US', { weekday: 'short' }) + ' ' + mdLabel(d);
+  const show = compact ? due.slice(0, 3) : due;
+  return html`<section class="panel checkins">
+    <div class="row"><h2 style="margin:0">Did you finish ${due.length === 1 ? 'this' : 'these'}?</h2><span class="spacer"></span><span class="tiny muted">${due.length} to check in on</span></div>
+    ${show.map((x) => { const dueOn = x.end || x.d, late = R.daysBetween(dueOn, td); return html`<div class="ckrow">
+      <div class="cktext"><b>${x.t}</b><span class=${'tiny ' + (late > 0 ? 'bad' : 'muted')}>${late > 0 ? `was due ${dayName(dueOn)} · ${late} day${late === 1 ? '' : 's'} ago` : 'due today'}</span></div>
+      ${open === x.key ? html`<div class="ckbtns">
+          <button class="btn sm" onClick=${() => extend(x, R.addDays(td, 1))}>+1 day · ${dayName(R.addDays(td, 1))}</button>
+          <button class="btn sm" onClick=${() => extend(x, R.addDays(td, 3))}>+3 days · ${dayName(R.addDays(td, 3))}</button>
+          <input type="date" class="ckdate" min=${R.addDays(td, 1)} value=${pick} onInput=${(e) => setPick(e.target.value)} />
+          <button class="btn sm primary" disabled=${!pick} onClick=${() => extend(x, pick)}>Move</button>
+          <button class="link small" onClick=${() => setOpen(null)}>Cancel</button></div>`
+      : html`<div class="ckbtns">
+          <button class="btn sm primary" onClick=${() => done(x)}>${x.task ? 'Done' : 'Yes, done'}</button>
+          ${x.task ? html`<button class="btn sm" onClick=${() => { setPick(''); setOpen(x.key); }}>Need more time</button>` : html`<button class="btn sm" onClick=${() => tomorrow(x)}>Ask me tomorrow</button>`}
+          <button class="btn sm ghost" onClick=${() => skip(x)}>${x.task ? 'Not doing it' : 'Not needed'}</button></div>`}
+    </div>`; })}
+    ${compact && due.length > show.length && html`<div class="tiny muted">+ ${due.length - show.length} more on the Plan page</div>`}
+  </section>`;
+}
+
 function PlanStrip({ data, setView }) {
   const plan = planOf(data), td = R.today();
   const needs = data.products.filter((p) => !p.archived).map((p) => ({ p, st: productStatus(data, p, plan) })).filter((x) => x.st.flag[0] === 'NEEDS NEW ADS');
