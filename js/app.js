@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=235';
-import * as R from './rules.js?v=235';
-import { importHistory } from './importer.js?v=235';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=235';
+import { createBackend } from './data.js?v=236';
+import * as R from './rules.js?v=236';
+import { importHistory } from './importer.js?v=236';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=236';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2650,7 +2650,16 @@ function RecordWhy({ data, why, close, setModal }) {
 // Your best ads ever, from every Ads Manager file.
 function adFame(data) {
   const per = data.ads.map((ad) => { const rows = rowsForAd(ad, data.meta_days); if (!rows.length) return null; const t = sumRows(rows), mainRows = rows.filter((r) => !/test/i.test(r.campaign || ''));
-    const tm = sumRows(mainRows), days = new Set(mainRows.filter((r) => +r.spend > 0).map((r) => r.day)).size; return { ad, t, tm, days }; }).filter(Boolean);
+    const tm = sumRows(mainRows), days = new Set(mainRows.filter((r) => +r.spend > 0).map((r) => r.day)).size;
+    // Best 30 days in a row in Main ($500+ spent in them): ads wear out, so judge them at their peak, not all-time.
+    const byDay = new Map(); for (const r of mainRows) { const x = byDay.get(r.day) || { s: 0, rv: 0, b: 0 }; x.s += +r.spend || 0; x.rv += +r.revenue || 0; x.b += +r.purchases || 0; byDay.set(r.day, x); }
+    const ds = [...byDay.keys()].sort(); let bestR = null, bestC = null, i0 = 0, S = 0, RV = 0, B = 0;
+    for (let j = 0; j < ds.length; j++) { const x = byDay.get(ds[j]); S += x.s; RV += x.rv; B += x.b;
+      while (ds[i0] < R.addDays(ds[j], -29)) { const y0 = byDay.get(ds[i0]); S -= y0.s; RV -= y0.rv; B -= y0.b; i0++; }
+      if (S >= 500) { const w = `${mdLabel(R.addDays(ds[j], -29) > ds[i0] ? ds[i0] : R.addDays(ds[j], -29))} – ${mdLabel(ds[j])}`;
+        if (!bestR || RV / S > bestR.v) bestR = { v: RV / S, when: w };
+        if (B > 0 && (!bestC || S / B < bestC.v)) bestC = { v: S / B, when: w }; } }
+    return { ad, t, tm, days, bestR, bestC }; }).filter(Boolean);
   const tests = data.tests.filter((t) => t.stage === 1 && !isDupTest(t)).map((t) => { const ad = data.ads.find((a) => a.id === t.ad_id); const r = ad && runsFor(t, ad, data); return r && r.windowDone && r.d7 && r.d7.spend >= 30 && r.d7.roas != null ? { ad, v: r.d7.roas, when: 'test from ' + mdLabel(t.start_date) } : null; }).filter(Boolean);
   const best = new Map(); for (const x of tests) if (!best.has(x.ad.id) || best.get(x.ad.id).v < x.v) best.set(x.ad.id, x);
   const rankIt = (arr) => { const out = []; arr.forEach((x, j) => { out.push({ ...x, rank: j && x.fmt(x.v) === x.fmt(arr[j - 1].v) ? out[j - 1].rank : j + 1 }); }); return out.filter((x) => x.rank <= 3).slice(0, 5); };
@@ -2660,8 +2669,8 @@ function adFame(data) {
     ['Most purchases from one ad', top(per, (x) => x.t.purchases, (v) => cnt(v) + ' buys')],
     ['Most sales from one ad', top(per, (x) => x.t.revenue, R.money0)],
     ['Longest run in Main', top(per, (x) => x.days || null, (v) => v + (v === 1 ? ' day' : ' days'))],
-    ['Best Main ROAS (spend $500+)', top(per, (x) => (x.tm.spend >= 500 ? x.tm.revenue / x.tm.spend : null), R.xroas)],
-    ['Lowest cost per purchase (spend $500+)', rankIt(per.filter((x) => x.t.spend >= 500 && x.t.purchases > 0).map((x) => ({ ad: x.ad, v: x.t.spend / x.t.purchases, fmt: (v) => '$' + v.toFixed(2), when: '' })).sort((x, z) => x.v - z.v))],
+    ['Best Main ROAS · best 30 days', rankIt(per.filter((x) => x.bestR).map((x) => ({ ad: x.ad, v: x.bestR.v, fmt: R.xroas, when: x.bestR.when })).sort((x, z) => z.v - x.v))],
+    ['Lowest cost per purchase · best 30 days', rankIt(per.filter((x) => x.bestC).map((x) => ({ ad: x.ad, v: x.bestC.v, fmt: (v) => '$' + v.toFixed(2), when: x.bestC.when })).sort((x, z) => x.v - z.v))],
     ['Best test result', rankIt([...best.values()].sort((x, z) => z.v - x.v).map((x) => ({ ad: x.ad, v: x.v, fmt: R.xroas, when: x.when })))],
   ];
 }
@@ -2675,7 +2684,7 @@ function RecordsPage({ data, inRoom, setModal }) {
   const whyM = why && html`<${RecordWhy} data=${data} why=${why} close=${() => setWhy(null)} setModal=${setModal} />`;
   if (tab === 'ads') {
     const lead = fame[0] && fame[0][1][0];
-    return html`<div class="recbar">${seg}<span class="small muted">Your best ads ever, from every Ads Manager file. Tap an ad to open it.</span></div>
+    return html`<div class="recbar">${seg}<span class="small muted">Your best ads ever, from every Ads Manager file. ROAS and cost per purchase use each ad's best 30 days in a row in Main ($500+ spent), so wear-out later doesn't drag them down. Tap an ad to open it.</span></div>
       ${lead && html`<section class="rhero"><div class="rhthumb"><${Media} path=${lead.ad.media_path} type=${lead.ad.media_type} poster=${lead.ad.tags && lead.ad.tags.poster} /></div><div class="grow">
         <div class="rhk">TOP AD · MOST PURCHASES EVER</div><div class="rhv">${lead.fmt(lead.v)}</div><div class="rhs">${displayName(lead.ad)} · ${pName(data, lead.ad.product_id)}</div>
         <div class="rhm">${R.stageLabel(lead.ad.stage)}${lead.ad.angle ? ' · ' + lead.ad.angle : ''}</div></div></section>`}
