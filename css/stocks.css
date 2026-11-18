@@ -441,3 +441,6 @@ html[data-look=stocks] .skwn .chip,html[data-look=stocks] .skwn [class*=sig]{max
 .chart .legend{flex-wrap:wrap;row-gap:4px}.chart .legend span{white-space:nowrap}
 .skflow .skfr{display:grid;grid-template-columns:118px 1fr 74px;gap:10px;align-items:center;margin:8px 0;font-size:13px}.skflow .skfr b{text-align:right}.skflow .skfr.tot span{font-weight:800}
 .skfb{height:12px;border-radius:4px;background:var(--panel2);position:relative;overflow:hidden}.skfb i{position:absolute;top:0;bottom:0;border-radius:3px}
+.skprog .lab.left{transform:none;margin-left:-1px}
+@media (max-width:760px){.skprog .lab .tnm{display:none}}
+@media (max-width:760px){.skprog .str .tnm{display:none}}

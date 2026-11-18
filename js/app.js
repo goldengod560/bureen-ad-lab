@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=244';
-import * as R from './rules.js?v=244';
-import { importHistory } from './importer.js?v=244';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=244';
+import { createBackend } from './data.js?v=245';
+import * as R from './rules.js?v=245';
+import { importHistory } from './importer.js?v=245';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=245';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2950,7 +2950,9 @@ function StocksGoal(g) {
         ${tierOn && html`<div class="tierrow">${(showTiers ? [] : tDone).map((t) => html`<span class="tchip done">✓ ${t.name} ${R.money0(t.amt)} <em>${mdLabel(t.on)}</em></span>`)}${!showTiers && html`<span class="tchip now">▶ ${TT.cur.name} ${R.money0(tg)}</span>`}<span class="spacer"></span><button class="btn sm" onClick=${() => setShowTiers(!showTiers)}>${showTiers ? 'Hide tiers' : 'Show tiers'}</button></div>
           ${showTiers && html`<div class="ttrack">${TT.tiers.map((t) => { const st2 = t.i != null ? 'done' : t.n === TT.cur.n ? 'now' : 'lock', p0 = st2 === 'done' ? 100 : st2 === 'now' ? tPct : 0;
             return html`<div class=${'tcard ' + st2}><div class="tnum">${t.n}${st2 === 'done' ? html`<i>✓</i>` : st2 === 'lock' ? html`<i class="lk">🔒</i>` : ''}</div><div class="tname">${t.n <= 2 ? t.name : 'Tier ' + t.n}</div><div class="tamt">${R.money0(t.amt)}</div><div class="tbar"><i style=${`width:${p0.toFixed(0)}%`}></i></div><div class="tstate">${st2 === 'done' ? 'CLEARED ' + mdLabel(t.on).toUpperCase() : st2 === 'now' ? `${Math.round(tPct)}% · ${R.money0(Math.max(0, t.amt - actual))} to go` : reachN && t.n === reachN.n ? 'THIS PACE GETS HERE' : 'LOCKED'}</div></div>`; })}</div>`}
-          <div class="skprog"><div class="trk"><i style=${`width:${tPct.toFixed(1)}%`}></i></div><span class="lab" style="left:0;transform:none">${R.money0(tPrev)}</span>${tShould > tPrev && tShould < tg && html`<span class="ontrack" style=${`left:${((tShould - tPrev) / (tg - tPrev) * 100).toFixed(1)}%`}></span>`}<span class="str" style="color:var(--tier)">${TT.cur.name.toUpperCase()} · ${R.money0(tg)}</span></div>
+          <div class="skprog"><div class="trk"><i style=${`width:${Math.max(0, Math.min(100, actual / tg * 100)).toFixed(1)}%`}></i></div>
+            ${tDone.map((t) => { const at = t.amt / tg * 100, edge = at < 9 ? 'left' : ''; return html`<b class="goal" style=${`left:${at.toFixed(1)}%`}></b><span class=${'lab ' + edge} style=${`left:${at.toFixed(1)}%`}><span class="tnm">${t.n <= 2 ? t.name.toUpperCase() : 'T' + t.n} </span>${R.money0(t.amt)} ✓</span>`; })}
+            ${tShould > 0 && tShould < tg && html`<span class="ontrack" style=${`left:${(tShould / tg * 100).toFixed(1)}%`}></span>`}<span class="str" style="color:var(--tier)"><span class="tnm">${TT.cur.name.toUpperCase()} · </span>${R.money0(tg)}</span></div>
           <div class="row small" style="gap:16px;flex-wrap:wrap;margin-top:-6px"><span><b class="pos">■</b> you · <b>${signMoney(actual)}</b></span><span><b style="color:var(--mid)">┆</b> on track for ${R.money0(tg)} by today · <b>${R.money0(tShould)}</b></span><span class="muted">${Math.round(tPct)}% of ${TT.cur.name}${reachN && reachN.n > TT.cur.n ? ` · this pace reaches ${reachN.name}` : ''}</span></div>`}
         ${!tierOn && html`<div class="skprog"><div class="trk"><i style=${`width:${pct.toFixed(1)}%`}></i></div><b class="goal" style=${`left:${(lo / hi * 100).toFixed(1)}%`}></b><span class="lab" style=${`left:${(lo / hi * 100).toFixed(1)}%`}>GOAL ${R.money0(lo)}${actual != null ? ' · ' + Math.round(actual / lo * 100) + '%' : ''}</span>
           <span class="ontrack" style=${`left:${Math.min(99, shouldBe / hi * 100).toFixed(1)}%`}></span><span class="str">STRETCH ${R.money0(hi)}</span></div>
