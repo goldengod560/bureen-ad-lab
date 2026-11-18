@@ -211,13 +211,13 @@ html[data-look=stocks] .modal{background:#0A0B0D;border:1px solid var(--line)}
 .skdays{display:grid;grid-template-columns:repeat(auto-fill,minmax(52px,1fr));gap:5px}
 .skday{height:40px;border-radius:7px;background:var(--panel2);display:grid;place-items:center;font:700 11.5px var(--body);color:var(--dim)}
 /* Three looks that differ in shape, not just colour (easier if you're colour blind):
-   made the daily target = solid bright green; under = hollow, gold outline; lost money = red with stripes. */
+   made the daily target = solid bright green; under = hollow, gold outline; lost money = solid red, white text. */
 .skday.g{background:#00C805;color:#000}
 .skday.a{background:transparent;color:#FFC94A;box-shadow:inset 0 0 0 2px #FFC94A}
-.skday.r{background:repeating-linear-gradient(135deg,#C9303A 0 6px,#8E1820 6px 12px);color:#fff}
+.skday.r{background:#D93A3A;color:#fff}
 .skday.a.today{box-shadow:inset 0 0 0 2px #FFC94A}
 .skkey{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:4px}
-.skkey.g{background:#00C805}.skkey.a{box-shadow:inset 0 0 0 2px #FFC94A}.skkey.r{background:repeating-linear-gradient(135deg,#C9303A 0 3px,#8E1820 3px 6px)}
+.skkey.g{background:#00C805}.skkey.a{box-shadow:inset 0 0 0 2px #FFC94A}.skkey.r{background:#D93A3A}
 .skday.today{box-shadow:inset 0 0 0 2px #fff}
 .skok{box-shadow:inset 0 0 0 1px rgba(0,200,5,.5)}.skbad{box-shadow:inset 0 0 0 1px rgba(255,80,0,.5)}
 .skcp{display:flex;flex-direction:column;gap:4px;padding:6px 0;border-top:1px solid var(--line)}
