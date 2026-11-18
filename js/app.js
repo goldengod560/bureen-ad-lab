@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=234';
-import * as R from './rules.js?v=234';
-import { importHistory } from './importer.js?v=234';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=234';
+import { createBackend } from './data.js?v=235';
+import * as R from './rules.js?v=235';
+import { importHistory } from './importer.js?v=235';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=235';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2661,6 +2661,7 @@ function adFame(data) {
     ['Most sales from one ad', top(per, (x) => x.t.revenue, R.money0)],
     ['Longest run in Main', top(per, (x) => x.days || null, (v) => v + (v === 1 ? ' day' : ' days'))],
     ['Best Main ROAS (spend $500+)', top(per, (x) => (x.tm.spend >= 500 ? x.tm.revenue / x.tm.spend : null), R.xroas)],
+    ['Lowest cost per purchase (spend $500+)', rankIt(per.filter((x) => x.t.spend >= 500 && x.t.purchases > 0).map((x) => ({ ad: x.ad, v: x.t.spend / x.t.purchases, fmt: (v) => '$' + v.toFixed(2), when: '' })).sort((x, z) => x.v - z.v))],
     ['Best test result', rankIt([...best.values()].sort((x, z) => z.v - x.v).map((x) => ({ ad: x.ad, v: x.v, fmt: R.xroas, when: x.when })))],
   ];
 }
