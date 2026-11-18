@@ -439,3 +439,5 @@ html[data-look=stocks] .skwn .chip,html[data-look=stocks] .skwn [class*=sig]{max
 .tptrack{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:14px 0 6px}.tpchip{border-radius:99px;padding:5px 11px;font:700 12px var(--body);box-shadow:inset 0 0 0 1px var(--line2,#3a3f47)}.tpchip.now{background:var(--tier);color:#000;box-shadow:none}
 @media (max-width:760px){.ttrack{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.tcard{padding:9px 10px}.tcard .tnum{font-size:22px}.tcard .tamt{font-size:15px}.tcard .tstate{font-size:9.5px}}
 .chart .legend{flex-wrap:wrap;row-gap:4px}.chart .legend span{white-space:nowrap}
+.skflow .skfr{display:grid;grid-template-columns:118px 1fr 74px;gap:10px;align-items:center;margin:8px 0;font-size:13px}.skflow .skfr b{text-align:right}.skflow .skfr.tot span{font-weight:800}
+.skfb{height:12px;border-radius:4px;background:var(--panel2);position:relative;overflow:hidden}.skfb i{position:absolute;top:0;bottom:0;border-radius:3px}

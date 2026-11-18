@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=243';
-import * as R from './rules.js?v=243';
-import { importHistory } from './importer.js?v=243';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=243';
+import { createBackend } from './data.js?v=244';
+import * as R from './rules.js?v=244';
+import { importHistory } from './importer.js?v=244';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=244';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2906,6 +2906,19 @@ function StocksGoal(g) {
   const tLocked = tierOn ? TT.tiers.filter((t) => t.n > TT.cur.n) : [], tDone = TT.tiers.filter((t) => t.i != null);
   const reachN = tierOn && TT.proj != null ? TT.tiers.filter((t) => t.amt <= TT.proj).slice(-1)[0] : null;
   const s = cm.s || sumRange(dm, curYm + '-01', R.addDays(R.today(), -1));
+  // Where the month's money went: your Goals entries' cost lines added up over the month so far.
+  const flow = (() => {
+    const a = curYm + '-01', b = [R.addDays(R.today(), -1), monthEnd(curYm)].sort()[0], L = new Map(), est = new Set(); let sales = 0, profit = 0, n = 0;
+    const add = (k, v) => L.set(k, (L.get(k) || 0) + v);
+    const estName = { 'product cost': 'Product cost', 'shipping labels': 'Shipping labels', packaging: 'Packaging', 'payment fees': 'Payment fees' };
+    for (let d = a; d <= b; d = R.addDays(d, 1)) { const v = dm.get(d); if (!v) continue; n++; sales += v.rev; profit += v.profit;
+      if (v.lines) { v.lines.forEach(([k, x]) => add(k, x)); (v.lineEst || []).forEach((e) => estName[e] && est.add(estName[e])); }
+      else { add('Ad spend', v.spend); add('Not split up', v.rev - v.spend - v.profit); } }
+    if (!n || sales <= 0) return null;
+    const label = { 'Product cost': 'Product (Sada)', 'Shipping labels': 'Shipping', 'Payment fees': 'Payment fees', 'Apps and subscriptions': 'Apps', 'Other costs': 'Other' };
+    const costs = [...L].filter(([, v]) => Math.abs(v) >= 0.5).map(([k, v]) => ({ k, name: label[k] || k, v, est: est.has(k) })).sort((x, y) => y.v - x.v);
+    return { sales, profit, costs };
+  })();
   const cps = []; for (let i = 1; i <= dimNow; i++) { const d = curYm + '-' + String(i).padStart(2, '0'); if (R.parseDay(d).getDay() === 0 || i === dimNow) cps.push({ d, t: Math.round(tg * i / dimNow) }); }
   const up = cps.filter((x) => x.d >= R.today()).slice(0, 4);
   // What would add the most profit: each $1 of ad spend makes (ROAS / break-even − 1) dollars.
@@ -2953,6 +2966,12 @@ function StocksGoal(g) {
           <div class="small">${actual == null ? 'Add numbers for this month to see where you stand.' : tierOn ? `Goal and stretch cleared (stretch on ${mdLabel(TT.tiers[1].on)}). Now on ${TT.cur.name}: to be on track for ${R.money0(tg)} you should be at ${R.money0(tShould)} by now. You're at ${signMoney(actual)}. ${tAhead >= 0 ? 'Keep it up.' : `You need ${R.money0(tNeed)}/day from here.`}${reachN ? ` This pace ends near ${R.money0(TT.proj)}${reachN.n > TT.cur.n ? `, which clears ${reachN.name}` : ''}.` : ''}${R.daysBetween(R.today(), BF_DAY) >= 0 && R.daysBetween(R.today(), BF_DAY) <= 30 ? ' Black Friday can swing the month a lot either way.' : ''}` : `To be on track for ${R.money0(hi)} you should be at ${R.money0(shouldBe)} by now. You're at ${signMoney(actual)}. ${ahead >= 0 ? 'Keep it up.' : `You need ${R.money0(need)}/day from here.`}${R.daysBetween(R.today(), BF_DAY) >= 0 && R.daysBetween(R.today(), BF_DAY) <= 30 ? ' Black Friday can swing the month a lot either way.' : ''}`}</div></section>
         <section class="panel"><h2>Checkpoints</h2>${up.map((x, i) => html`<div class="skcp"><div class="row small"><b>${mdLabel(x.d)}</b><span class="spacer"></span><b>${signMoney(actual)}</b><span class="muted"> of ${R.money0(x.t)}</span></div><div class="skbar"><i style=${`width:${Math.max(0, Math.min(100, (actual || 0) / x.t * 100)).toFixed(0)}%`}></i></div>${i === 0 && actual != null && html`<div class="tiny muted">need ${R.money0(Math.max(0, (x.t - actual) / Math.max(1, R.daysBetween(R.today(), x.d) + 1)))}/day until then</div>`}</div>`)}</section>
         <section class="panel"><h2>What would add the most profit</h2><div class="tiny muted">Moves you could make, with the extra profit per day each would likely add, worked out from your own numbers.</div>${ways.length ? ways.map(([a, b]) => html`<div class="li small"><span class="grow">${a}</span><b class="pos">+${R.money0(b)}/day</b></div>`) : html`<div class="empty">Needs a few days of Main numbers.</div>`}</section>
+        ${flow && html`<section class="panel skflow"><h2>Where ${MON_LONG[+curYm.slice(5) - 1]}’s money went</h2><div class="tiny muted">From your Goals entries, ${mdLabel(curYm + '-01')} to yesterday</div>
+          <div class="skfr"><span>Sales</span><div class="skfb"><i style="left:0;width:100%;background:var(--tier)"></i></div><b>${R.money0(flow.sales)}</b></div>
+          ${(() => { let at = 0; return flow.costs.map((c) => { const w = Math.max(0, c.v / flow.sales * 100), l = at; at += w; return html`<div class="skfr"><span>${c.name}${c.est ? html` <em class="tiny muted">est.</em>` : ''}</span><div class="skfb"><i style=${`left:${Math.min(100, l).toFixed(1)}%;width:${Math.min(100 - Math.min(100, l), w).toFixed(1)}%;background:var(--fail)`}></i></div><b>−${R.money0(c.v)}</b></div>`; }); })()}
+          <div class="skfr tot"><span>Profit</span><div class="skfb">${flow.profit > 0 && html`<i style=${`left:${(100 - flow.profit / flow.sales * 100).toFixed(1)}%;width:${(flow.profit / flow.sales * 100).toFixed(1)}%;background:var(--pass)`}></i>`}</div><b class=${flow.profit >= 0 ? 'pos' : 'neg'}>${signMoney(flow.profit)}</b></div>
+          <div class="small" style="margin-top:6px">You keep <b>${flow.profit >= 0 ? R.money(flow.profit / flow.sales * 100) : '−' + R.money(-flow.profit / flow.sales * 100)} of every $100</b> in sales.${flow.costs[0] ? ` Biggest cost: ${flow.costs[0].name} (${Math.round(flow.costs[0].v / flow.sales * 100)}%)${flow.costs[1] ? `, then ${flow.costs[1].name} (${Math.round(flow.costs[1].v / flow.sales * 100)}%)` : ''}.` : ''}</div>
+          ${flow.costs.some((c) => c.est) && html`<div class="tiny muted">est. = the app guessed it because the entry left it blank.</div>`}${flow.costs.some((c) => c.k === 'Not split up') && html`<div class="tiny muted">Not split up = days where you typed the exact profit, so the app can't tell which costs it was.</div>`}</section>`}
       </div>
     </div>
     <div class="grid2">
@@ -4353,7 +4372,7 @@ function periodProfit(x, st, ce = goalCE) {
 function dayMap(periods, st) {
   const m = new Map();
   for (const x of periods) {
-    const pr = periodProfit(x, st), per = { profit: pr.value / x.days, before: pr.before / x.days, rev: entrySales(x) / x.days, spend: x.spend / x.days, orders: x.orders / x.days, how: pr.how, est: pr.how === 'est' && !pr.est.length ? ['profit (from your margin)'] : pr.est, len: x.days, created: x.created };
+    const pr = periodProfit(x, st), per = { profit: pr.value / x.days, before: pr.before / x.days, rev: entrySales(x) / x.days, spend: x.spend / x.days, orders: x.orders / x.days, how: pr.how, est: pr.how === 'est' && !pr.est.length ? ['profit (from your margin)'] : pr.est, len: x.days, created: x.created, lines: pr.lines ? pr.lines.map(([k, v]) => [k, v / x.days]) : null, lineEst: pr.est || [] };
     for (let k = 0; k < x.days; k++) { const d = R.addDays(x.from, k), cur = m.get(d); if (!cur || per.created >= cur.created) m.set(d, per); }
   }
   return m;
