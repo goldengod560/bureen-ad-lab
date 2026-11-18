@@ -424,3 +424,18 @@ html[data-look=stocks] .skwn>*{max-width:100%}
 html[data-look=stocks] .skwn .chip,html[data-look=stocks] .skwn [class*=sig]{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block}
 /* product day by day keeps its Main tile on phone (4 tiles, 2 rows) */
 @media (max-width:900px){html[data-look=stocks] .pdtiles .mp-tile:nth-child(2){display:flex}}
+/* Goal tiers (battle pass) */
+:root{--tier:#4DA3FF}
+.tierbadge{background:var(--tier);color:#000;font:900 11px var(--body);padding:3px 8px;border-radius:99px;letter-spacing:.05em;vertical-align:1px}
+.tierrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:4px 0 2px}
+.tchip{border-radius:99px;padding:5px 11px;font:700 12px var(--body);box-shadow:inset 0 0 0 1px var(--line2,#3a3f47)}.tchip em{font-style:normal;color:var(--muted);font-weight:600;margin-left:3px}.tchip.now{background:var(--tier);color:#000;box-shadow:none}
+.ttrack{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:10px;margin:4px 0}
+.tcard{background:var(--panel2);border-radius:12px;padding:12px 14px}.tcard .tnum{font:900 28px/1 var(--body)}.tcard .tnum i{font-style:normal;font-size:16px;color:var(--pass);margin-left:4px}.tcard .tnum i.lk{font-size:13px}
+.tcard .tname{font:700 12px var(--body);color:var(--muted);margin-top:3px}.tcard .tamt{font:900 19px var(--body);margin:6px 0 8px}.tcard .tbar{height:6px;background:var(--line);border-radius:9px;overflow:hidden}.tcard .tbar i{display:block;height:100%;background:var(--pass)}
+.tcard .tstate{font:800 10.5px var(--body);margin-top:8px;color:var(--dim);letter-spacing:.02em}
+.tcard.done{box-shadow:inset 0 0 0 1px var(--line2,#3a3f47)}.tcard.now{box-shadow:inset 0 0 0 2px var(--tier);background:color-mix(in srgb,var(--tier) 12%,var(--panel2))}.tcard.now .tstate{color:var(--tier)}.tcard.lock{opacity:.5}
+.legend .faded,.skread .faded{opacity:.6}.legend i.tdash{height:0;border-top:2px dashed var(--tier);background:none}.legend i.tdash.dot{border-top-style:dotted}
+.tierpop{text-align:center;border-color:var(--tier)!important;box-shadow:0 0 0 1px var(--tier),0 20px 60px rgba(77,163,255,.25)}.tpk{font:900 11px var(--body);letter-spacing:.12em;color:var(--tier)}.tph{font:900 26px var(--body);margin:6px 0}
+.tptrack{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:14px 0 6px}.tpchip{border-radius:99px;padding:5px 11px;font:700 12px var(--body);box-shadow:inset 0 0 0 1px var(--line2,#3a3f47)}.tpchip.now{background:var(--tier);color:#000;box-shadow:none}
+@media (max-width:760px){.ttrack{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.tcard{padding:9px 10px}.tcard .tnum{font-size:22px}.tcard .tamt{font-size:15px}.tcard .tstate{font-size:9.5px}}
+.chart .legend{flex-wrap:wrap;row-gap:4px}.chart .legend span{white-space:nowrap}

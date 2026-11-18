@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=241';
-import * as R from './rules.js?v=241';
-import { importHistory } from './importer.js?v=241';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=241';
+import { createBackend } from './data.js?v=242';
+import * as R from './rules.js?v=242';
+import { importHistory } from './importer.js?v=242';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=242';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -182,6 +182,7 @@ function App() {
     ${look === 'stocks' && html`<${Ticker} data=${data} />`}
     ${look === 'stocks' && html`<${TrophyWatcher} data=${data} setView=${setView} />`}
     <${RecordWatcher} data=${data} setView=${setView} />
+    <${TierWatcher} data=${data} setView=${setView} />
     <main class="wrap">
       ${data.missingTables && data.missingTables.length > 0 && html`<div class="banner"><b>One setup step left.</b> Stats needs two new database tables. In Supabase, open SQL Editor, paste <code>schema.sql</code> from the repo and press Run.</div>`}
       ${R.isWeekendLock() && html`<div class="banner"><b>Weekend lock.</b> Your rule: no new ads, reactivations or budget changes Friday night through Sunday.</div>`}
@@ -2792,12 +2793,75 @@ function CloseCalls({ data, setView }) {
     ${list.map((c) => html`<div class="ccrow"><${RecMedal} t=${c.rank === 1 ? 'G' : c.rank === 2 ? 'S' : 'B'} w=${24} /><span>${c.tie ? html`${when[c.group]} <b>tied your ${kind(c)}</b> record: <b>${c.value}${recUnitN(c.key, c.value)}</b>, same as ${c.recWhen}.` : html`${when[c.group]} was your <b>${c.rank === 2 ? '2nd' : '3rd'} ${kind(c)}</b> ever: <b>${c.value}${recUnitN(c.key, c.value)}</b>, ${c.gap}${recUnitN(c.key, c.gap)} ${c.lower ? 'above' : 'short of'} the record (${c.rec} · ${c.recWhen}).`}</span></div>`)}</section>`;
 }
 
+// Goal tiers, like a battle pass that never ends: Tier 1 is the month's goal, Tier 2 the stretch, and after that a new
+// tier every $500. A tier is cleared the first day your profit so far reaches it, and stays cleared.
+const TIER_STEP = 500;
+function goalTiers(lo, hi, days) {
+  let c = 0; const cum = days.map((d) => (d.v == null ? null : (c += d.v)));
+  const lastI = cum.reduce((m, v, i) => (v != null ? i : m), -1), actual = lastI >= 0 ? cum[lastI] : null;
+  const proj = lastI >= 0 ? cum[lastI] / (lastI + 1) * days.length : null;
+  const amt = (n) => (n === 1 ? lo : n === 2 ? hi : hi + TIER_STEP * (n - 2));
+  const name = (n) => (n === 1 ? 'Goal' : n === 2 ? 'Stretch' : 'Tier ' + n);
+  const out = [];
+  for (let n = 1; n < 60; n++) {
+    const a = amt(n), i = cum.findIndex((v) => v != null && v >= a);
+    out.push({ n, amt: a, name: name(n), i: i >= 0 ? i : null, on: i >= 0 ? days[i].d : null });
+    const cur = out.find((t) => t.i == null);
+    // Enough locked tiers to cover where this pace ends, plus one more (at least 3, at most 5 after the current one).
+    if (cur && n >= cur.n + 3 && (a > (proj || 0) || n >= cur.n + 5)) break;
+  }
+  const cur = out.find((t) => t.i == null) || out[out.length - 1];
+  return { tiers: out, cur, prev: out[cur.n - 2] || null, actual, proj, cum, lastI, on: !!(cur && cur.n >= 3) };
+}
+// Pops up once per device when you clear a tier (any time in the last 8 days, so a weekend clear shows on Monday).
+const TIER_SEEN = 'adlab-tier-seen';
+const tierSeen = () => { try { return JSON.parse(localStorage.getItem(TIER_SEEN) || '[]'); } catch (e) { return []; } };
+function TierWatcher({ data, setView }) {
+  const [pop, setPop] = useState(null);
+  useEffect(() => {
+    if (!data) return; let tm;
+    try {
+      const st = R.storeEcon(), crew = data.products.find((p) => p.kind === 'crew') || data.products[0];
+      if (!goalCE && crew) goalCE = R.econOf(crew);
+      const dm = dayMap(goalPeriods(data), st), td = R.today(), seen = tierSeen();
+      const found = [];
+      for (const ym of [monthKey(R.addDays(td.slice(0, 7) + '-01', -1)), monthKey(td)]) {
+        const g = stageFor(ym + '-01'), end = monthEnd(ym), dim = R.daysBetween(ym + '-01', end) + 1;
+        const days = Array.from({ length: dim }, (_, i) => { const d = ym + '-' + String(i + 1).padStart(2, '0'); const v = d < td ? dm.get(d) : null; return { d, v: v ? v.profit : null }; });
+        const T = goalTiers(g.profit[0], g.profit[1], days);
+        T.tiers.filter((t) => t.on && t.on >= R.addDays(td, -8) && !seen.includes(ym + ':' + t.n)).forEach((t) => found.push({ ...t, ym, next: T.cur, dim, left: Math.max(1, R.daysBetween(td, end) + 1), actual: T.actual, money: t.i != null && days[t.i] ? days[t.i].v : null, early: R.daysBetween(t.on, end) }));
+      }
+      if (!found.length) return;
+      // Wait for the record pop-up to close first, so they don't stack.
+      const show = () => { if (document.querySelector('.recback')) { tm = setTimeout(show, 700); return; } setPop(found); };
+      tm = setTimeout(show, 400);
+    } catch (e) { console.warn('tiers', e); }
+    return () => clearTimeout(tm);
+  }, [data]);
+  if (!pop) return null;
+  const top = pop[pop.length - 1], nx = top.next, curMonth = top.ym === monthKey(R.today());
+  const close = (go) => { lsSet(TIER_SEEN, JSON.stringify([...tierSeen(), ...pop.map((t) => t.ym + ':' + t.n)].slice(-200))); setPop(null); if (go) { lsSet('adlab-sk-gtab', 'month'); setView('goal'); } };
+  return html`<div class="recback" role="dialog" aria-modal="true" aria-label="Tier cleared">
+    <div class="recmod tierpop">
+      <button class="recx" aria-label="Close" onClick=${() => close(false)}>×</button>
+      <div class="tpk">${pop.length > 1 ? `${pop.length} TIERS CLEARED` : 'TIER CLEARED'} · ${MON_LONG[+top.ym.slice(5) - 1].toUpperCase()}</div>
+      <div class="tph">${pop.length > 1 ? pop.map((t) => t.name).join(' + ') : `${top.name} ${R.money0(top.amt)}`} cleared</div>
+      <div class="small muted">${mdLabel(top.on)}${top.early > 0 ? ` · ${top.early} day${top.early === 1 ? '' : 's'} early` : ''}${top.money != null && top.money > 0 ? ` · a ${R.money0(top.money)} day did it` : ''}</div>
+      <div class="tptrack">${pop.map((t) => html`<span class="tpchip done">✓ ${t.name} ${R.money0(t.amt)}</span>`)}${curMonth && nx && html`<span class="tpchip now">▶ ${nx.name} ${R.money0(nx.amt)}</span>`}</div>
+      ${curMonth && nx && top.actual != null && html`<div class="small" style="margin:6px 0 2px">Next: <b>${nx.name} · ${R.money0(nx.amt)}</b> · ${R.money0(Math.max(0, (nx.amt - top.actual) / top.left))}/day gets you there</div>`}
+      <div class="row" style="gap:10px;margin-top:16px"><button class="btn primary grow" onClick=${() => close(false)}>Let’s go</button><button class="btn" onClick=${() => close(true)}>See Goals</button></div>
+      <div class="tiny muted" style="text-align:center;margin-top:8px">Shows once on this device</div>
+    </div></div>`;
+}
+
 // =================== Stocks look: Goals ===================
 function StocksGoal(g) {
   const { data, products, cm, dm, months, periods, st, stage, msDone, auto, setModal, curYm, dimNow, elapsed, classicBody, crew, be, reload, say } = g;
   const [tab, setTab0] = useState(() => lsGet('adlab-sk-gtab', 'month'));
   const setTab = (k) => { setTab0(k); lsSet('adlab-sk-gtab', k); };
   const [tset, setTset] = useState('month');
+  const [showTiers, setShowTiers0] = useState(() => lsGet('adlab-tiers-show', '0') === '1');
+  const setShowTiers = (v) => { setShowTiers0(v); lsSet('adlab-tiers-show', v ? '1' : '0'); };
   const sets = trophySets(g);
   const nowSet = sets.month(curYm);
   const all = [...nowSet, ...sets.season, ...sets.store], pts = all.filter((x) => x[2] >= x[3]).reduce((s, x) => s + TIER[x[0]][3], 0);
@@ -2835,8 +2899,14 @@ function StocksGoal(g) {
   const pct = actual != null ? Math.max(0, Math.min(100, actual / hi * 100)) : 0;
   const daysArr = Array.from({ length: dimNow }, (_, i) => { const d = curYm + '-' + String(i + 1).padStart(2, '0'); const v = dm.get(d); return { d, v: v ? v.profit : null, today: d === R.today() }; });
   const perDayNeed = hi / dimNow;
+  // Tiers: once the stretch is cleared, the month keeps going like a battle pass (Tier 3, 4, 5…).
+  const TT = goalTiers(lo, hi, daysArr), tierOn = actual != null && TT.on, tg = tierOn ? TT.cur.amt : hi, tPrev = tierOn ? TT.prev.amt : 0;
+  const tNeed = actual != null ? Math.max(0, (tg - actual) / left) : null, tShould = tg * elapsed / dimNow, tAhead = actual != null ? actual - tShould : null;
+  const tPct = tierOn ? Math.max(0, Math.min(100, (actual - tPrev) / (tg - tPrev) * 100)) : pct;
+  const tLocked = tierOn ? TT.tiers.filter((t) => t.n > TT.cur.n) : [], tDone = TT.tiers.filter((t) => t.i != null);
+  const reachN = tierOn && TT.proj != null ? TT.tiers.filter((t) => t.amt <= TT.proj).slice(-1)[0] : null;
   const s = cm.s || sumRange(dm, curYm + '-01', R.addDays(R.today(), -1));
-  const cps = []; for (let i = 1; i <= dimNow; i++) { const d = curYm + '-' + String(i).padStart(2, '0'); if (R.parseDay(d).getDay() === 0 || i === dimNow) cps.push({ d, t: Math.round(hi * i / dimNow) }); }
+  const cps = []; for (let i = 1; i <= dimNow; i++) { const d = curYm + '-' + String(i).padStart(2, '0'); if (R.parseDay(d).getDay() === 0 || i === dimNow) cps.push({ d, t: Math.round(tg * i / dimNow) }); }
   const up = cps.filter((x) => x.d >= R.today()).slice(0, 4);
   // What would add the most profit: each $1 of ad spend makes (ROAS / break-even − 1) dollars.
   const ways = []; const mp = crew ? mainPlan(data, crew) : null;
@@ -2861,20 +2931,26 @@ function StocksGoal(g) {
     <div class="skgoal">
       <section class="panel skhero">
         <div class="row" style="align-items:flex-start;gap:20px"><div><div class="small muted">${MON_LONG[+curYm.slice(5) - 1]} so far</div><div class="skhuge">${actual == null ? '—' : signMoney(actual)}</div>
-          <div class="small">of the <b>${R.money0(hi)}</b> stretch · <b>${actual == null ? '—' : R.money0(Math.max(0, hi - actual))} to go</b> · <b>${dimNow - elapsed} days left</b></div></div><span class="spacer"></span>
-          <div style="text-align:right"><div class="small muted">You need</div><div class="skper" style="color:var(--mid)">${need == null ? '—' : R.money0(need)}<small>/day</small></div><div class="small muted" style="margin-top:6px">You're averaging</div><div class="skper pos">${avg == null ? '—' : R.money0(avg)}<small>/day</small></div></div></div>
-        <div class="skprog"><div class="trk"><i style=${`width:${pct.toFixed(1)}%`}></i></div><b class="goal" style=${`left:${(lo / hi * 100).toFixed(1)}%`}></b><span class="lab" style=${`left:${(lo / hi * 100).toFixed(1)}%`}>GOAL ${R.money0(lo)}${actual != null ? ' · ' + Math.round(actual / lo * 100) + '%' : ''}</span>
+          ${tierOn ? html`<div class="small"><span class="tierbadge">${TT.cur.name.toUpperCase()}</span> <b>${R.money0(Math.max(0, tg - actual))} to go</b> to ${R.money0(tg)} · <b>${dimNow - elapsed} days left</b></div>`
+            : html`<div class="small">of the <b>${R.money0(hi)}</b> stretch · <b>${actual == null ? '—' : R.money0(Math.max(0, hi - actual))} to go</b> · <b>${dimNow - elapsed} days left</b></div>`}</div><span class="spacer"></span>
+          <div style="text-align:right"><div class="small muted">You need</div><div class="skper" style="color:var(--mid)">${tNeed == null ? '—' : R.money0(tNeed)}<small>/day</small></div><div class="small muted" style="margin-top:6px">${tierOn ? `for ${TT.cur.name} · you're averaging` : `You're averaging`}</div><div class="skper pos">${avg == null ? '—' : R.money0(avg)}<small>/day</small></div></div></div>
+        ${tierOn && html`<div class="tierrow">${(showTiers ? [] : tDone).map((t) => html`<span class="tchip done">✓ ${t.name} ${R.money0(t.amt)} <em>${mdLabel(t.on)}</em></span>`)}${!showTiers && html`<span class="tchip now">▶ ${TT.cur.name} ${R.money0(tg)}</span>`}<span class="spacer"></span><button class="btn sm" onClick=${() => setShowTiers(!showTiers)}>${showTiers ? 'Hide tiers' : 'Show tiers'}</button></div>
+          ${showTiers && html`<div class="ttrack">${TT.tiers.map((t) => { const st2 = t.i != null ? 'done' : t.n === TT.cur.n ? 'now' : 'lock', p0 = st2 === 'done' ? 100 : st2 === 'now' ? tPct : 0;
+            return html`<div class=${'tcard ' + st2}><div class="tnum">${t.n}${st2 === 'done' ? html`<i>✓</i>` : st2 === 'lock' ? html`<i class="lk">🔒</i>` : ''}</div><div class="tname">${t.n <= 2 ? t.name : 'Tier ' + t.n}</div><div class="tamt">${R.money0(t.amt)}</div><div class="tbar"><i style=${`width:${p0.toFixed(0)}%`}></i></div><div class="tstate">${st2 === 'done' ? 'CLEARED ' + mdLabel(t.on).toUpperCase() : st2 === 'now' ? `${Math.round(tPct)}% · ${R.money0(Math.max(0, t.amt - actual))} to go` : reachN && t.n === reachN.n ? 'THIS PACE GETS HERE' : 'LOCKED'}</div></div>`; })}</div>`}
+          <div class="skprog"><div class="trk"><i style=${`width:${tPct.toFixed(1)}%`}></i></div><span class="lab" style="left:0;transform:none">${R.money0(tPrev)}</span>${tShould > tPrev && tShould < tg && html`<span class="ontrack" style=${`left:${((tShould - tPrev) / (tg - tPrev) * 100).toFixed(1)}%`}></span>`}<span class="str" style="color:var(--tier)">${TT.cur.name.toUpperCase()} · ${R.money0(tg)}</span></div>
+          <div class="row small" style="gap:16px;flex-wrap:wrap;margin-top:-6px"><span><b class="pos">■</b> you · <b>${signMoney(actual)}</b></span><span><b style="color:var(--mid)">┆</b> on track for ${R.money0(tg)} by today · <b>${R.money0(tShould)}</b></span><span class="muted">${Math.round(tPct)}% of ${TT.cur.name}${reachN && reachN.n > TT.cur.n ? ` · this pace reaches ${reachN.name}` : ''}</span></div>`}
+        ${!tierOn && html`<div class="skprog"><div class="trk"><i style=${`width:${pct.toFixed(1)}%`}></i></div><b class="goal" style=${`left:${(lo / hi * 100).toFixed(1)}%`}></b><span class="lab" style=${`left:${(lo / hi * 100).toFixed(1)}%`}>GOAL ${R.money0(lo)}${actual != null ? ' · ' + Math.round(actual / lo * 100) + '%' : ''}</span>
           <span class="ontrack" style=${`left:${Math.min(99, shouldBe / hi * 100).toFixed(1)}%`}></span><span class="str">STRETCH ${R.money0(hi)}</span></div>
-        <div class="row small" style="gap:16px;flex-wrap:wrap;margin-top:-6px"><span><b class="pos">■</b> you · <b>${signMoney(actual)}</b></span><span><b style="color:var(--mid)">┆</b> on track by today · <b>${R.money0(shouldBe)}</b></span><span><b>│</b> goal · <b>${R.money0(lo)}</b></span></div>
-        <${GoalLine} days=${daysArr} lo=${lo} hi=${hi} dim=${dimNow} />
+        <div class="row small" style="gap:16px;flex-wrap:wrap;margin-top:-6px"><span><b class="pos">■</b> you · <b>${signMoney(actual)}</b></span><span><b style="color:var(--mid)">┆</b> on track by today · <b>${R.money0(shouldBe)}</b></span><span><b>│</b> goal · <b>${R.money0(lo)}</b></span></div>`}
+        <${GoalLine} days=${daysArr} lo=${lo} hi=${hi} dim=${dimNow} tiers=${tierOn ? TT.tiers.filter((t) => t.n <= TT.cur.n || showTiers) : null} curN=${tierOn ? TT.cur.n : null} />
         <div class="row small"><b>Every day this month</b><span class="spacer"></span><span class="muted"><i class="skkey g"></i>made ${R.money0(perDayNeed)}+ · <i class="skkey a"></i>made money, under ${R.money0(perDayNeed)} · <i class="skkey r"></i>lost money · empty = to come</span></div>
         <div class="skdays">${daysArr.map((x, i) => html`<div class=${'skday' + (x.v == null ? '' : x.v >= perDayNeed ? ' g' : x.v >= 0 ? ' a' : ' r') + (x.today ? ' today' : '')} title=${x.d}>${x.v == null ? i + 1 : signMoney(x.v)}</div>`)}</div>
         <div class="skstrip" style="border-top:1px solid var(--line);padding-top:12px">${[['Sales', R.money0(s.rev)], ['Ad spend', R.money0(s.spend)], ['Profit', signMoney(actual)], ['MER', s.spend ? R.xroas(s.rev / s.spend) : '—'], ['Orders', Math.round(s.orders || 0)], ['Days with numbers', `${cm.days} of ${dimNow}`]].map(([a, b]) => html`<div><div class="small muted">${a}</div><div class="skv">${b}</div></div>`)}</div>
         <div class="tiny muted">${cc.final ? `${MON_LONG[+curYm.slice(5) - 1]} is closed: these numbers are exact.` : cc.whole ? `Exact except product cost, which is an estimate until you put in the Sada bill.` : `Estimates for now: shipping, fees and returns aren't exact until the month ends. On ${mdLabel(R.addDays(monthEnd(curYm), 1))} the app will ask for ${MON_LONG[+curYm.slice(5) - 1]}'s whole-month numbers, and product cost is exact once you pay Sada.`}</div>
       </section>
       <div class="stack" style="gap:14px">
-        <section class=${'panel ' + (ahead != null && ahead >= 0 ? 'skok' : 'skbad')}><div class="row"><h2>Verdict</h2><span class="spacer"></span>${ahead != null && html`<span class=${'sig ' + (ahead >= 0 ? 'sig-buy' : 'sig-sell')}>${ahead >= 0 ? 'AHEAD BY ' : 'BEHIND BY '}${R.money0(Math.abs(ahead))}</span>`}</div>
-          <div class="small">${actual == null ? 'Add numbers for this month to see where you stand.' : `To be on track for ${R.money0(hi)} you should be at ${R.money0(shouldBe)} by now. You're at ${signMoney(actual)}. ${ahead >= 0 ? 'Keep it up.' : `You need ${R.money0(need)}/day from here.`}${R.daysBetween(R.today(), BF_DAY) >= 0 && R.daysBetween(R.today(), BF_DAY) <= 30 ? ' Black Friday can swing the month a lot either way.' : ''}`}</div></section>
+        <section class=${'panel ' + (tAhead != null && tAhead >= 0 ? 'skok' : 'skbad')}><div class="row"><h2>Verdict</h2><span class="spacer"></span>${tAhead != null && html`<span class=${'sig ' + (tAhead >= 0 ? 'sig-buy' : 'sig-sell')}>${tAhead >= 0 ? 'AHEAD BY ' : 'BEHIND BY '}${R.money0(Math.abs(tAhead))}</span>`}</div>
+          <div class="small">${actual == null ? 'Add numbers for this month to see where you stand.' : tierOn ? `Goal and stretch cleared (stretch on ${mdLabel(TT.tiers[1].on)}). Now on ${TT.cur.name}: to be on track for ${R.money0(tg)} you should be at ${R.money0(tShould)} by now. You're at ${signMoney(actual)}. ${tAhead >= 0 ? 'Keep it up.' : `You need ${R.money0(tNeed)}/day from here.`}${reachN ? ` This pace ends near ${R.money0(TT.proj)}${reachN.n > TT.cur.n ? `, which clears ${reachN.name}` : ''}.` : ''}${R.daysBetween(R.today(), BF_DAY) >= 0 && R.daysBetween(R.today(), BF_DAY) <= 30 ? ' Black Friday can swing the month a lot either way.' : ''}` : `To be on track for ${R.money0(hi)} you should be at ${R.money0(shouldBe)} by now. You're at ${signMoney(actual)}. ${ahead >= 0 ? 'Keep it up.' : `You need ${R.money0(need)}/day from here.`}${R.daysBetween(R.today(), BF_DAY) >= 0 && R.daysBetween(R.today(), BF_DAY) <= 30 ? ' Black Friday can swing the month a lot either way.' : ''}`}</div></section>
         <section class="panel"><h2>Checkpoints</h2>${up.map((x, i) => html`<div class="skcp"><div class="row small"><b>${mdLabel(x.d)}</b><span class="spacer"></span><b>${signMoney(actual)}</b><span class="muted"> of ${R.money0(x.t)}</span></div><div class="skbar"><i style=${`width:${Math.max(0, Math.min(100, (actual || 0) / x.t * 100)).toFixed(0)}%`}></i></div>${i === 0 && actual != null && html`<div class="tiny muted">need ${R.money0(Math.max(0, (x.t - actual) / Math.max(1, R.daysBetween(R.today(), x.d) + 1)))}/day until then</div>`}</div>`)}</section>
         <section class="panel"><h2>What would add the most profit</h2><div class="tiny muted">Moves you could make, with the extra profit per day each would likely add, worked out from your own numbers.</div>${ways.length ? ways.map(([a, b]) => html`<div class="li small"><span class="grow">${a}</span><b class="pos">+${R.money0(b)}/day</b></div>`) : html`<div class="empty">Needs a few days of Main numbers.</div>`}</section>
       </div>
@@ -2889,13 +2965,14 @@ function StocksGoal(g) {
 }
 
 // Profit so far this month as a line, against the pace for the goal and the stretch.
-function GoalLine({ days, lo, hi, dim }) {
+function GoalLine({ days, lo, hi, dim, tiers, curN }) {
   const [box, W] = useWidth(); const [hv, setHv] = useState(null);
   const H = 210, L = 52, Rt = 12, T = 12, B = 24;
   let c = 0; const cum = days.map((d) => (d.v == null ? null : (c += d.v)));
   const lastI = cum.reduce((m, v, i) => (v != null ? i : m), -1);
   // The scale fits your line and the stretch. A pace far above it is cut off at the top edge, not drawn off the chart.
-  const vals = [...cum.filter((v) => v != null), hi, 0];
+  const tl = (tiers || []).filter((t) => t.n >= 3), tc = tl.find((t) => t.n === curN);
+  const vals = [...cum.filter((v) => v != null), hi, ...tl.map((t) => t.amt), 0];
   const max = Math.max(...vals) * 1.08, min = Math.min(0, ...vals);
   const clipId = 'gl' + dim + Math.round(hi);
   const x = (i) => L + i * (W - L - Rt) / Math.max(1, dim - 1), y = (v) => T + (H - T - B) * (1 - (v - min) / (max - min || 1));
@@ -2907,19 +2984,23 @@ function GoalLine({ days, lo, hi, dim }) {
   const ticks = [min, (max + min) / 2, max / 1.08].map((v) => Math.round(v));
   return html`<div class="chart" ref=${box}>
     <div class="skread small"><b>${d ? `${R.parseDay(d.d).toLocaleDateString('en-US', { weekday: 'short' })} ${mdLabel(d.d)}` : ''}</b>
-      <span><i style="background:var(--pass)"></i>you: <b>${cum[i] == null ? 'to come' : signMoney(cum[i])}</b></span><span><i style="background:#fff"></i>goal pace: <b>${R.money0(lo * (i + 1) / dim)}</b></span><span><i style="background:var(--mid)"></i>stretch pace: <b>${R.money0(hi * (i + 1) / dim)}</b></span>${lastI >= 0 && html`<span class="muted">· ends near ${signMoney(cum[lastI] / (lastI + 1) * dim)} at this pace</span>`}</div>
+      <span><i style="background:var(--pass)"></i>you: <b>${cum[i] == null ? 'to come' : signMoney(cum[i])}</b></span><span><i style="background:#fff"></i>goal pace: <b>${R.money0(lo * (i + 1) / dim)}</b></span><span class=${tiers ? 'faded' : ''}><i style="background:var(--mid)"></i>stretch pace: <b>${R.money0(hi * (i + 1) / dim)}</b></span>${tc && html`<span><i style="background:var(--tier)"></i>${tc.name} pace: <b>${R.money0(tc.amt * (i + 1) / dim)}</b></span>`}${lastI >= 0 && html`<span class="muted">· ends near ${signMoney(cum[lastI] / (lastI + 1) * dim)} at this pace</span>`}</div>
     <svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${move} onPointerDown=${move} onPointerLeave=${() => setHv(null)} role="img" aria-label="Profit so far this month against the goal and stretch pace">
       ${ticks.map((t) => html`<line x1=${L} x2=${W - Rt} y1=${y(t)} y2=${y(t)} class="grid" /><text x=${L - 6} y=${y(t) + 4} class="ax" text-anchor="end">${signMoney(t)}</text>`)}
       ${[0, 6, 13, 20, 27, dim - 1].filter((k, j, a) => k < dim && a.indexOf(k) === j).map((k) => html`<text x=${x(k)} y=${H - 6} class="ax" text-anchor=${k === dim - 1 ? 'end' : k === 0 ? 'start' : 'middle'}>${mdLabel(days[k].d)}</text>`)}
-      <polyline points=${line((k) => hi * (k + 1) / dim)} fill="none" stroke="var(--mid)" stroke-width="2" stroke-dasharray="6 5" vector-effect="non-scaling-stroke" />
-      <polyline points=${line((k) => lo * (k + 1) / dim)} fill="none" stroke="#fff" stroke-opacity=".75" stroke-width="2" stroke-dasharray="6 5" vector-effect="non-scaling-stroke" />
+      <polyline points=${line((k) => hi * (k + 1) / dim)} fill="none" stroke="var(--mid)" stroke-opacity=${tiers ? '.45' : '1'} stroke-width="2" stroke-dasharray="6 5" vector-effect="non-scaling-stroke" />
+      <polyline points=${line((k) => lo * (k + 1) / dim)} fill="none" stroke="#fff" stroke-opacity=${tiers ? '.4' : '.75'} stroke-width="2" stroke-dasharray="6 5" vector-effect="non-scaling-stroke" />
+      ${tl.map((t) => html`<polyline points=${line((k) => t.amt * (k + 1) / dim)} fill="none" stroke="var(--tier)" stroke-opacity=${t.i != null ? '.45' : '1'} stroke-width="2" stroke-dasharray=${t.n === curN ? '10 4' : t.i != null ? '6 5' : '2 5'} vector-effect="non-scaling-stroke" />
+        ${(W >= 600 || t.n === curN) && html`<text x=${W - Rt - 2} y=${y(t.amt) - 6} class="ax" text-anchor="end" style=${`fill:var(--tier);font-weight:700;opacity:${t.n === curN ? 1 : 0.7}`}>${t.name} · ${R.money0(t.amt)}</text>`}`)}
+      ${tiers && html`<text x=${W - Rt - 2} y=${y(hi) - 6} class="ax" text-anchor="end" style="fill:var(--mid);opacity:.7;font-weight:700">Stretch · ${R.money0(hi)}</text>`}
       <defs><clipPath id=${clipId}><rect x=${L} y=${T} width=${Math.max(0, W - L - Rt)} height=${H - T - B} /></clipPath></defs>
       ${proj && html`<polyline points=${proj} clip-path=${`url(#${clipId})`} fill="none" stroke="var(--pass)" stroke-opacity=".45" stroke-width="2" stroke-dasharray="2 5" vector-effect="non-scaling-stroke" />`}
       <polyline points=${act} fill="none" stroke="var(--pass)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke" />
       ${lastI >= 0 && html`<circle cx=${x(lastI)} cy=${y(cum[lastI])} r="5" fill="var(--pass)" />`}
+      ${(tiers || []).filter((t) => t.i != null).map((t) => html`<g transform=${`translate(${x(t.i)},${y(cum[t.i])})`}><circle r="9" fill="var(--panel)" stroke="#fff" stroke-width="2" /><text y="4" text-anchor="middle" style="fill:#fff;font:900 10px var(--body)">✓</text><text y="-15" text-anchor="middle" style="fill:#fff;font:700 11px var(--body)">${t.name}</text></g>`)}
       <line x1=${x(i)} x2=${x(i)} y1=${T} y2=${H - B} class="cross" />
     </svg>
-    <div class="legend"><span><i style="background:var(--pass)"></i>You, adding up</span><span><i style="background:#fff"></i>Goal pace ${R.money0(lo)}</span><span><i style="background:var(--mid)"></i>Stretch pace ${R.money0(hi)}</span><span><i style="background:var(--pass);opacity:.45"></i>Where this pace ends</span></div>
+    <div class="legend"><span><i style="background:var(--pass)"></i>You, adding up</span><span class=${tiers ? 'faded' : ''}><i style="background:#fff"></i>Goal pace ${R.money0(lo)}${tiers ? ' ✓' : ''}</span><span class=${tiers ? 'faded' : ''}><i style="background:var(--mid)"></i>Stretch pace ${R.money0(hi)}${tiers ? ' ✓' : ''}</span>${tl.map((t) => html`<span class=${t.i != null ? 'faded' : ''}><i class=${'tdash' + (t.n === curN || t.i != null ? '' : ' dot')}></i>${t.n === curN ? `${t.name} pace ${R.money0(t.amt)}` : `${t.name} ${R.money0(t.amt)}${t.i != null ? ' ✓' : ''}`}</span>`)}<span><i style="background:var(--pass);opacity:.45"></i>Where this pace ends</span></div>
   </div>`;
 }
 
