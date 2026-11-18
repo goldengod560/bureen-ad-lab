@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=237';
-import * as R from './rules.js?v=237';
-import { importHistory } from './importer.js?v=237';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=237';
+import { createBackend } from './data.js?v=238';
+import * as R from './rules.js?v=238';
+import { importHistory } from './importer.js?v=238';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=238';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -5153,7 +5153,7 @@ function planSuggest(data, product, plan, st) {
 }
 // "Nov 13 → decide 20" (short when it's the same month, so it fits small blocks)
 const spanTxt = (a, dec) => `${mdLabel(a)} → decide ${a.slice(0, 7) === dec.slice(0, 7) ? +dec.slice(8) : mdLabel(dec)}`;
-function PlanBar({ data, plan, w0, days, onTick, onEdit }) {
+function PlanBar({ data, plan, w0, days, onTick, onTickTodo, onEdit }) {
   const td = R.today(), pct = (d) => Math.max(0, Math.min(100, R.daysBetween(w0, d) / days * 100));
   const weeks = Array.from({ length: Math.ceil(days / 7) }, (_, i) => R.addDays(w0, i * 7));
   const lanes = data.products.filter((p) => !p.archived).sort((a, b) => a.sort - b.sort).map((p) => ({ key: p.id, name: p.name, col: PLAN_COL[p.kind] || '#8A939C', p }));
@@ -5164,7 +5164,8 @@ function PlanBar({ data, plan, w0, days, onTick, onEdit }) {
   const colOf = (key) => { const l = lanes.find((x) => laneKey(x) === key); return l ? l.col : '#8A939C'; };
   if (tasks.length || sales.length) lanes.push({ key: 'todo', name: 'To-dos', col: '#8A939C', todo: true });
   const taskBlocks = (ln) => !ln.todo ? [] : [
-    ...sales.map((sl) => { const last = saleLast(sl); return { a: last, b: last, t: `${(plan.doneKeys || {})['last:' + sl.id] ? '✓' : '☐'} Last test launch`, sub: mdLabel(last), task: true, auto: true, edit: true, col: PLAN_COL.sale }; }),
+    // Same done state as the to-do list (ticked by you, or by the app when a test launched in the last few days before it); tap to tick.
+    ...sales.map((sl) => { const last = saleLast(sl), it = planTodos(data, plan).find((x) => x.key === 'last:' + sl.id); return { a: last, b: last, t: `${it && it.done ? '✓' : '☐'} Last test launch`, sub: mdLabel(last), task: true, done: !!(it && it.done), todo: it, col: PLAN_COL.sale }; }),
     ...tasks.map((t) => ({ a: t.start, b: t.end || t.start, t: `${t.done ? '✓' : '☐'} ${t.name || 'To-do'}`, sub: t.end ? `${mdLabel(t.start)} – ${mdLabel(t.end)}` : mdLabel(t.start), task: true, done: t.done, tid: t.id, col: colOf(t.lane) }))];
   const blocks = (ln) => {
     const out = [];
@@ -5186,7 +5187,7 @@ function PlanBar({ data, plan, w0, days, onTick, onEdit }) {
     ${lanes.map((ln) => html`<div class="plg-l"><b><i style=${`background:${ln.col}`}></i>${ln.name}</b><div class="plg-k" style=${`height:${(ln.todo ? 14 : 56) + (() => { const ends = []; blocks(ln).filter((x) => x.task).sort((x, y) => x.a.localeCompare(y.a)).forEach((x) => { const e = R.addDays(x.a, Math.max(R.daysBetween(x.a, x.b) + 2, Math.ceil((String(x.t).length + String(x.sub).length + 3) * 7 / 30) + 1)); const r = ends.findIndex((d) => d <= x.a); if (r < 0) ends.push(e); else ends[r] = e; }); return ends.length * (ln.todo ? 38 : 40); })()}px`}>
       ${weeks.map((d) => html`<span class="plg-g" style=${`left:${pct(d)}%`}></span>`)}
       ${(() => { const bs = blocks(ln); const ends = []; bs.filter((x) => x.task).sort((x, y) => x.a.localeCompare(y.a)).forEach((x) => { const e = R.addDays(x.a, Math.max(R.daysBetween(x.a, x.b) + 2, Math.ceil((String(x.t).length + String(x.sub).length + 3) * 7 / 30) + 1)); let r = ends.findIndex((d) => d <= x.a); if (r < 0) { r = ends.length; ends.push(e); } else ends[r] = e; x.row = r; });
-        ln.h = 56 + ends.length * 40; return bs.length ? bs.map((x) => x.task ? (() => { const L = pct(x.a), Rr = pct(R.addDays(x.b, 1)), flip = L > 70, top = 8 + x.row * 38, c = x.col || ln.col, click = x.tid ? () => onTick && onTick(x.tid) : x.edit ? () => onEdit && onEdit() : null, tip = x.edit ? 'Change it in Edit plan' : x.tid ? 'Tap to tick it off' : '';
+        ln.h = 56 + ends.length * 40; return bs.length ? bs.map((x) => x.task ? (() => { const L = pct(x.a), Rr = pct(R.addDays(x.b, 1)), flip = L > 70, top = 8 + x.row * 38, c = x.col || ln.col, click = x.tid ? () => onTick && onTick(x.tid) : x.todo && !x.todo.byApp ? () => onTickTodo && onTickTodo(x.todo) : x.edit ? () => onEdit && onEdit() : null, tip = x.todo && x.todo.byApp ? 'Ticked by the app: you launched a test in the days before it' : x.edit ? 'Change it in Edit plan' : x.tid || x.todo ? 'Tap to tick it off (change the date in Edit plan)' : '';
           return html`<div class=${'plg-tlab' + (x.done ? ' done' : '')} style=${`top:${top}px;${flip ? `right:calc(${100 - Rr}% + 3px);text-align:right` : `left:${L}%`};color:${c}`} title=${tip} onClick=${click}><b>${x.t}</b> <span>${x.sub}</span></div>
             <div class=${'plg-tbar' + (x.done ? ' done' : '')} style=${`top:${top + 19}px;left:${L}%;width:calc(${Rr - L}% - 3px);background:${c}`} title=${tip} onClick=${click}></div>`; })() : html`<div class=${'plg-b' + (x.task ? ' task' + (x.done ? ' done' : '') : x.solid ? '' : ' est')} style=${`${x.task ? `top:${54 + x.row * 40}px;` : ''}left:${pct(x.a)}%;${x.task ? `min-width:calc(${pct(R.addDays(x.b, 1)) - pct(x.a)}% - 3px);width:max-content;max-width:${100 - pct(x.a)}%` : `width:calc(${pct(R.addDays(x.b, 1)) - pct(x.a)}% - 3px)`};${x.solid ? `background:${ln.col};color:${ln.col === '#4A8CFF' ? '#fff' : '#000'}` : `border-color:${ln.col};color:${ln.col}`}${x.task ? ';cursor:pointer' : ''}`} title=${x.edit ? 'Change it in Edit plan' : x.tid ? 'Tap to tick it off' : `${x.t} · ${mdLabel(x.a)} – ${mdLabel(x.b)}`} onClick=${x.tid ? () => onTick && onTick(x.tid) : x.edit ? () => onEdit && onEdit() : null}><b>${x.t}</b><span>${x.sub}</span></div>`) : html`<span class="tiny muted plg-none">not in the plan</span>`; })()}
       <span class="plg-today" style=${`left:${pct(td) + 50 / days}%`}></span></div></div>`)}
@@ -5223,7 +5224,7 @@ function PlanPage(ctx) {
     <div class="row" style="flex-wrap:wrap;gap:10px"><h1 style="font-size:30px">Plan</h1><span class="small muted">which product gets the test slots, and when</span><span class="spacer"></span><button class="btn" onClick=${() => setModal({ type: PlanTask, props: {} })}>+ Add to-do</button><button class="btn" onClick=${() => setModal({ type: PlanEdit, props: {} })}>Edit plan</button></div>
     ${plan.isDefault && html`<div class="status live small">This is the plan you described: Long Sleeve now, Thermal (3) + Crew (1) Nov 16, Black Friday, Crew Dec 2, then V-Neck once Thermal is stable. Change anything in Edit plan.</div>`}
     <section class="panel"><div class="row"><h2 style="margin:0">Next 6 weeks</h2><span class="spacer"></span><span class="tiny muted">your test slots are shared by all products · dashed = estimated</span></div>
-      <${PlanBar} data=${data} plan=${plan} w0=${w0} days=${days} onTick=${(id) => act((p2) => { const t = p2.steps.find((x) => x.id === id); if (t) { t.done = !t.done; t.doneOn = t.done ? td : null; } }, 'Updated')} onEdit=${() => setModal({ type: PlanEdit, props: {} })} /></section>
+      <${PlanBar} data=${data} plan=${plan} w0=${w0} days=${days} onTickTodo=${(x) => tick(x)} onTick=${(id) => act((p2) => { const t = p2.steps.find((x) => x.id === id); if (t) { t.done = !t.done; t.doneOn = t.done ? td : null; } }, 'Updated')} onEdit=${() => setModal({ type: PlanEdit, props: {} })} /></section>
     <div class="plgrid">
       <div class="stack" style="gap:14px"><h2 style="margin:4px 0 0">Does each product need new ads?</h2>${prods.filter((x) => x.st.nc || x.st.live.length || x.st.next || x.st.now).map(card)}
         ${prods.filter((x) => !(x.st.nc || x.st.live.length || x.st.next || x.st.now)).length > 0 && html`<div class="small muted">Not in the plan: ${prods.filter((x) => !(x.st.nc || x.st.live.length || x.st.next || x.st.now)).map((x) => x.p.name).join(', ')}.</div>`}</div>
