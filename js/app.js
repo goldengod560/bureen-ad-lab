@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=251';
-import * as R from './rules.js?v=251';
-import { importHistory } from './importer.js?v=251';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=251';
+import { createBackend } from './data.js?v=252';
+import * as R from './rules.js?v=252';
+import { importHistory } from './importer.js?v=252';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=252';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2977,7 +2977,7 @@ function StocksGoal(g) {
         ${!tierOn && html`<div class="skprog"><div class="trk"><i style=${`width:${pct.toFixed(1)}%`}></i></div><b class="goal" style=${`left:${(lo / hi * 100).toFixed(1)}%`}></b><span class="lab" style=${`left:${(lo / hi * 100).toFixed(1)}%`}>GOAL ${R.money0(lo)}${actual != null ? ' · ' + Math.round(actual / lo * 100) + '%' : ''}</span>
           <span class="ontrack" style=${`left:${Math.min(99, shouldBe / hi * 100).toFixed(1)}%`}></span><span class="str">STRETCH ${R.money0(hi)}</span></div>
         <div class="row small" style="gap:16px;flex-wrap:wrap;margin-top:-6px"><span><b class="pos">■</b> you · <b>${signMoney(actual)}</b></span><span><b style="color:var(--mid)">┆</b> on track by today · <b>${R.money0(shouldBe)}</b></span><span><b>│</b> goal · <b>${R.money0(lo)}</b></span></div>`}
-        <${GoalLine} days=${daysArr} lo=${lo} hi=${hi} dim=${dimNow} tiers=${tierOn ? TT.tiers.filter((t) => t.n <= TT.cur.n) : null} curN=${tierOn ? TT.cur.n : null} />
+        <${GoalLine} days=${daysArr} lo=${lo} hi=${hi} dim=${dimNow} tiers=${tierOn ? TT.tiers.filter((t) => t.n <= TT.cur.n || showTiers) : null} curN=${tierOn ? TT.cur.n : null} />
         <div class="row small"><b>Every day this month</b><span class="spacer"></span><span class="muted"><i class="skkey g"></i>made ${R.money0(perDayNeed)}+ · <i class="skkey a"></i>made money, under ${R.money0(perDayNeed)} · <i class="skkey r"></i>lost money · empty = to come</span></div>
         <div class="skdays">${daysArr.map((x, i) => html`<div class=${'skday' + (x.v == null ? '' : x.v >= perDayNeed ? ' g' : x.v >= 0 ? ' a' : ' r') + (x.today ? ' today' : '')} title=${x.d}>${x.v == null ? i + 1 : signMoney(x.v)}</div>`)}</div>
         <div class="skstrip" style="border-top:1px solid var(--line);padding-top:12px">${[['Sales', R.money0(s.rev)], ['Ad spend', R.money0(s.spend)], ['Profit', signMoney(actual)], ['MER', s.spend ? R.xroas(s.rev / s.spend) : '—'], ['Orders', Math.round(s.orders || 0)], ['Days with numbers', `${cm.days} of ${dimNow}`]].map(([a, b]) => html`<div><div class="small muted">${a}</div><div class="skv">${b}</div></div>`)}</div>
