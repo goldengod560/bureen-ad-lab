@@ -527,3 +527,16 @@ button.sktarget{display:flex;flex-direction:column;text-align:left;width:100%;cu
 .phladder.tight .phrung{padding:6px 10px;margin:5px 0}.phladder.tight .phrung:before{top:9px}.phladder.tight .phrung .small{font-size:12.5px}
 .phleg{display:flex;flex-direction:column;gap:6px;margin-top:4px}.phleg>div{display:grid;grid-template-columns:12px 1fr 44px 70px;gap:8px;align-items:center;font-size:13px}.phleg>div>i{width:12px;height:12px;border-radius:3px}.phleg b{text-align:right}.phleg>div>span:last-child{text-align:right}.phleg .pf{font-weight:800}.phleg .pf b{color:var(--pass)}
 .phstack i{opacity:1!important}
+/* Phone round 3 */
+.phbar{background:#3a3f47}.phbar>b{background:#fff;opacity:.9}
+.phread{display:flex;gap:6px;align-items:baseline;font-size:13px;margin:2px 0 4px;flex-wrap:wrap}.phread .pos{font-weight:800}
+.phmini .ax{font-size:11px}
+.phnav button svg{width:24px;height:24px;margin-bottom:2px}
+.phplan{display:flex;flex-direction:column;gap:12px}.phplan .row .btn{margin-left:6px}
+.phsale{border-left:3px solid var(--mid);gap:4px}
+.phwkl{font:800 11px var(--body);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:12px 0 2px}.phwkl.late{color:#E5484D}.phlist h2+.phwkl{margin-top:2px}
+.phag{display:flex;align-items:center;gap:12px;padding:9px 0;border-top:1px solid var(--line)}.phwkl+.phag{border-top:0}.phag.done{opacity:.55}
+.phdate{width:42px;flex:none;text-align:center;background:var(--panel2);border-radius:10px;padding:5px 0;display:flex;flex-direction:column;line-height:1.1}.phdate b{font-size:17px}.phdate span{font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase}
+.phdate.today{background:var(--pass);color:#000}.phdate.today span{color:#000}.phdate.late{background:#3a1416;color:#ff8c8f}
+.phagt{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}.phagt b{font-size:14px}
+.phag .pltick{flex:none;width:28px;height:28px}
