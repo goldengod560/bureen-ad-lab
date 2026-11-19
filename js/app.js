@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=248';
-import * as R from './rules.js?v=248';
-import { importHistory } from './importer.js?v=248';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=248';
+import { createBackend } from './data.js?v=249';
+import * as R from './rules.js?v=249';
+import { importHistory } from './importer.js?v=249';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=249';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -4330,7 +4330,7 @@ function Stats(ctx) {
 const GOAL = { profit: 12000, by: '2027-09-30' };
 const STAGES_GOAL = [
   { key: 'q4', name: 'Rebuild', months: 'Now to Dec 2026', from: '2026-10-01', to: '2026-12-31', roas: [3.0, 3.3], spend: [90, 130], margin: 35, profit: [300, 1000],
-    ms: [['mainBE', 'Crew Main back above break-even', 'auto'], ['bench2', '2 tested Crew backups on the Bench', 'auto'], ['bf', 'Get through Black Friday without losing money', 'manual']] },
+    ms: [['mainBE', 'Every Main above break-even', 'auto'], ['bench2', 'A tested backup for every product in Main', 'auto'], ['bf', 'Get through Black Friday without losing money', 'manual']] },
   { key: 'q1', name: 'Grow', months: 'Jan to Mar 2027', from: '2027-01-01', to: '2027-03-31', roas: [3.3, 3.6], spend: [150, 250], margin: 37, profit: [1500, 3000],
     ms: [['ls', 'Long Sleeve in Main', 'auto'], ['mains3', '3 working Crew Mains', 'auto'], ['aov', 'Bigger orders (average order up)', 'manual']] },
   { key: 'q2', name: 'Scale', months: 'Apr to Jun 2027', from: '2027-04-01', to: '2027-06-30', roas: [3.5, 3.9], spend: [250, 400], margin: 39, profit: [3500, 7000],
@@ -4505,9 +4505,14 @@ function Goal(ctx) {
   const aov = s28.orders ? s28.rev / s28.orders : null;
   const checks = st.goalChecks || {}, mp = crew ? mainPlan(data, crew) : null;
   const kindOf = (a) => (products.find((p) => p.id === a.product_id) || {}).kind;
+  // Every product that has an ad in Main: its Main campaign vs its own break-even, and its tested backups on the Bench.
+  const inMain = products.filter((p) => !p.archived && data.ads.some((a) => a.product_id === p.id && a.stage === 'main')).map((p) => {
+    const pl = mainPlan(data, p), pbe = R.econOf(p).opBE;
+    return { p, roas: pl && pl.cur.spend ? pl.cur.roas : null, be: pbe, ok: !!(pl && pl.cur.spend && pbe && pl.cur.roas >= pbe), bench: data.ads.filter((a) => a.product_id === p.id && a.stage === 'bench') };
+  });
   const auto = {
-    mainBE: !!(mp && mp.cur.spend && mp.cur.roas >= be),
-    bench2: data.ads.filter((a) => a.product_id === (crew && crew.id) && a.stage === 'bench').length >= 2,
+    mainBE: inMain.length > 0 && inMain.every((x) => x.ok),
+    bench2: inMain.length > 0 && inMain.every((x) => x.bench.length >= 1),
     ls: data.ads.some((a) => a.stage === 'main' && kindOf(a) === 'long'),
     mains3: crew ? data.ads.filter((a) => a.product_id === crew.id && a.stage === 'main').filter((a) => { const h = mainHealth(a, data, crew); return !h || h.money !== 'below'; }).length >= 3 : false,
     vneck: data.ads.some((a) => a.stage === 'main' && kindOf(a) === 'vneck'),
@@ -4518,12 +4523,10 @@ function Goal(ctx) {
   const shortAd = (a) => String(a.base_name || '').replace(/^(IMG|VID)\s*\|\s*/i, '').split(/\s*\|\s*/).slice(0, 3).join(' | ');
   const pNm = (k) => (products.find((p) => p.kind === k) || {}).name || k;
   const mainsOf = (k) => data.ads.filter((a) => a.stage === 'main' && kindOf(a) === k);
-  const benchBy = products.filter((p) => !p.archived).map((p) => ({ p, ads: data.ads.filter((a) => a.product_id === p.id && a.stage === 'bench') })).filter((x) => x.ads.length);
-  const crewBench = crew ? data.ads.filter((a) => a.product_id === crew.id && a.stage === 'bench') : [];
   const hw = healthWindow(data);
   const autoInfo = {
-    mainBE: mp && mp.cur.spend ? `Crew's Main campaign: ${R.xroas(mp.cur.roas)} ROAS, ${mdLabel(hw.a)}–${mdLabel(hw.end)} · break-even is ${R.xroas(be)}${mp.cur.roas >= be ? '' : ` · needs +${(be - mp.cur.roas).toFixed(2)}x`}` : 'No Crew Main numbers in the last 7 days. Upload your Meta file.',
-    bench2: `Crew has ${crewBench.length}${crewBench.length ? ': ' + crewBench.map(shortAd).join(', ') : ''}${crewBench.length < 2 ? ` · ${2 - crewBench.length} more to go` : ''}${benchBy.filter((x) => !crew || x.p.id !== crew.id).length ? ` · other backups (don't count for Crew): ${benchBy.filter((x) => !crew || x.p.id !== crew.id).map((x) => `${x.p.name} ${x.ads.length}`).join(', ')}` : ''}`,
+    mainBE: !inMain.length ? 'No product has an ad in Main yet' : (hw ? `${mdLabel(hw.a)}–${mdLabel(hw.end)}: ` : '') + inMain.map((x) => `${x.p.name} ${x.roas == null ? 'no numbers' : !x.be ? 'set costs in Rules' : `${R.xroas(x.roas)} of ${R.xroas(x.be)} ${x.ok ? '✓' : '✗'}`}`).join(' · '),
+    bench2: !inMain.length ? 'No product has an ad in Main yet' : inMain.map((x) => `${x.p.name} ${x.bench.length} ${x.bench.length ? '✓' : '✗'}${x.bench.length ? ` (${x.bench.map(shortAd).join(', ')})` : ''}`).join(' · '),
     ls: mainsOf('long').length ? `In Main: ${mainsOf('long').map(shortAd).join(', ')}` : `No ${pNm('long')} ad in Main yet`,
     mains3: crew ? `${data.ads.filter((a) => a.product_id === crew.id && a.stage === 'main').length} Crew ads in Main · working = not losing money` : '',
     vneck: mainsOf('vneck').length ? `In Main: ${mainsOf('vneck').map(shortAd).join(', ')}` : `No ${pNm('vneck')} ad in Main yet`,
