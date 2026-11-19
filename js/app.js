@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=247';
-import * as R from './rules.js?v=247';
-import { importHistory } from './importer.js?v=247';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=247';
+import { createBackend } from './data.js?v=248';
+import * as R from './rules.js?v=248';
+import { importHistory } from './importer.js?v=248';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=248';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2856,7 +2856,7 @@ function TierWatcher({ data, setView }) {
 
 // =================== Stocks look: Goals ===================
 function StocksGoal(g) {
-  const { data, products, cm, dm, months, periods, st, stage, msDone, auto, setModal, curYm, dimNow, elapsed, classicBody, crew, be, reload, say, toggleCheck } = g;
+  const { data, products, cm, dm, months, periods, st, stage, msDone, auto, setModal, curYm, dimNow, elapsed, classicBody, crew, be, reload, say, toggleCheck, autoInfo = {} } = g;
   const [tab, setTab0] = useState(() => lsGet('adlab-sk-gtab', 'month'));
   const setTab = (k) => { setTab0(k); lsSet('adlab-sk-gtab', k); };
   const [tset, setTset] = useState('month');
@@ -2991,7 +2991,7 @@ function StocksGoal(g) {
       <section class="panel sklong"><h2>The long game · $12k/month by Sep 2027</h2>
         ${STAGES_GOAL.map((x, i) => x === stage ? html`<div class="sklst on"><div class="row"><b>${x.name}</b><span class="spacer"></span><span class="tiny muted">${x.months} · ${R.money0(x.profit[0])}–${R.money0(x.profit[1])}/mo</span></div>
             ${STAGES_GOAL[i + 1] && html`<div class="tiny" style="font-weight:800;margin:8px 0 2px">To unlock ${STAGES_GOAL[i + 1].name} · ${msDone.filter(Boolean).length} of ${msDone.length}</div>`}
-            ${x.ms.map(([k, l, how], j) => html`<div class="skck"><button class=${'pltick' + (msDone[j] ? ' on' : '')} disabled=${how === 'auto'} title=${how === 'auto' ? 'The app ticks this' : msDone[j] ? 'Untick' : 'Tick it off'} onClick=${() => how !== 'auto' && toggleCheck && toggleCheck(k)}>${msDone[j] ? '✓' : ''}</button><span><b>${l}</b><br/><span class="tiny muted">${how === 'auto' ? 'the app ticks this' : 'you tick this'}</span></span></div>`)}</div>`
+            ${x.ms.map(([k, l, how], j) => html`<div class="skck"><button class=${'pltick' + (msDone[j] ? ' on' : '')} disabled=${how === 'auto'} title=${how === 'auto' ? 'The app ticks this' : msDone[j] ? 'Untick' : 'Tick it off'} onClick=${() => how !== 'auto' && toggleCheck && toggleCheck(k)}>${msDone[j] ? '✓' : ''}</button><span><b>${l}</b><br/><span class="tiny muted">${autoInfo[k] ? autoInfo[k] + ' · ' : ''}${how === 'auto' ? 'the app ticks this' : 'you tick this'}</span></span></div>`)}</div>`
           : html`<div class="sklst"><b>${x.name}${i > stIdx ? ' 🔒' : ' ✓'}</b><span class="tiny muted">${x.months} · ${R.money0(x.profit[0])}–${R.money0(x.profit[1])}</span></div>`)}</section>
       <section class="panel sknums"><div class="row"><h2>Numbers you've entered</h2><span class="spacer"></span><button class="link small" onClick=${() => setModal({ type: PeriodForm, props: {} })}>+ Add numbers</button></div><div class="tiny muted">Profit here comes from these. Add a week, a month or custom dates.</div>
         ${periods.length ? periods.slice().reverse().slice(0, 8).map((x) => { const pr = periodProfit(x, st); return html`<div class="li small"><b style="width:110px">${x.from === x.to ? mdLabel(x.from) : `${mdLabel(x.from)} to ${mdLabel(x.to)}`}</b><span class="grow muted">${x.revType === 'net' ? 'Shopify' : 'Triple Whale'}${x.costFinal ? ' · final Sada bill' : ''}</span><b class=${pr.value >= 0 ? 'pos' : 'neg'}>${signMoney(pr.value)}</b><button class="link small" onClick=${() => setModal({ type: PeriodForm, props: { id: x.id } })}>Edit</button></div>`; }) : html`<div class="empty">No numbers yet.</div>`}
@@ -4330,7 +4330,7 @@ function Stats(ctx) {
 const GOAL = { profit: 12000, by: '2027-09-30' };
 const STAGES_GOAL = [
   { key: 'q4', name: 'Rebuild', months: 'Now to Dec 2026', from: '2026-10-01', to: '2026-12-31', roas: [3.0, 3.3], spend: [90, 130], margin: 35, profit: [300, 1000],
-    ms: [['mainBE', 'Main back above break-even', 'auto'], ['bench2', '2 tested backups on the Bench', 'auto'], ['bf', 'Get through Black Friday without losing money', 'manual']] },
+    ms: [['mainBE', 'Crew Main back above break-even', 'auto'], ['bench2', '2 tested Crew backups on the Bench', 'auto'], ['bf', 'Get through Black Friday without losing money', 'manual']] },
   { key: 'q1', name: 'Grow', months: 'Jan to Mar 2027', from: '2027-01-01', to: '2027-03-31', roas: [3.3, 3.6], spend: [150, 250], margin: 37, profit: [1500, 3000],
     ms: [['ls', 'Long Sleeve in Main', 'auto'], ['mains3', '3 working Crew Mains', 'auto'], ['aov', 'Bigger orders (average order up)', 'manual']] },
   { key: 'q2', name: 'Scale', months: 'Apr to Jun 2027', from: '2027-04-01', to: '2027-06-30', roas: [3.5, 3.9], spend: [250, 400], margin: 39, profit: [3500, 7000],
@@ -4514,6 +4514,22 @@ function Goal(ctx) {
     tank: data.ads.some((a) => a.stage === 'main' && kindOf(a) === 'tank'),
   };
   const msDone = stage.ms.map(([k, , how]) => (how === 'auto' ? auto[k] : !!checks[k]));
+  // What each check is looking at, in plain words, so you can see why it is or isn't ticked.
+  const shortAd = (a) => String(a.base_name || '').replace(/^(IMG|VID)\s*\|\s*/i, '').split(/\s*\|\s*/).slice(0, 3).join(' | ');
+  const pNm = (k) => (products.find((p) => p.kind === k) || {}).name || k;
+  const mainsOf = (k) => data.ads.filter((a) => a.stage === 'main' && kindOf(a) === k);
+  const benchBy = products.filter((p) => !p.archived).map((p) => ({ p, ads: data.ads.filter((a) => a.product_id === p.id && a.stage === 'bench') })).filter((x) => x.ads.length);
+  const crewBench = crew ? data.ads.filter((a) => a.product_id === crew.id && a.stage === 'bench') : [];
+  const hw = healthWindow(data);
+  const autoInfo = {
+    mainBE: mp && mp.cur.spend ? `Crew's Main campaign: ${R.xroas(mp.cur.roas)} ROAS, ${mdLabel(hw.a)}–${mdLabel(hw.end)} · break-even is ${R.xroas(be)}${mp.cur.roas >= be ? '' : ` · needs +${(be - mp.cur.roas).toFixed(2)}x`}` : 'No Crew Main numbers in the last 7 days. Upload your Meta file.',
+    bench2: `Crew has ${crewBench.length}${crewBench.length ? ': ' + crewBench.map(shortAd).join(', ') : ''}${crewBench.length < 2 ? ` · ${2 - crewBench.length} more to go` : ''}${benchBy.filter((x) => !crew || x.p.id !== crew.id).length ? ` · other backups (don't count for Crew): ${benchBy.filter((x) => !crew || x.p.id !== crew.id).map((x) => `${x.p.name} ${x.ads.length}`).join(', ')}` : ''}`,
+    ls: mainsOf('long').length ? `In Main: ${mainsOf('long').map(shortAd).join(', ')}` : `No ${pNm('long')} ad in Main yet`,
+    mains3: crew ? `${data.ads.filter((a) => a.product_id === crew.id && a.stage === 'main').length} Crew ads in Main · working = not losing money` : '',
+    vneck: mainsOf('vneck').length ? `In Main: ${mainsOf('vneck').map(shortAd).join(', ')}` : `No ${pNm('vneck')} ad in Main yet`,
+    tank: mainsOf('tank').length ? `In Main: ${mainsOf('tank').map(shortAd).join(', ')}` : `No ${pNm('tank')} ad in Main yet`,
+    bf: `Sale runs ${mdLabel(BF_DAY)}–Dec 1 · tick it after if the sale made money`,
+  };
   const stageOk = mer != null && mer >= stage.roas[0] && spendDay >= stage.spend[0] && (margin == null || margin >= stage.margin) && msDone.every(Boolean);
   const nextStage = STAGES_GOAL[STAGES_GOAL.indexOf(stage) + 1];
   const toggleCheck = async (k) => { const next = { ...st, goalChecks: { ...checks, [k]: !checks[k] } }; await be_.saveStore(next); R.setStoreEcon(next); await reload(); };
@@ -4603,7 +4619,7 @@ function Goal(ctx) {
           </div>
         </div></div>`}
     </section>`;
-  if (LOOK === 'stocks') return html`<${StocksGoal} data=${data} products=${products} cm=${cm} dm=${dm} months=${months} periods=${periods} st=${st} stage=${stage} msDone=${msDone} auto=${auto} setModal=${setModal} curYm=${curYm} dimNow=${dimNow} elapsed=${elapsed} classicBody=${classicBody} crew=${crew} be=${be} reload=${reload} say=${say} toggleCheck=${toggleCheck} />`;
+  if (LOOK === 'stocks') return html`<${StocksGoal} data=${data} products=${products} cm=${cm} dm=${dm} months=${months} periods=${periods} st=${st} stage=${stage} msDone=${msDone} auto=${auto} setModal=${setModal} curYm=${curYm} dimNow=${dimNow} elapsed=${elapsed} classicBody=${classicBody} crew=${crew} be=${be} reload=${reload} say=${say} toggleCheck=${toggleCheck} autoInfo=${autoInfo} />`;
   return classicBody;
 }
 // Add numbers for any dates: this week, last week, a month or custom.
