@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=254';
-import * as R from './rules.js?v=254';
-import { importHistory } from './importer.js?v=254';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=254';
+import { createBackend } from './data.js?v=255';
+import * as R from './rules.js?v=255';
+import { importHistory } from './importer.js?v=255';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=255';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -90,7 +90,8 @@ function App() {
   const [pid, setPid] = useState(() => { try { return localStorage.getItem('adlab-pid'); } catch (e) { return null; } });
   // Remember the page, so a refresh stays where you were.
   const [view, setViewRaw] = useState(() => { const v = lsGet('adlab-view', 'board'); return ['today', 'board', 'plan', 'archive', 'goal', 'records', 'stats', 'angles', 'rules', 'learn', 'more'].includes(v) ? v : 'board'; });
-  const setView = (v) => { setViewRaw(v); lsSet('adlab-view', v); };
+  const setView = (v) => { setViewRaw(v); lsSet('adlab-view', v); try { window.scrollTo(0, 0); } catch (e) {} };
+  const phoneW = useNarrow(700);
   const [look, setLookRaw] = useState(LOOK);
   const setLook = (v) => { LOOK = v; setLookRaw(v); lsSet('adlab-look', v); };
   useEffect(() => { applyLook(look); }, [look]);
@@ -162,9 +163,11 @@ function App() {
   const product = products.find((p) => p.id === pid) || products[0];
   LOOK = look;
   const ctx = { data, product, products, reload, say, setModal, setLightbox, busy, setBusy, setView, look, setLook };
+  const isPhoneNow = phoneW;
 
   const activeStage1 = { length: testingCount(data) };
   const rules0 = R.rulesOf(product);
+  const phone = look === 'stocks' && isPhoneNow;
   const NAV = [['today', 'Overview'], ['board', 'Board'], ['plan', 'Plan'], ['archive', 'Archive'], ['goal', 'Goal'], ['stats', 'Stats'], ['angles', 'Angles'], ['rules', 'Rules'], ['learn', 'Learnings'], ['more', 'More']];
 
   return html`
@@ -179,19 +182,19 @@ function App() {
           <span class=${'mono' + (activeStage1.length > rules0.slots ? ' over' : '')} title=${activeStage1.length > rules0.slots ? `${activeStage1.length - rules0.slots} over your ${rules0.slots} slots` : ''}>${activeStage1.length}/${rules0.slots}</span></span>
       </div>
     </header>
-    ${look === 'stocks' && html`<${Ticker} data=${data} />`}
+    ${look === 'stocks' && !phone && html`<${Ticker} data=${data} />`}
     ${look === 'stocks' && html`<${TrophyWatcher} data=${data} setView=${setView} />`}
     <${RecordWatcher} data=${data} setView=${setView} />
     <${TierWatcher} data=${data} setView=${setView} />
     <main class="wrap">
       ${data.missingTables && data.missingTables.length > 0 && html`<div class="banner"><b>One setup step left.</b> Stats needs two new database tables. In Supabase, open SQL Editor, paste <code>schema.sql</code> from the repo and press Run.</div>`}
       ${R.isWeekendLock() && html`<div class="banner"><b>Weekend lock.</b> Your rule: no new ads, reactivations or budget changes Friday night through Sunday.</div>`}
-      ${['board', 'archive', 'angles', 'rules', 'learn'].includes(view) && html`<${ProductTabs} ...${ctx} setPid=${setPid} />`}
-      ${view === 'board' && html`<${Board} key=${product.id} ...${ctx} stage=${stage} setStage=${setStage} />`}
+      ${['board', 'archive', 'angles', 'rules', 'learn'].includes(view) && !(phone && view === 'board') && html`<${ProductTabs} ...${ctx} setPid=${setPid} />`}
+      ${view === 'board' && (phone ? html`<${PhoneAds} ...${ctx} />` : html`<${Board} key=${product.id} ...${ctx} stage=${stage} setStage=${setStage} />`)}
       ${view === 'archive' && html`<${Archive} key=${product.id} ...${ctx} />`}
-      ${view === 'today' && html`<${TodoCheckins} data=${data} reload=${reload} say=${say} compact=${true} />`}
-      ${view === 'today' && html`<${PlanStrip} data=${data} setView=${setView} />`}
-      ${view === 'today' && html`<${CloseCalls} data=${data} setView=${setView} />`}
+      ${view === 'today' && !phone && html`<${TodoCheckins} data=${data} reload=${reload} say=${say} compact=${true} />`}
+      ${view === 'today' && !phone && html`<${PlanStrip} data=${data} setView=${setView} />`}
+      ${view === 'today' && !phone && html`<${CloseCalls} data=${data} setView=${setView} />`}
       ${view === 'today' && html`<${Today} ...${ctx} setPid=${setPid} />`}
       ${view === 'plan' && html`<${PlanPage} ...${ctx} />`}
       ${view === 'stats' && html`<${Stats} ...${ctx} />`}
@@ -200,9 +203,11 @@ function App() {
       ${view === 'learn' && html`<${Learn} ...${ctx} />`}
       ${view === 'goal' && html`<${Goal} ...${ctx} setPid=${setPid} />`}
       ${view === 'records' && html`<${RecordsPage} data=${data} setModal=${setModal} />`}
-      ${view === 'more' && html`<${More} ...${ctx} />`}
+      ${view === 'more' && (phone ? html`<${PhoneMore} ...${ctx} />` : html`<${More} ...${ctx} />`)}
     </main>
-    <nav class="bnav" aria-label="Main">${[['today', 'Overview'], ['board', 'Board'], ['archive', 'Archive'], ['goal', 'Goal'], ['stats', 'Stats'], ['more', 'More']].map(([k, l]) => html`<button class=${view === k || (k === 'more' && (view === 'learn' || view === 'rules' || view === 'angles' || view === 'plan')) ? 'on' : ''} onClick=${() => setView(k)}>${navName(k, l)}</button>`)}</nav>
+    ${phone && ['today', 'board', 'goal'].includes(view) && html`<${PhoneFab} data=${data} setModal=${setModal} setView=${setView} />`}
+    ${phone ? html`<nav class="bnav phnav" aria-label="Main">${[['today', 'Home', '⌂'], ['board', 'Ads', '▦'], ['goal', 'Goals', '◎'], ['plan', 'Plan', '☰'], ['more', 'More', '⋯']].map(([k, l, ic]) => html`<button class=${(k === 'goal' ? ['goal', 'records'].includes(view) : k === 'more' ? ['more', 'stats', 'archive', 'learn', 'rules', 'angles'].includes(view) : view === k) ? 'on' : ''} onClick=${() => setView(k)}><span>${ic}</span>${l}</button>`)}</nav>`
+    : html`<nav class="bnav" aria-label="Main">${[['today', 'Overview'], ['board', 'Board'], ['archive', 'Archive'], ['goal', 'Goal'], ['stats', 'Stats'], ['more', 'More']].map(([k, l]) => html`<button class=${view === k || (k === 'more' && (view === 'learn' || view === 'rules' || view === 'angles' || view === 'plan')) ? 'on' : ''} onClick=${() => setView(k)}>${navName(k, l)}</button>`)}</nav>`}
     ${modal && html`<${modal.type} ...${ctx} ...${modal.props} close=${() => setModal(null)} />`}
     <${Lightbox} item=${lightbox} onClose=${() => setLightbox(null)} />
     <${Toast} msg=${toast} />`;
@@ -1890,10 +1895,101 @@ function Spark({ vals, be }) {
   return html`<svg width=${w} height=${h} aria-hidden="true"><polyline points=${pts} fill="none" stroke=${up ? 'var(--pass)' : 'var(--fail)'} stroke-width="2" /></svg>`;
 }
 const roasPill = (v) => html`<span class=${'skpill ' + (v == null ? 'q' : v >= 2.85 ? 'g' : v >= 2 ? 'a' : 'r')}>${v == null ? 'queued' : v ? R.xroas(v) : '0 buys'}</span>`;
+// This month against the goal and tiers, from the days you've entered in Goals (same numbers as the Goals page).
+function monthGoalNow(data, day, gLo, gHi, products) {
+  const crewP = products.find((x) => x.kind === 'crew') || products[0];
+  const mStart = day.slice(0, 8) + '01', econ = R.econOf(crewP), ym = mStart.slice(0, 7), mEnd = monthEnd(ym), dimM = R.daysBetween(mStart, mEnd) + 1, yd2 = R.addDays(R.today(), -1);
+  if (!goalCE && crewP) goalCE = R.econOf(crewP);
+  const dmG = dayMap(goalPeriods(data), R.storeEcon());
+  const days = Array.from({ length: dimM }, (_, i) => { const d = R.addDays(mStart, i), v = d <= yd2 ? dmG.get(d) : null; return { d, v: v ? v.profit : null }; });
+  const T = goalTiers(gLo, gHi, days); if (T.actual == null) return null;
+  const goal = T.on ? T.cur.amt : gHi, gotDays = days.filter((x) => x.v != null).length, passed = Math.min(dimM, R.daysBetween(mStart, yd2) + 1), leftD = Math.max(1, dimM - passed);
+  const needD = Math.max(0, (goal - T.actual) / leftD), avgD = T.actual / Math.max(1, gotDays), onTr = goal * passed / dimM, ahead2 = T.actual - onTr;
+  const missing = days.filter((x) => x.d <= yd2 && x.v == null).map((x) => x.d), est = missing.reduce((t, d) => t + (dayProfit(data, d, econ) || 0), 0);
+  const cleared = T.tiers.filter((t) => t.i != null && t.amt < goal);
+  return { T, ym, days, goal, passed, dimM, needD, avgD, ahead2, missing, est, cleared, gLo, gHi };
+}
+
+// A small version of the Goals chart for the phone: your total, the goal you're chasing as a flat line, and where this pace ends.
+function MiniGoalChart({ ms }) {
+  const [box, W] = useWidth(); const H = 112, P = 4;
+  let c = 0; const cum = ms.days.map((d) => (d.v == null ? null : (c += d.v)));
+  const lastI = cum.reduce((m, v, i) => (v != null ? i : m), -1); if (lastI < 0) return null;
+  const dim = ms.days.length, endAt = cum[lastI] / (lastI + 1) * dim;
+  const done = ms.T.tiers.filter((t) => t.i != null && t.amt < ms.goal).slice(-1);
+  const max = Math.max(ms.goal, endAt, ...cum.filter((v) => v != null)) * 1.12, min = Math.min(0, ...cum.filter((v) => v != null));
+  const x = (i) => P + i * (W - 2 * P) / Math.max(1, dim - 1), y = (v) => 14 + (H - 20) * (1 - (v - min) / (max - min || 1));
+  const pts = cum.slice(0, lastI + 1).map((v, i) => `${x(i)},${y(v)}`).join(' ');
+  const tgt = ms.T.on ? ms.T.cur : { name: ms.T.tiers[0].i == null ? 'Goal' : 'Stretch', amt: ms.goal };
+  return html`<div ref=${box} class="phmini"><svg width=${W} height=${H} style=${`height:${H}px`}>
+    <polygon points=${`${x(0)},${y(0)} ${pts} ${x(lastI)},${y(0)}`} fill="var(--pass)" fill-opacity=".13" />
+    ${done.map((t) => html`<line x1=${P} x2=${W - P} y1=${y(t.amt)} y2=${y(t.amt)} stroke=${t.n === 2 ? 'var(--mid)' : t.n === 1 ? '#fff' : 'var(--tier)'} stroke-opacity=".4" stroke-dasharray="4 4" /><text x=${W - P - 2} y=${y(t.amt) + 12} text-anchor="end" class="ax" style=${`fill:${t.n === 2 ? 'var(--mid)' : t.n === 1 ? '#fff' : 'var(--tier)'};opacity:.7;font-weight:700`}>${t.name} ✓</text>`)}
+    <line x1=${P} x2=${W - P} y1=${y(ms.goal)} y2=${y(ms.goal)} stroke="var(--tier)" stroke-width="1.5" stroke-dasharray="8 4" /><text x=${P + 2} y=${y(ms.goal) - 5} class="ax" style="fill:var(--tier);font-weight:700">${tgt.name} · ${R.money0(ms.goal)}</text>
+    <line x1=${x(lastI)} y1=${y(cum[lastI])} x2=${x(dim - 1)} y2=${y(endAt)} stroke="var(--pass)" stroke-width="2.5" stroke-dasharray="1 6" stroke-linecap="round" />
+    <polyline points=${pts} fill="none" stroke="var(--pass)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" />
+    <circle cx=${x(lastI)} cy=${y(cum[lastI])} r="4.5" fill="var(--pass)" /></svg></div>`;
+}
+
+// The phone's + button: things you add on the go. (No Meta upload here; that's a computer job.)
+function PhoneFab({ data, setModal, setView }) {
+  const [open, setOpen] = useState(false);
+  const yd = R.addDays(R.today(), -1), have = enteredDays(data);
+  const miss = have.has(yd) ? null : yd;
+  const go = (f) => { setOpen(false); f(); };
+  return html`<button class="phfab" aria-label="Add" onClick=${() => setOpen(true)}>+</button>
+    ${open && html`<div class="phsheetbg" onClick=${() => setOpen(false)}><div class="phsheet" onClick=${(e) => e.stopPropagation()}><div class="phgrab"></div><h2>Add</h2>
+      <button class="phli" onClick=${() => go(() => setModal({ type: PeriodForm, props: miss ? { from: miss, to: miss } : {} }))}><span class="phic">$</span><span><b>Add numbers</b><span class="tiny muted">${miss ? `${R.parseDay(miss).toLocaleDateString('en-US', { weekday: 'short' })} ${mdLabel(miss)} isn't in Goals yet` : 'A day, a week or a month'}</span></span></button>
+      <button class="phli" onClick=${() => go(() => setView('learn'))}><span class="phic">✎</span><span><b>Log a change</b><span class="tiny muted">Budget, paused an ad, site or offer change…</span></span></button>
+      <button class="phli" onClick=${() => go(() => setModal({ type: AdForm, props: { mode: 'new' } }))}><span class="phic">＋</span><span><b>New ad idea</b><span class="tiny muted">Add a photo from your camera or gallery</span></span></button>
+      <button class="phli" onClick=${() => go(() => setView('plan'))}><span class="phic">☐</span><span><b>Add a to-do</b><span class="tiny muted">On your Plan</span></span></button>
+    </div></div>`}`;
+}
+
+// Phone Ads tab: one watchlist, with Main · Testing · Bench · Up next · Ideas.
+const PH_STAGES = [['main', 'Main'], ['testing', 'Testing'], ['bench', 'Bench'], ['next', 'Up next'], ['ideas', 'Ideas']];
+function PhoneAds({ data, products, setModal }) {
+  const [stg, setStg0] = useState(() => lsGet('adlab-ph-stage', 'main')), [pf, setPf0] = useState(() => lsGet('adlab-ph-prod', 'all'));
+  const setStg = (k) => { setStg0(k); lsSet('adlab-ph-stage', k); }, setPf = (k) => { setPf0(k); lsSet('adlab-ph-prod', k); };
+  const last = lastMetaDay(data) || R.addDays(R.today(), -1);
+  const pOf = (a) => products.find((x) => x.id === a.product_id) || {};
+  const ads = data.ads.filter((a) => (pf === 'all' || a.product_id === pf) && products.some((x) => x.id === a.product_id));
+  const cnt = (k) => ads.filter((a) => a.stage === k).length;
+  const r7 = (a) => { const t = sumRows(rowsForAd(a, data.meta_days).filter((r) => r.day > R.addDays(last, -7) && r.day <= last)); return t.spend ? { roas: t.revenue / t.spend, spend: t.spend, buys: t.purchases } : null; };
+  const list = ads.filter((a) => a.stage === stg).map((a) => ({ a, t: ['main', 'testing'].includes(stg) ? r7(a) : null }))
+    .sort((x, y) => (y.t ? y.t.roas : -1) - (x.t ? x.t.roas : -1));
+  const nm = (a) => displayName(a).replace(/^(IMG|VID|Image|Video)\s*[|–-]\s*/i, '').replace(/\s*\|\s*V\d+$/i, '');
+  return html`<div class="phads">
+    <div class="row"><h1 style="font-size:26px;margin:0">Ads</h1><span class="spacer"></span><button class="btn sm" onClick=${() => setModal({ type: AdForm, props: { mode: 'new' } })}>+ New ad</button></div>
+    <div class="phchips">${[['all', 'All products'], ...products.map((x) => [x.id, x.name])].map(([k, l]) => html`<button class=${pf === k ? 'on' : ''} onClick=${() => setPf(k)}>${l}</button>`)}</div>
+    <div class="phseg">${PH_STAGES.map(([k, l]) => html`<button class=${stg === k ? 'on' : ''} onClick=${() => setStg(k)}>${l}<i>${cnt(k)}</i></button>`)}</div>
+    ${['main', 'testing'].includes(stg) && html`<div class="row tiny muted" style="margin:2px 2px 0"><span>ROAS · last 7 days</span></div>`}
+    <section class="panel phlist">${list.length ? list.map(({ a, t }) => html`<button class="phad" onClick=${() => setModal({ type: AdDetail, props: { adId: a.id } })}>
+        <${Media} path=${a.media_path} type=${a.media_type} poster=${a.tags && a.tags.poster} cls="sm" />
+        <span class="phadn"><b>${nm(a)}</b><span class="tiny muted"><i class=${'tdot k-' + pOf(a).kind}></i> ${pOf(a).name}${t ? ` · ${R.money0(t.spend)} · ${Math.round(t.buys)} buys` : ''}</span></span>
+        ${['main', 'testing'].includes(stg) ? html`<${Spark} vals=${adDaily(a, data)} be=${R.econOf(pOf(a)).opBE || 2.85} />${roasPill(t ? t.roas : null)}` : html`<span class="muted">›</span>`}</button>`)
+      : html`<div class="empty">No ${PH_STAGES.find((x) => x[0] === stg)[1].toLowerCase()} ads${pf !== 'all' ? ' for this product' : ''}.</div>`}</section>
+  </div>`;
+}
+
+// Phone More tab: everything that isn't in the bottom bar.
+function PhoneMore(ctx) {
+  const { setView } = ctx;
+  const goal = (t) => { lsSet('adlab-sk-gtab', t); setView('goal'); };
+  const items = [['▥', 'Stats', 'Month by month, sales and profit', () => setView('stats')], ['★', 'Records', 'Your best days, weeks and months', () => setView('records')],
+    ['🏆', 'Trophy room', 'Trophies and your level', () => goal('room')], ['▦', 'Calendar', 'Every day you entered', () => goal('calendar')], ['⛳', 'Milestones', 'The long game and its checks', () => goal('milestones')],
+    ['⌛', 'History', 'Every ad you ran, by result', () => setView('archive')], ['✎', 'Journal', 'Learnings, changes and decisions', () => setView('learn')], ['⚙', 'Rules', 'Testing rules, break-even and costs', () => setView('rules')]];
+  return html`<div class="phmore"><h1 style="font-size:26px;margin:0 0 10px">More</h1>
+    <section class="panel phlist">${items.map(([ic, t, d, f]) => html`<button class="phli" onClick=${f}><span class="phic">${ic}</span><span><b>${t}</b><span class="tiny muted">${d}</span></span><span class="spacer"></span><span class="muted">›</span></button>`)}</section>
+    <div class="sklbl" style="margin:18px 2px 8px">Settings and data</div>
+    <div class="phmoreset"><${More} ...${ctx} /></div></div>`;
+}
+
 function StocksOverview(p) {
   const { data, products, setModal, cur, prv, day, dayLbl, mt, gLo, gHi, dim, elapsed, todo, heads, liveRows, wk, ready, drop, green, known, budget, bev, VERB } = p;
   const [rng, setRng] = useState(() => lsGet('adlab-sk-range2', 'MTD'));
   const [newsAll, setNewsAll] = useState(false), [tradesAll, setTradesAll] = useState(false);
+  const phone = useNarrow(700);
+  const monthNow = useMemo(() => monthGoalNow(data, day, gLo, gHi, products), [data, day, gLo, gHi]);
   const econ = R.econOf(products.find((x) => x.kind === 'crew') || products[0]);
   const all = useMemo(() => {
     // Every day with Shopify numbers or with numbers you entered on Goals, so older months count too.
@@ -1944,6 +2040,28 @@ function StocksOverview(p) {
       <span class="grow"><span class="row" style="gap:8px;flex-wrap:wrap"><b>${it.title}</b>${sg && html`<${SigChip} s=${sg} inline />`}</span><span class="small muted">${it.sub}</span>
         <span class="row" style="gap:8px;margin-top:8px"><button class=${'btn sm ' + (it.tone === 'red' ? 'danger' : 'primary')} onClick=${it.go}>${VERB[it.tag] || 'Open'}</button>${it.ad && VERB[it.tag] !== 'Open ad' && html`<button class="btn sm" onClick=${() => setModal({ type: AdDetail, props: { adId: it.ad.id } })}>Open ad</button>`}</span></span></div>`; };
   const newsShown = newsAll ? heads : heads.slice(0, 4);
+  if (phone) {
+    const ms = monthNow, nowD = R.parseDay(R.today());
+    const synced = data.shop_days.reduce((m, r) => (r.synced_at && r.synced_at > m ? r.synced_at : m), '');
+    const goGoals = () => { lsSet('adlab-sk-gtab', 'month'); p.setView('goal'); };
+    const prow = (it) => html`<button class="phad" onClick=${it.go}>${it.ad ? html`<${Media} path=${it.ad.media_path} type=${it.ad.media_type} poster=${it.ad.tags && it.ad.tags.poster} cls="sm" />` : html`<span class="phic">⇪</span>`}
+      <span class="phadn"><b>${it.title}</b><span class="tiny muted phclamp">${it.sub}</span></span>${it.ad ? html`<${SigChip} s=${adSignal(it.ad, data)} inline />` : html`<span class="muted">›</span>`}</button>`;
+    const kp = [['Profit ' + dayLbl, signMoney(cur.profit), cur.profit == null ? '' : cur.profit >= 0 ? 'pos' : 'neg'], ['Sales ' + dayLbl, cur.hasShop ? R.money0(cur.revenue) : '—', ''], ['MER', R.xroas(cur.mer), cur.mer != null && bev.roas ? (cur.mer >= bev.roas ? 'pos' : 'neg') : '']];
+    const mains = byBest(liveRows.filter((r) => r.kind !== 'TEST')), tests = byBest(liveRows.filter((r) => r.kind === 'TEST'));
+    return html`<div class="phhome">
+      <div class="row phhead"><div><div class="tiny muted">${nowD.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</div><div class="phhi">Hey Yasin</div></div><span class="spacer"></span>${synced && html`<span class="phpill">Synced ${new Date(synced).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>`}</div>
+      ${ms && html`<button class="panel phmonth" onClick=${goGoals}>
+        <div class="row" style="align-items:flex-start"><div><div class="tiny muted">Profit this month</div><div class="phbig">${signMoney(ms.T.actual)}</div>${cur.profit != null && html`<div class=${'small ' + (cur.profit >= 0 ? 'pos' : 'neg')}>${cur.profit >= 0 ? '+' : '−'}${R.money0(Math.abs(cur.profit))} ${dayLbl}</div>`}</div><span class="spacer"></span>
+          <span class="tierbadge">${ms.T.on ? ms.T.cur.name.toUpperCase() + ' · ' : ''}${R.money0(Math.max(0, ms.goal - ms.T.actual))} to go</span></div>
+        <${MiniGoalChart} ms=${ms} />
+        <div class="tiny muted">need <b style="color:var(--mid)">${R.money0(ms.needD)}/day</b> · averaging <b class="pos">${R.money0(ms.avgD)}/day</b>${ms.missing.length ? ` · ${mdLabel(ms.missing[ms.missing.length - 1])} not entered yet` : ''}</div></button>`}
+      <div class="phkpis">${kp.map(([a, b, c]) => html`<div class="panel"><span class="tiny muted">${a}</span><b class=${c}>${b}</b></div>`)}</div>
+      <${TodoCheckins} data=${data} reload=${p.reload} say=${p.say} compact=${true} />
+      ${todo.length > 0 && html`<section class="panel phlist"><div class="row"><h2>Needs you · ${todo.length}</h2></div>${(tradesAll ? todo : todo.slice(0, 4)).map(prow)}${todo.length > 4 && html`<button class="link small" style="align-self:flex-start;margin-top:6px" onClick=${() => setTradesAll(!tradesAll)}>${tradesAll ? 'Show less' : `Show ${todo.length - 4} more`}</button>`}</section>`}
+      ${mains.length > 0 && html`<section class="panel phlist"><div class="row"><h2>Main · last 7 days</h2><span class="spacer"></span><button class="link small" onClick=${() => { lsSet('adlab-ph-stage', 'main'); p.setView('board'); }}>All ›</button></div>${mains.map(wrow)}</section>`}
+      ${tests.length > 0 && html`<section class="panel phlist"><div class="row"><h2>Testing</h2><span class="spacer"></span><button class="link small" onClick=${() => { lsSet('adlab-ph-stage', 'testing'); p.setView('board'); }}>All ›</button></div>${tests.map(wrow)}</section>`}
+    </div>`;
+  }
   return html`<div class="skov">
     <div class="skmain">
       <div class="small skallp"><b>All products</b> <span class="muted">· ${products.map((x) => x.name).join(', ')}</span></div>
@@ -1953,16 +2071,7 @@ function StocksOverview(p) {
       <${PortfolioChart} key=${rng} pts=${shown} onSel=${setHv} />
       <div class="row skrng">${[['1W', '1W'], ['MTD', 'This month'], ['3M', '3M'], ['YTD', 'This year']].map(([k, l]) => html`<button class=${rng === k ? 'on' : ''} onClick=${() => { setRng(k); setHv(null); lsSet('adlab-sk-range2', k); }}>${l}</button>`)}<span class="spacer"></span><span class="small muted">profit after ads and all costs · your entered numbers, estimated on days without them</span></div>
       <div class="skstrip">${strip.map(([a, b, c, d]) => html`<div><div class="small muted">${a}</div><div class=${'skv ' + c}>${b}</div><div class="tiny muted">${d}</div></div>`)}</div>
-      ${(() => { // Same numbers as Goals: only days you've entered, with the tiers. Days not entered yet are shown as an estimate.
-        const mStart = day.slice(0, 8) + '01', econ = R.econOf(products.find((x) => x.kind === 'crew') || products[0]), ym = mStart.slice(0, 7), mEnd = monthEnd(ym), dimM = R.daysBetween(mStart, mEnd) + 1, yd2 = R.addDays(R.today(), -1);
-        if (!goalCE && products[0]) goalCE = R.econOf(products.find((x) => x.kind === 'crew') || products[0]);
-        const dmG = dayMap(goalPeriods(data), R.storeEcon());
-        const days = Array.from({ length: dimM }, (_, i) => { const d = R.addDays(mStart, i), v = d <= yd2 ? dmG.get(d) : null; return { d, v: v ? v.profit : null }; });
-        const T = goalTiers(gLo, gHi, days); if (T.actual == null) return null;
-        const goal = T.on ? T.cur.amt : gHi, gotDays = days.filter((x) => x.v != null).length, passed = Math.min(dimM, R.daysBetween(mStart, yd2) + 1), leftD = Math.max(1, dimM - passed);
-        const needD = Math.max(0, (goal - T.actual) / leftD), avgD = T.actual / Math.max(1, gotDays), onTr = goal * passed / dimM, ahead2 = T.actual - onTr;
-        const missing = days.filter((x) => x.d <= yd2 && x.v == null).map((x) => x.d), est = missing.reduce((t, d) => t + (dayProfit(data, d, econ) || 0), 0);
-        const cleared = T.tiers.filter((t) => t.i != null && t.amt < goal);
+      ${(() => { const ms = monthNow; if (!ms) return null; const { T, ym, goal, passed, dimM, needD, avgD, ahead2, missing, est, cleared } = ms;
         return html`<button class="panel sktarget" onClick=${() => { lsSet('adlab-sk-gtab', 'month'); p.setView && p.setView('goal'); }}>
           <div class="row small" style="gap:8px;flex-wrap:wrap"><b>${MON_LONG[+ym.slice(5) - 1]}</b>${T.on ? html`<span class="tierbadge">${T.cur.name.toUpperCase()}</span>` : html`<span class="muted">${R.money0(gLo)} goal · ${R.money0(gHi)} stretch</span>`}<span class="spacer"></span><span class=${'sig ' + (ahead2 >= 0 ? 'sig-buy' : 'sig-sell')}>${ahead2 >= 0 ? 'AHEAD ' : 'BEHIND '}${R.money0(Math.abs(ahead2))}</span></div>
           <div class="row" style="gap:10px;align-items:baseline"><b class="sktgt">${signMoney(T.actual)}</b><span class="small muted">of ${R.money0(goal)} · ${R.money0(Math.max(0, goal - T.actual))} to go · ${dimM - passed} days left</span></div>
@@ -2876,6 +2985,9 @@ function StocksGoal(g) {
   const [tset, setTset] = useState('month');
   const [showTiers, setShowTiers0] = useState(() => lsGet('adlab-tiers-show', '0') === '1');
   const setShowTiers = (v) => { setShowTiers0(v); lsSet('adlab-tiers-show', v ? '1' : '0'); };
+  const phoneG = useNarrow(700);
+  const [phHide, setPhHide0] = useState(() => { try { return JSON.parse(localStorage.getItem('adlab-ph-ghide') || '{}'); } catch (e) { return {}; } });
+  const phFlip = (k) => { const n = { ...phHide, [k]: !phHide[k] }; setPhHide0(n); lsSet('adlab-ph-ghide', JSON.stringify(n)); };
   const sets = trophySets(g);
   const nowSet = sets.month(curYm);
   const all = [...nowSet, ...sets.season, ...sets.store], pts = all.filter((x) => x[2] >= x[3]).reduce((s, x) => s + TIER[x[0]][3], 0);
@@ -2959,6 +3071,33 @@ function StocksGoal(g) {
       <div class="small muted">${lc.mn} is over. Put in the full month from Shopify (Analytics → Reports → Finance summary, ${mdLabel(lc.a)} to ${mdLabel(lc.b)}) so shipping, fees and returns are exact.</div></section>`
     : !lc.final ? html`<section class="panel skclose"><div class="row" style="gap:10px;flex-wrap:wrap"><span class="sig sig-hold">SADA BILL</span><b>${lc.mn}: put in the final Sada bill when you pay it</b><span class="spacer"></span><button class="btn sm" onClick=${() => setModal({ type: PeriodForm, props: { id: lc.whole.id } })}>Update ${lc.mn}</button></div>
       <div class="small muted">Everything else for ${lc.mn} is exact. Product cost is still Shopify's estimate until you put in the bill and tick "final Sada bill".</div></section>` : null;
+  if (phoneG) {
+    const off = R.parseDay(curYm + '-01').getDay(), dayN = dimNow - elapsed;
+    const wkStart = R.addDays(R.today(), -((R.parseDay(R.today()).getDay() + 6) % 7));
+    const wkDays = Array.from({ length: 7 }, (_, k) => { const d = R.addDays(wkStart, k), v = d < R.today() ? dm.get(d) : null; return { d, v: v ? v.profit : null }; });
+    const wkMx = Math.max(1, ...wkDays.map((x) => Math.abs(x.v || 0)));
+    const cls = (v) => (v == null ? '' : v >= perDayNeed ? ' g' : v >= 0 ? ' a' : ' r');
+    const ladder = TT.tiers.filter((t) => t.n <= TT.cur.n + 2).slice().reverse();
+    const head = (k, t) => html`<div class="row"><h2>${t}</h2><span class="spacer"></span><button class="link small" onClick=${() => phFlip(k)}>${phHide[k] ? 'Show' : 'Hide'}</button></div>`;
+    return html`${tabs}${closeBanner}<div class="phgoals">
+      <section class="panel"><div class="row" style="align-items:flex-start"><div><div class="tiny muted">${MON_LONG[+curYm.slice(5) - 1]} so far</div><div class="phbig">${signMoney(actual)}</div></div><span class="spacer"></span>${tierOn ? html`<span class="tierbadge">${TT.cur.name.toUpperCase()}</span>` : html`<span class="tiny muted">${R.money0(lo)} goal · ${R.money0(hi)} stretch</span>`}</div>
+        <div class="small" style="margin-top:4px"><b>${actual == null ? '—' : R.money0(Math.max(0, tg - actual))} to go</b> to ${R.money0(tg)} · ${dayN} days left</div>
+        <div class="phbar"><i style=${`width:${actual == null ? 0 : Math.max(0, Math.min(100, actual / tg * 100)).toFixed(1)}%`}></i>${tDone.filter((t) => t.amt < tg).map((t) => html`<b style=${`left:${(t.amt / tg * 100).toFixed(1)}%`}></b>`)}</div>
+        <div class="phkpis"><div class="panel"><span class="tiny muted">Need</span><b style="color:var(--mid)">${tNeed == null ? '—' : R.money0(tNeed)}/day</b></div><div class="panel"><span class="tiny muted">Averaging</span><b class="pos">${avg == null ? '—' : R.money0(avg)}/day</b></div><div class="panel"><span class="tiny muted">Ends near</span><b>${TT.proj == null ? '—' : signMoney(TT.proj)}</b></div></div></section>
+      <section class="panel">${head('chart', 'Chart')}${!phHide.chart && html`<${GoalLine} days=${daysArr} lo=${lo} hi=${hi} dim=${dimNow} tiers=${tierOn ? TT.tiers.filter((t) => t.n <= TT.cur.n) : null} curN=${tierOn ? TT.cur.n : null} />`}</section>
+      <section class="panel">${head('tiers', 'Tiers')}${!phHide.tiers && html`<div class="phladder">${ladder.map((t) => { const st2 = t.i != null ? 'done' : t.n === TT.cur.n ? 'now' : 'lock';
+          return html`<div class=${'phrung ' + st2}><div class="row"><b>${t.n <= 2 ? t.name : 'Tier ' + t.n}</b>${st2 === 'lock' && html`<span class="tiny"> 🔒</span>`}<span class="spacer"></span><span class="small">${R.money0(t.amt)}</span></div>
+            ${st2 === 'done' ? html`<div class="tiny muted">cleared ${mdLabel(t.on)}</div>` : st2 === 'now' ? html`<div class="phbar sm"><i style=${`width:${Math.max(0, Math.min(100, (actual - (TT.prev ? TT.prev.amt : 0)) / (t.amt - (TT.prev ? TT.prev.amt : 0)) * 100)).toFixed(0)}%`}></i></div><div class="tiny" style="color:var(--tier)">${R.money0(Math.max(0, t.amt - actual))} to go · ${tNeed == null ? '' : R.money0(tNeed) + '/day'}</div>` : reachN && reachN.n === t.n ? html`<div class="tiny" style="color:var(--tier)">this pace gets here (~${signMoney(TT.proj)})</div>` : ''}</div>`; })}</div>`}</section>
+      <section class="panel"><div class="row"><h2>Every day</h2><span class="spacer"></span><span class="tiny muted">${withV.length} of ${dimNow} entered</span></div>
+        <div class="phcal">${['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((w) => html`<span class="wd">${w}</span>`)}${Array.from({ length: off }, () => html`<span></span>`)}${daysArr.map((x, i) => html`<div class=${'skday' + cls(x.v) + (x.today ? ' today' : '')}>${x.v == null ? i + 1 : signMoney(x.v)}</div>`)}</div>
+        <div class="tiny muted"><i class="skkey g"></i>made ${R.money0(perDayNeed)}+ · <i class="skkey a"></i>under · <i class="skkey r"></i>lost money</div></section>
+      <section class="panel"><h2>This week</h2>
+        <div class="phwk">${wkDays.map((x) => html`<div><b class=${x.v != null && x.v < 0 ? 'neg' : ''}>${x.v == null ? '' : signMoney(x.v)}</b><i class=${cls(x.v)} style=${`height:${x.v == null ? 0 : Math.max(4, Math.abs(x.v) / wkMx * 100).toFixed(0)}%`}></i><span>${R.parseDay(x.d).toLocaleDateString('en-US', { weekday: 'narrow' })}</span></div>`)}</div>
+        ${withV.length > 0 && html`<div class="skbwa"><div><span class="tiny muted">Best day</span><b class="pos">${signMoney(bestD.v)}</b><span class="tiny muted">${mdLabel(bestD.d)}</span></div><div><span class="tiny muted">Worst day</span><b class=${worstD.v < 0 ? 'neg' : ''}>${signMoney(worstD.v)}</b><span class="tiny muted">${mdLabel(worstD.d)}</span></div><div><span class="tiny muted">Average</span><b>${signMoney(actual / withV.length)}</b><span class="tiny muted">${withV.length} days</span></div></div>`}</section>
+      ${flow && html`<section class="panel"><h2>Where the money went</h2><div class="phstack">${flow.costs.map((c) => html`<i title=${c.name} style=${`width:${Math.max(0, c.v / flow.sales * 100).toFixed(1)}%`}></i>`)}${flow.profit > 0 && html`<i class="pf" style=${`width:${(flow.profit / flow.sales * 100).toFixed(1)}%`}></i>`}</div>
+        <div class="tiny muted">${flow.costs.slice(0, 4).map((c) => `${c.name} ${pctOf(c.v)}`).join(' · ')}</div><div class="small" style="margin-top:4px">You keep <b class=${flow.profit >= 0 ? 'pos' : 'neg'}>${pctOf(flow.profit)}</b> · ${signMoney(flow.profit)} of ${R.money0(flow.sales)} sales</div></section>`}
+    </div>`;
+  }
   return html`${tabs}
     ${closeBanner}
     <div class="skgoal">
