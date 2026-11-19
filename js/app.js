@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=250';
-import * as R from './rules.js?v=250';
-import { importHistory } from './importer.js?v=250';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=250';
+import { createBackend } from './data.js?v=251';
+import * as R from './rules.js?v=251';
+import { importHistory } from './importer.js?v=251';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=251';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2938,6 +2938,7 @@ function StocksGoal(g) {
     const costs = [...L].filter(([, v]) => Math.abs(v) >= 0.5).map(([k, v]) => ({ k, name: label[k] || k, v, est: est.has(k) })).sort((x, y) => y.v - x.v);
     return { sales, profit, costs };
   })();
+  const pctOf = (v) => { const x = flow ? v / flow.sales * 100 : 0; return (Math.abs(x) < 1 && x !== 0 ? x.toFixed(1) : Math.round(x)) + '%'; };
   const cps = []; for (let i = 1; i <= dimNow; i++) { const d = curYm + '-' + String(i).padStart(2, '0'); if (R.parseDay(d).getDay() === 0 || i === dimNow) cps.push({ d, t: Math.round(tg * i / dimNow) }); }
   const up = cps.filter((x) => x.d >= R.today()).slice(0, 4);
   // What would add the most profit: each $1 of ad spend makes (ROAS / break-even − 1) dollars.
@@ -2976,7 +2977,7 @@ function StocksGoal(g) {
         ${!tierOn && html`<div class="skprog"><div class="trk"><i style=${`width:${pct.toFixed(1)}%`}></i></div><b class="goal" style=${`left:${(lo / hi * 100).toFixed(1)}%`}></b><span class="lab" style=${`left:${(lo / hi * 100).toFixed(1)}%`}>GOAL ${R.money0(lo)}${actual != null ? ' · ' + Math.round(actual / lo * 100) + '%' : ''}</span>
           <span class="ontrack" style=${`left:${Math.min(99, shouldBe / hi * 100).toFixed(1)}%`}></span><span class="str">STRETCH ${R.money0(hi)}</span></div>
         <div class="row small" style="gap:16px;flex-wrap:wrap;margin-top:-6px"><span><b class="pos">■</b> you · <b>${signMoney(actual)}</b></span><span><b style="color:var(--mid)">┆</b> on track by today · <b>${R.money0(shouldBe)}</b></span><span><b>│</b> goal · <b>${R.money0(lo)}</b></span></div>`}
-        <${GoalLine} days=${daysArr} lo=${lo} hi=${hi} dim=${dimNow} tiers=${tierOn ? TT.tiers.filter((t) => t.n <= TT.cur.n || showTiers) : null} curN=${tierOn ? TT.cur.n : null} />
+        <${GoalLine} days=${daysArr} lo=${lo} hi=${hi} dim=${dimNow} tiers=${tierOn ? TT.tiers.filter((t) => t.n <= TT.cur.n) : null} curN=${tierOn ? TT.cur.n : null} />
         <div class="row small"><b>Every day this month</b><span class="spacer"></span><span class="muted"><i class="skkey g"></i>made ${R.money0(perDayNeed)}+ · <i class="skkey a"></i>made money, under ${R.money0(perDayNeed)} · <i class="skkey r"></i>lost money · empty = to come</span></div>
         <div class="skdays">${daysArr.map((x, i) => html`<div class=${'skday' + (x.v == null ? '' : x.v >= perDayNeed ? ' g' : x.v >= 0 ? ' a' : ' r') + (x.today ? ' today' : '')} title=${x.d}>${x.v == null ? i + 1 : signMoney(x.v)}</div>`)}</div>
         <div class="skstrip" style="border-top:1px solid var(--line);padding-top:12px">${[['Sales', R.money0(s.rev)], ['Ad spend', R.money0(s.spend)], ['Profit', signMoney(actual)], ['MER', s.spend ? R.xroas(s.rev / s.spend) : '—'], ['Orders', Math.round(s.orders || 0)], ['Days with numbers', `${cm.days} of ${dimNow}`]].map(([a, b]) => html`<div><div class="small muted">${a}</div><div class="skv">${b}</div></div>`)}</div>
@@ -2997,9 +2998,9 @@ function StocksGoal(g) {
     </div>
     <div class="skrow3">
       ${flow ? html`<section class="panel skflow"><h2>Where ${MON_LONG[+curYm.slice(5) - 1]}’s money went</h2><div class="tiny muted">From your Goals entries, ${mdLabel(curYm + '-01')} to yesterday</div>
-          <div class="skfr"><span>Sales</span><div class="skfb"><i style="left:0;width:100%;background:var(--tier)"></i></div><b>${R.money0(flow.sales)}</b></div>
-          ${(() => { let at = 0; return flow.costs.map((c) => { const w = Math.max(0, c.v / flow.sales * 100), l = at; at += w; return html`<div class="skfr"><span>${c.name}${c.est ? html` <em class="tiny muted">est.</em>` : ''}</span><div class="skfb"><i style=${`left:${Math.min(100, l).toFixed(1)}%;width:${Math.min(100 - Math.min(100, l), w).toFixed(1)}%;background:var(--fail)`}></i></div><b>−${R.money0(c.v)}</b></div>`; }); })()}
-          <div class="skfr tot"><span>Profit</span><div class="skfb">${flow.profit > 0 && html`<i style=${`left:${(100 - flow.profit / flow.sales * 100).toFixed(1)}%;width:${(flow.profit / flow.sales * 100).toFixed(1)}%;background:var(--pass)`}></i>`}</div><b class=${flow.profit >= 0 ? 'pos' : 'neg'}>${signMoney(flow.profit)}</b></div>
+          <div class="skfr"><span>Sales</span><div class="skfb"><i style="left:0;width:100%;background:var(--tier)"></i></div><em>100%</em><b>${R.money0(flow.sales)}</b></div>
+          ${(() => { let at = 0; return flow.costs.map((c) => { const w = Math.max(0, c.v / flow.sales * 100), l = at; at += w; return html`<div class="skfr"><span>${c.name}${c.est ? html` <em class="tiny muted">est.</em>` : ''}</span><div class="skfb"><i style=${`left:${Math.min(100, l).toFixed(1)}%;width:${Math.min(100 - Math.min(100, l), w).toFixed(1)}%;background:var(--fail)`}></i></div><em>${pctOf(c.v)}</em><b>−${R.money0(c.v)}</b></div>`; }); })()}
+          <div class="skfr tot"><span>Profit</span><div class="skfb">${flow.profit > 0 && html`<i style=${`left:${(100 - flow.profit / flow.sales * 100).toFixed(1)}%;width:${(flow.profit / flow.sales * 100).toFixed(1)}%;background:var(--pass)`}></i>`}</div><em class=${flow.profit >= 0 ? 'pos' : 'neg'}>${pctOf(flow.profit)}</em><b class=${flow.profit >= 0 ? 'pos' : 'neg'}>${signMoney(flow.profit)}</b></div>
           <div class="small" style="margin-top:6px">You keep <b>${flow.profit >= 0 ? R.money(flow.profit / flow.sales * 100) : '−' + R.money(-flow.profit / flow.sales * 100)} of every $100</b> in sales.${flow.costs[0] ? ` Biggest cost: ${flow.costs[0].name} (${Math.round(flow.costs[0].v / flow.sales * 100)}%)${flow.costs[1] ? `, then ${flow.costs[1].name} (${Math.round(flow.costs[1].v / flow.sales * 100)}%)` : ''}.` : ''}</div>
           ${flow.costs.some((c) => c.est) && html`<div class="tiny muted">est. = the app guessed it because the entry left it blank.</div>`}${flow.costs.some((c) => c.k === 'Not split up') && html`<div class="tiny muted">Not split up = days where you typed the exact profit, so the app can't tell which costs it was.</div>`}</section>` : html`<section class="panel skflow"><h2>Where the money went</h2><div class="empty">Add numbers for this month to see it.</div></section>`}
       <section class="panel sklong"><h2>The long game · $12k/month by Sep 2027</h2>
