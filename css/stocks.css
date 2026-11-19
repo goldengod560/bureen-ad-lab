@@ -483,3 +483,5 @@ button.sktarget{display:flex;flex-direction:column;text-align:left;width:100%;cu
 }
 .skflow .skfr{grid-template-columns:118px 1fr 42px 74px}.skflow .skfr em{font-style:normal;text-align:right;color:var(--muted);font-weight:700;font-size:12px}.skflow .skfr em.pos{color:var(--pass)}.skflow .skfr em.neg{color:#E5484D}
 @media (max-width:700px){.skflow .skfr{grid-template-columns:96px 1fr 38px 66px;gap:8px}}
+/* Thumbnails never get squeezed by long names next to them */
+.thumb.sm,.thumb.round{flex:none}.sktrade>.thumb{flex:none;width:52px;height:52px}
