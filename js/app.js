@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=252';
-import * as R from './rules.js?v=252';
-import { importHistory } from './importer.js?v=252';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=252';
+import { createBackend } from './data.js?v=253';
+import * as R from './rules.js?v=253';
+import { importHistory } from './importer.js?v=253';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=253';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -3016,43 +3016,49 @@ function StocksGoal(g) {
 
 // Profit so far this month as a line, against the pace for the goal and the stretch.
 function GoalLine({ days, lo, hi, dim, tiers, curN }) {
+  // Goals are flat lines, like finish lines; your running total climbs through them.
   const [box, W] = useWidth(); const [hv, setHv] = useState(null);
   const H = W >= 700 ? 270 : 210, L = 52, Rt = 12, T = 12, B = 24;
   let c = 0; const cum = days.map((d) => (d.v == null ? null : (c += d.v)));
   const lastI = cum.reduce((m, v, i) => (v != null ? i : m), -1);
-  // The scale fits your line and the stretch. A pace far above it is cut off at the top edge, not drawn off the chart.
-  const tl = (tiers || []).filter((t) => t.n >= 3), tc = tl.find((t) => t.n === curN);
+  const hitAt = (amt) => { const k = cum.findIndex((v) => v != null && v >= amt); return k >= 0 ? k : null; };
+  const goals = tiers ? tiers.map((t) => ({ n: t.n, amt: t.amt, name: t.name, i: t.i, col: t.n === 1 ? '#fff' : t.n === 2 ? 'var(--mid)' : 'var(--tier)' }))
+    : [{ n: 1, amt: lo, name: 'Goal', i: hitAt(lo), col: '#fff' }, { n: 2, amt: hi, name: 'Stretch', i: hitAt(hi), col: 'var(--mid)' }];
+  const target = goals.find((g) => g.i == null) || goals[goals.length - 1];
   const endAt = lastI >= 0 ? cum[lastI] / (lastI + 1) * dim : null;
-  const vals = [...cum.filter((v) => v != null), hi, ...tl.map((t) => t.amt), ...(endAt != null ? [endAt] : []), 0];
+  const vals = [...cum.filter((v) => v != null), ...goals.map((g) => g.amt), ...(endAt != null ? [endAt] : []), 0];
   const max = Math.max(...vals) * 1.14, min = Math.min(0, ...vals);
   const clipId = 'gl' + dim + Math.round(hi);
   const x = (i) => L + i * (W - L - Rt) / Math.max(1, dim - 1), y = (v) => T + (H - T - B) * (1 - (v - min) / (max - min || 1));
-  const line = (f) => days.map((_, i) => `${x(i)},${y(f(i))}`).join(' ');
   const act = cum.map((v, i) => (v == null || i > lastI ? null : `${x(i)},${y(v)}`)).filter(Boolean).join(' ');
-  const proj = lastI >= 0 ? `${x(lastI)},${y(cum[lastI])} ${x(dim - 1)},${y(cum[lastI] / (lastI + 1) * dim)}` : '';
-  const i = hv != null ? hv : Math.max(0, lastI), d = days[i];
+  const area = lastI >= 0 ? `${x(0)},${y(0)} ${act} ${x(lastI)},${y(0)}` : '';
+  const proj = lastI >= 0 ? `${x(lastI)},${y(cum[lastI])} ${x(dim - 1)},${y(endAt)}` : '';
+  const i = hv != null ? hv : Math.max(0, lastI), d = days[i], atI = cum[i];
+  const nextAt = atI == null ? null : goals.find((g) => g.amt > atI);
   const move = (e) => { const r = e.currentTarget.getBoundingClientRect(); setHv(Math.max(0, Math.min(dim - 1, Math.round((e.clientX - r.left - L) / ((W - L - Rt) / Math.max(1, dim - 1)))))); };
   const top0 = max / 1.14, stp = top0 >= 2000 ? 500 : top0 >= 400 ? 100 : 10, top = Math.max(stp, Math.floor(top0 / stp) * stp);
   const ticks = [min, Math.round(top / 2 / stp) * stp, top].map((v) => Math.round(v));
   return html`<div class="chart" ref=${box}>
     <div class="skread small"><b>${d ? `${R.parseDay(d.d).toLocaleDateString('en-US', { weekday: 'short' })} ${mdLabel(d.d)}` : ''}</b>
-      <span><i style="background:var(--pass)"></i>you: <b>${cum[i] == null ? 'to come' : signMoney(cum[i])}</b></span><span><i style="background:#fff"></i>goal pace: <b>${R.money0(lo * (i + 1) / dim)}</b></span><span class=${tiers ? 'faded' : ''}><i style="background:var(--mid)"></i>stretch pace: <b>${R.money0(hi * (i + 1) / dim)}</b></span>${tc && html`<span><i style="background:var(--tier)"></i>${tc.name} pace: <b>${R.money0(tc.amt * (i + 1) / dim)}</b></span>`}${lastI >= 0 && html`<span class="muted">· ends near ${signMoney(cum[lastI] / (lastI + 1) * dim)} at this pace</span>`}</div>
-    <svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${move} onPointerDown=${move} onPointerLeave=${() => setHv(null)} role="img" aria-label="Profit so far this month against the goal and stretch pace">
+      <span><i style="background:var(--pass)"></i>you: <b>${atI == null ? 'to come' : signMoney(atI)}</b></span>
+      ${nextAt && html`<span><i style=${`background:${nextAt.col}`}></i>${nextAt.name} ${R.money0(nextAt.amt)}: <b>${R.money0(nextAt.amt - atI)} to go</b></span>`}
+      ${lastI >= 0 && html`<span class="muted">· ends near ${signMoney(endAt)} at this pace</span>`}</div>
+    <svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${move} onPointerDown=${move} onPointerLeave=${() => setHv(null)} role="img" aria-label="Profit so far this month against your goals">
       ${ticks.map((t) => html`<line x1=${L} x2=${W - Rt} y1=${y(t)} y2=${y(t)} class="grid" /><text x=${L - 6} y=${y(t) + 4} class="ax" text-anchor="end">${signMoney(t)}</text>`)}
       ${[0, 6, 13, 20, 27, dim - 1].filter((k, j, a) => k < dim && a.indexOf(k) === j && (k !== 27 || W >= 700 || dim - 1 - k > 3)).map((k) => html`<text x=${x(k)} y=${H - 6} class="ax" text-anchor=${k === dim - 1 ? 'end' : k === 0 ? 'start' : 'middle'}>${mdLabel(days[k].d)}</text>`)}
-      <polyline points=${line((k) => hi * (k + 1) / dim)} fill="none" stroke="var(--mid)" stroke-opacity=${tiers ? '.45' : '1'} stroke-width="2" stroke-dasharray="6 5" vector-effect="non-scaling-stroke" />
-      <polyline points=${line((k) => lo * (k + 1) / dim)} fill="none" stroke="#fff" stroke-opacity=${tiers ? '.4' : '.75'} stroke-width="2" stroke-dasharray="6 5" vector-effect="non-scaling-stroke" />
-      ${tl.map((t) => html`<polyline points=${line((k) => t.amt * (k + 1) / dim)} fill="none" stroke="var(--tier)" stroke-opacity=${t.i != null ? '.45' : '1'} stroke-width="2" stroke-dasharray=${t.n === curN ? '10 4' : t.i != null ? '6 5' : '2 5'} vector-effect="non-scaling-stroke" />
-        ${(W >= 600 || t.n === curN) && html`<text x=${W - Rt - 2} y=${y(t.amt) - 6} class="ax" text-anchor="end" style=${`fill:var(--tier);font-weight:700;opacity:${t.n === curN ? 1 : 0.7}`}>${t.name} · ${R.money0(t.amt)}</text>`}`)}
-      ${tiers && html`<text x=${W - Rt - 2} y=${y(hi) - 6} class="ax" text-anchor="end" style="fill:var(--mid);opacity:.7;font-weight:700">Stretch · ${R.money0(hi)}</text>`}
+      ${area && html`<polygon points=${area} fill="var(--pass)" fill-opacity=".14" />`}
+      ${goals.map((g) => { const done = g.i != null, cur = g === target && !done, op = done ? 0.45 : cur ? 1 : 0.6;
+        return html`<line x1=${L} x2=${W - Rt} y1=${y(g.amt)} y2=${y(g.amt)} stroke=${g.col} stroke-opacity=${op} stroke-width="2" stroke-dasharray=${done ? '4 4' : cur ? '9 4' : '2 5'} />
+          <text x=${L + 6} y=${y(g.amt) - 6} class="ax" style=${`fill:${g.col};opacity:${done ? 0.75 : cur ? 1 : 0.7};font-weight:700`}>${g.name} · ${R.money0(g.amt)}${done ? ' ✓' : ''}</text>`; })}
       <defs><clipPath id=${clipId}><rect x=${L} y=${T} width=${Math.max(0, W - L - Rt)} height=${H - T - B} /></clipPath></defs>
       ${proj && html`<polyline points=${proj} clip-path=${`url(#${clipId})`} fill="none" stroke="var(--pass)" stroke-opacity=".85" stroke-width="3" stroke-linecap="round" stroke-dasharray="1 7" vector-effect="non-scaling-stroke" />`}
+      ${endAt != null && html`<text x=${W - Rt - 2} y=${y(endAt) - 8} class="ax" text-anchor="end" style="fill:var(--pass);font-weight:700">ends ~${signMoney(endAt)}</text>`}
       <polyline points=${act} fill="none" stroke="var(--pass)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke" />
       ${lastI >= 0 && html`<circle cx=${x(lastI)} cy=${y(cum[lastI])} r="5" fill="var(--pass)" />`}
-      ${(tiers || []).filter((t) => t.i != null).map((t) => html`<g transform=${`translate(${x(t.i)},${y(cum[t.i])})`}><circle r="9" fill="var(--panel)" stroke="#fff" stroke-width="2" /><text y="4" text-anchor="middle" style="fill:#fff;font:900 10px var(--body)">✓</text><text y="-15" text-anchor="middle" style="fill:#fff;font:700 11px var(--body)">${t.name}</text></g>`)}
+      ${W >= 600 && goals.filter((g) => g.i != null && g.i <= lastI).map((g) => html`<g transform=${`translate(${x(g.i)},${y(cum[g.i])})`}><circle r="8" fill="var(--panel)" stroke="#fff" stroke-width="2" /><text y="4" text-anchor="middle" style="fill:#fff;font:900 9px var(--body)">✓</text></g>`)}
       <line x1=${x(i)} x2=${x(i)} y1=${T} y2=${H - B} class="cross" />
     </svg>
-    <div class="legend"><span><i style="background:var(--pass)"></i>You, adding up</span><span class=${tiers ? 'faded' : ''}><i style="background:#fff"></i>Goal pace ${R.money0(lo)}${tiers ? ' ✓' : ''}</span><span class=${tiers ? 'faded' : ''}><i style="background:var(--mid)"></i>Stretch pace ${R.money0(hi)}${tiers ? ' ✓' : ''}</span>${tl.map((t) => html`<span class=${t.i != null ? 'faded' : ''}><i class=${'tdash' + (t.n === curN || t.i != null ? '' : ' dot')}></i>${t.n === curN ? `${t.name} pace ${R.money0(t.amt)}` : `${t.name} ${R.money0(t.amt)}${t.i != null ? ' ✓' : ''}`}</span>`)}<span><i style="background:none;height:0;border-top:3px dotted var(--pass)"></i>Where this pace ends${endAt != null ? ' · ' + signMoney(endAt) : ''}</span></div>
+    <div class="legend"><span><i style="background:var(--pass)"></i>You, adding up</span>${goals.map((g) => html`<span class=${g.i != null ? 'faded' : ''}><i style=${`background:none;height:0;border-top:2px ${g.i != null ? 'dashed' : g === target ? 'dashed' : 'dotted'} ${g.col}`}></i>${g.name} ${R.money0(g.amt)}${g.i != null ? ' ✓' : ''}</span>`)}<span><i style="background:none;height:0;border-top:3px dotted var(--pass)"></i>Where this pace ends${endAt != null ? ' · ' + signMoney(endAt) : ''}</span></div>
   </div>`;
 }
 
