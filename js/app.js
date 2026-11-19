@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=245';
-import * as R from './rules.js?v=245';
-import { importHistory } from './importer.js?v=245';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=245';
+import { createBackend } from './data.js?v=246';
+import * as R from './rules.js?v=246';
+import { importHistory } from './importer.js?v=246';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=246';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2856,7 +2856,7 @@ function TierWatcher({ data, setView }) {
 
 // =================== Stocks look: Goals ===================
 function StocksGoal(g) {
-  const { data, products, cm, dm, months, periods, st, stage, msDone, auto, setModal, curYm, dimNow, elapsed, classicBody, crew, be, reload, say } = g;
+  const { data, products, cm, dm, months, periods, st, stage, msDone, auto, setModal, curYm, dimNow, elapsed, classicBody, crew, be, reload, say, toggleCheck } = g;
   const [tab, setTab0] = useState(() => lsGet('adlab-sk-gtab', 'month'));
   const setTab = (k) => { setTab0(k); lsSet('adlab-sk-gtab', k); };
   const [tset, setTset] = useState('month');
@@ -2906,6 +2906,11 @@ function StocksGoal(g) {
   const tLocked = tierOn ? TT.tiers.filter((t) => t.n > TT.cur.n) : [], tDone = TT.tiers.filter((t) => t.i != null);
   const reachN = tierOn && TT.proj != null ? TT.tiers.filter((t) => t.amt <= TT.proj).slice(-1)[0] : null;
   const s = cm.s || sumRange(dm, curYm + '-01', R.addDays(R.today(), -1));
+  // The month by week (7-day blocks from the 1st), plus best, worst and average day.
+  const wks = []; for (let i = 0; i < dimNow; i += 7) { const blk = daysArr.slice(i, i + 7), got = blk.filter((x) => x.v != null); wks.push({ a: blk[0].d, b: blk[blk.length - 1].d, v: got.length ? got.reduce((t, x) => t + x.v, 0) : null, n: got.length, len: blk.length, now: blk.some((x) => x.d === R.today()) }); }
+  const wkMax = Math.max(1, ...wks.map((w) => Math.abs(w.v || 0)));
+  const withV = daysArr.filter((x) => x.v != null), bestD = withV.slice().sort((a, b) => b.v - a.v)[0], worstD = withV.slice().sort((a, b) => a.v - b.v)[0];
+  const lastW = wks.filter((w) => w.v != null && w.n === w.len).slice(-1)[0], curW = wks.find((w) => w.now);
   // Where the month's money went: your Goals entries' cost lines added up over the month so far.
   const flow = (() => {
     const a = curYm + '-01', b = [R.addDays(R.today(), -1), monthEnd(curYm)].sort()[0], L = new Map(), est = new Set(); let sales = 0, profit = 0, n = 0;
@@ -2968,20 +2973,29 @@ function StocksGoal(g) {
           <div class="small">${actual == null ? 'Add numbers for this month to see where you stand.' : tierOn ? `Goal and stretch cleared (stretch on ${mdLabel(TT.tiers[1].on)}). Now on ${TT.cur.name}: to be on track for ${R.money0(tg)} you should be at ${R.money0(tShould)} by now. You're at ${signMoney(actual)}. ${tAhead >= 0 ? 'Keep it up.' : `You need ${R.money0(tNeed)}/day from here.`}${reachN ? ` This pace ends near ${R.money0(TT.proj)}${reachN.n > TT.cur.n ? `, which clears ${reachN.name}` : ''}.` : ''}${R.daysBetween(R.today(), BF_DAY) >= 0 && R.daysBetween(R.today(), BF_DAY) <= 30 ? ' Black Friday can swing the month a lot either way.' : ''}` : `To be on track for ${R.money0(hi)} you should be at ${R.money0(shouldBe)} by now. You're at ${signMoney(actual)}. ${ahead >= 0 ? 'Keep it up.' : `You need ${R.money0(need)}/day from here.`}${R.daysBetween(R.today(), BF_DAY) >= 0 && R.daysBetween(R.today(), BF_DAY) <= 30 ? ' Black Friday can swing the month a lot either way.' : ''}`}</div></section>
         <section class="panel"><h2>Checkpoints</h2>${up.map((x, i) => html`<div class="skcp"><div class="row small"><b>${mdLabel(x.d)}</b><span class="spacer"></span><b>${signMoney(actual)}</b><span class="muted"> of ${R.money0(x.t)}</span></div><div class="skbar"><i style=${`width:${Math.max(0, Math.min(100, (actual || 0) / x.t * 100)).toFixed(0)}%`}></i></div>${i === 0 && actual != null && html`<div class="tiny muted">need ${R.money0(Math.max(0, (x.t - actual) / Math.max(1, R.daysBetween(R.today(), x.d) + 1)))}/day until then</div>`}</div>`)}</section>
         <section class="panel"><h2>What would add the most profit</h2><div class="tiny muted">Moves you could make, with the extra profit per day each would likely add, worked out from your own numbers.</div>${ways.length ? ways.map(([a, b]) => html`<div class="li small"><span class="grow">${a}</span><b class="pos">+${R.money0(b)}/day</b></div>`) : html`<div class="empty">Needs a few days of Main numbers.</div>`}</section>
-        ${flow && html`<section class="panel skflow"><h2>Where ${MON_LONG[+curYm.slice(5) - 1]}’s money went</h2><div class="tiny muted">From your Goals entries, ${mdLabel(curYm + '-01')} to yesterday</div>
+        <section class="panel skweek"><h2>${MON_LONG[+curYm.slice(5) - 1]} by week</h2><div class="tiny muted">Profit each week · ${wks.some((w) => w.now) ? 'this week is still going' : 'Mon–Sun blocks from the 1st'}</div>
+          <div class="skwk">${wks.map((w) => html`<div class=${w.v == null ? 'none' : ''}><b class=${w.v != null && w.v < 0 ? 'neg' : ''}>${w.v == null ? '—' : signMoney(w.v)}</b><i class=${(w.now || (w.v != null && w.n < w.len) ? 'part' : '') + (w.v != null && w.v < 0 ? ' neg' : '')} style=${`height:${w.v == null ? 0 : Math.max(3, Math.abs(w.v) / wkMax * 100).toFixed(0)}%`}></i><span>${mdLabel(w.a).replace(/^\w+ /, '')}–${mdLabel(w.b).replace(/^\w+ /, '')}</span></div>`)}</div>
+          ${curW && curW.v != null && lastW && lastW !== curW && lastW.v > 0 && html`<div class="small">This week: <b>${signMoney(curW.v)}</b> in ${curW.n} day${curW.n === 1 ? '' : 's'} vs <b>${signMoney(lastW.v)}</b> all of last week.</div>`}
+          ${withV.length > 0 && html`<div class="skbwa"><div><span class="tiny muted">Best day</span><b class="pos">${signMoney(bestD.v)}</b><span class="tiny muted">${R.parseDay(bestD.d).toLocaleDateString('en-US', { weekday: 'short' })} ${mdLabel(bestD.d)}</span></div>
+            <div><span class="tiny muted">Worst day</span><b class=${worstD.v < 0 ? 'neg' : ''}>${signMoney(worstD.v)}</b><span class="tiny muted">${R.parseDay(worstD.d).toLocaleDateString('en-US', { weekday: 'short' })} ${mdLabel(worstD.d)}</span></div>
+            <div><span class="tiny muted">Average day</span><b>${signMoney(actual / withV.length)}</b><span class="tiny muted">over ${withV.length} day${withV.length === 1 ? '' : 's'}</span></div></div>`}</section>
+      </div>
+    </div>
+    <div class="skrow3">
+      ${flow ? html`<section class="panel skflow"><h2>Where ${MON_LONG[+curYm.slice(5) - 1]}’s money went</h2><div class="tiny muted">From your Goals entries, ${mdLabel(curYm + '-01')} to yesterday</div>
           <div class="skfr"><span>Sales</span><div class="skfb"><i style="left:0;width:100%;background:var(--tier)"></i></div><b>${R.money0(flow.sales)}</b></div>
           ${(() => { let at = 0; return flow.costs.map((c) => { const w = Math.max(0, c.v / flow.sales * 100), l = at; at += w; return html`<div class="skfr"><span>${c.name}${c.est ? html` <em class="tiny muted">est.</em>` : ''}</span><div class="skfb"><i style=${`left:${Math.min(100, l).toFixed(1)}%;width:${Math.min(100 - Math.min(100, l), w).toFixed(1)}%;background:var(--fail)`}></i></div><b>−${R.money0(c.v)}</b></div>`; }); })()}
           <div class="skfr tot"><span>Profit</span><div class="skfb">${flow.profit > 0 && html`<i style=${`left:${(100 - flow.profit / flow.sales * 100).toFixed(1)}%;width:${(flow.profit / flow.sales * 100).toFixed(1)}%;background:var(--pass)`}></i>`}</div><b class=${flow.profit >= 0 ? 'pos' : 'neg'}>${signMoney(flow.profit)}</b></div>
           <div class="small" style="margin-top:6px">You keep <b>${flow.profit >= 0 ? R.money(flow.profit / flow.sales * 100) : '−' + R.money(-flow.profit / flow.sales * 100)} of every $100</b> in sales.${flow.costs[0] ? ` Biggest cost: ${flow.costs[0].name} (${Math.round(flow.costs[0].v / flow.sales * 100)}%)${flow.costs[1] ? `, then ${flow.costs[1].name} (${Math.round(flow.costs[1].v / flow.sales * 100)}%)` : ''}.` : ''}</div>
-          ${flow.costs.some((c) => c.est) && html`<div class="tiny muted">est. = the app guessed it because the entry left it blank.</div>`}${flow.costs.some((c) => c.k === 'Not split up') && html`<div class="tiny muted">Not split up = days where you typed the exact profit, so the app can't tell which costs it was.</div>`}</section>`}
-      </div>
-    </div>
-    <div class="grid2">
-      <section class="panel"><div class="row"><h2>Numbers you've entered</h2><span class="spacer"></span><button class="link small" onClick=${() => setModal({ type: PeriodForm, props: {} })}>+ Add numbers</button></div><div class="tiny muted">Profit here comes from these. Add a week, a month or custom dates.</div>
-        ${periods.length ? periods.slice().reverse().slice(0, 6).map((x) => { const pr = periodProfit(x, st); return html`<div class="li small"><b style="width:130px">${x.from === x.to ? mdLabel(x.from) : `${mdLabel(x.from)} to ${mdLabel(x.to)}`}</b><span class="grow muted">${x.revType === 'net' ? 'Shopify' : 'Triple Whale'}${x.costFinal ? ' · final Sada bill' : ''}</span><b class=${pr.value >= 0 ? 'pos' : 'neg'}>${signMoney(pr.value)}</b><button class="link small" onClick=${() => setModal({ type: PeriodForm, props: { id: x.id } })}>Edit</button></div>`; }) : html`<div class="empty">No numbers yet.</div>`}
-        <button class="link small" style="align-self:flex-start" onClick=${() => setTab('calendar')}>All numbers and the monthly report →</button></section>
-      <section class="panel"><h2>The long game · $12,000 / month by Sep 2027</h2>
-        <div class="skgrid4">${STAGES_GOAL.map((x, i) => html`<div class=${'skstage' + (x === stage ? ' on' : '')}><b>${x.name}${i > stIdx ? ' 🔒' : ''}</b><span class="tiny muted">${x.months}</span><b class="small">${R.money0(x.profit[0])}–${R.money0(x.profit[1])}/mo</b>${x === stage && html`<div class="skbar"><i style=${`width:${msDone.filter(Boolean).length / msDone.length * 100}%`}></i></div><span class="tiny muted">${msDone.filter(Boolean).length} of ${msDone.length} checks</span>`}</div>`)}</div></section>
+          ${flow.costs.some((c) => c.est) && html`<div class="tiny muted">est. = the app guessed it because the entry left it blank.</div>`}${flow.costs.some((c) => c.k === 'Not split up') && html`<div class="tiny muted">Not split up = days where you typed the exact profit, so the app can't tell which costs it was.</div>`}</section>` : html`<section class="panel skflow"><h2>Where the money went</h2><div class="empty">Add numbers for this month to see it.</div></section>`}
+      <section class="panel sklong"><h2>The long game · $12k/month by Sep 2027</h2>
+        ${STAGES_GOAL.map((x, i) => x === stage ? html`<div class="sklst on"><div class="row"><b>${x.name}</b><span class="spacer"></span><span class="tiny muted">${x.months} · ${R.money0(x.profit[0])}–${R.money0(x.profit[1])}/mo</span></div>
+            ${STAGES_GOAL[i + 1] && html`<div class="tiny" style="font-weight:800;margin:8px 0 2px">To unlock ${STAGES_GOAL[i + 1].name} · ${msDone.filter(Boolean).length} of ${msDone.length}</div>`}
+            ${x.ms.map(([k, l, how], j) => html`<div class="skck"><button class=${'pltick' + (msDone[j] ? ' on' : '')} disabled=${how === 'auto'} title=${how === 'auto' ? 'The app ticks this' : msDone[j] ? 'Untick' : 'Tick it off'} onClick=${() => how !== 'auto' && toggleCheck && toggleCheck(k)}>${msDone[j] ? '✓' : ''}</button><span><b>${l}</b><br/><span class="tiny muted">${how === 'auto' ? 'the app ticks this' : 'you tick this'}</span></span></div>`)}</div>`
+          : html`<div class="sklst"><b>${x.name}${i > stIdx ? ' 🔒' : ' ✓'}</b><span class="tiny muted">${x.months} · ${R.money0(x.profit[0])}–${R.money0(x.profit[1])}</span></div>`)}</section>
+      <section class="panel sknums"><div class="row"><h2>Numbers you've entered</h2><span class="spacer"></span><button class="link small" onClick=${() => setModal({ type: PeriodForm, props: {} })}>+ Add numbers</button></div><div class="tiny muted">Profit here comes from these. Add a week, a month or custom dates.</div>
+        ${periods.length ? periods.slice().reverse().slice(0, 8).map((x) => { const pr = periodProfit(x, st); return html`<div class="li small"><b style="width:110px">${x.from === x.to ? mdLabel(x.from) : `${mdLabel(x.from)} to ${mdLabel(x.to)}`}</b><span class="grow muted">${x.revType === 'net' ? 'Shopify' : 'Triple Whale'}${x.costFinal ? ' · final Sada bill' : ''}</span><b class=${pr.value >= 0 ? 'pos' : 'neg'}>${signMoney(pr.value)}</b><button class="link small" onClick=${() => setModal({ type: PeriodForm, props: { id: x.id } })}>Edit</button></div>`; }) : html`<div class="empty">No numbers yet.</div>`}
+        <span class="spacer"></span><button class="link small" style="align-self:flex-start" onClick=${() => setTab('calendar')}>All numbers and the monthly report →</button></section>
     </div>`;
 }
 
@@ -4588,7 +4602,7 @@ function Goal(ctx) {
           </div>
         </div></div>`}
     </section>`;
-  if (LOOK === 'stocks') return html`<${StocksGoal} data=${data} products=${products} cm=${cm} dm=${dm} months=${months} periods=${periods} st=${st} stage=${stage} msDone=${msDone} auto=${auto} setModal=${setModal} curYm=${curYm} dimNow=${dimNow} elapsed=${elapsed} classicBody=${classicBody} crew=${crew} be=${be} reload=${reload} say=${say} />`;
+  if (LOOK === 'stocks') return html`<${StocksGoal} data=${data} products=${products} cm=${cm} dm=${dm} months=${months} periods=${periods} st=${st} stage=${stage} msDone=${msDone} auto=${auto} setModal=${setModal} curYm=${curYm} dimNow=${dimNow} elapsed=${elapsed} classicBody=${classicBody} crew=${crew} be=${be} reload=${reload} say=${say} toggleCheck=${toggleCheck} />`;
   return classicBody;
 }
 // Add numbers for any dates: this week, last week, a month or custom.
