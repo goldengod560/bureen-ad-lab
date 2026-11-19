@@ -455,3 +455,29 @@ html[data-look=stocks] .skwn .chip,html[data-look=stocks] .skwn [class*=sig]{max
 .skck{display:flex;gap:9px;align-items:flex-start;padding:6px 0;border-top:1px solid var(--line);font-size:12.5px}.skck .pltick{margin-top:2px;flex:none}
 @media (max-width:1100px){.skrow3{grid-template-columns:minmax(0,1fr)}}
 .skrow3 .skflow .skfr{margin:5px 0}.skrow3 .sklong .sklst{padding:8px 12px}
+/* ---------- Phone fixes ---------- */
+.skneed{display:flex;flex-direction:column;gap:6px;text-align:right}
+@media (max-width:700px){
+  /* Goals: tabs in one scrolling row */
+  .skgtabs{flex-wrap:nowrap;overflow-x:auto;max-width:100%;scrollbar-width:none}.skgtabs::-webkit-scrollbar{display:none}.skgtabs button{flex:none}
+  /* Goals hero: "need" and "averaging" side by side */
+  .skneed{display:grid;grid-template-columns:1fr 1fr;gap:12px;text-align:left;width:100%;margin-top:10px}
+  .skneed .skper{font-size:30px}
+  .tierrow{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}.tierrow::-webkit-scrollbar{display:none}.tierrow>*{flex:none}.tierrow .tiertog{order:-1}.tierrow .spacer{display:none}
+  .skhero .row.small{gap:4px 12px!important;font-size:12.5px}
+  /* Stats: month bars scroll sideways instead of making the page wider */
+  .skmbars{overflow-x:auto;scrollbar-width:none;gap:6px}.skmbars::-webkit-scrollbar{display:none}.skmbars>div{flex:0 0 46px;min-width:0}
+}
+button.sktarget{display:flex;flex-direction:column;text-align:left;width:100%;cursor:pointer;color:inherit;font:inherit;border:1px solid transparent}button.sktarget:hover{border-color:var(--line2)}
+.sktgt{font-size:26px;font-weight:900;letter-spacing:-.5px}
+.sktarget .sktrack{height:12px}.sktarget .sktrack b{top:-3px;height:18px}
+@media (max-width:700px){
+  /* History: one card per row, picture on the left, so a folder with one ad isn't half empty */
+  .skrows .skgrid{grid-template-columns:minmax(0,1fr)}
+  .skrows .skcard{flex-direction:row}
+  .skrows .skimg{width:112px;flex:none;align-self:flex-start}
+  .skrows .skbody{gap:4px;padding:10px 12px}
+  .skrows .skgrid .skkv{grid-template-columns:repeat(4,auto)}
+  /* Plan: day numbers are too cramped on a phone; the week dates above are enough */
+  .plg-days span{font-size:0!important}.plg-days span.today{font-size:10px!important}
+}

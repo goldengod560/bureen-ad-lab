@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=249';
-import * as R from './rules.js?v=249';
-import { importHistory } from './importer.js?v=249';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=249';
+import { createBackend } from './data.js?v=250';
+import * as R from './rules.js?v=250';
+import { importHistory } from './importer.js?v=250';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=250';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -751,7 +751,7 @@ function Archive(ctx) {
     ${!searching && folder === 'ideas' && html`<${IdeaDrop} product=${product} reload=${ctx.reload} say=${ctx.say} />`}
     ${searching ? html`<div class="small muted">${list.length} match${list.length === 1 ? '' : 'es'} across the archive</div>` : html`<div class="small muted">${hint[folder]}</div>`}
     ${searching ? html`<div class=${LOOK === 'stocks' ? 'skgrid' : 'agrid'}>${list.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${cardCtx(ad)} showStage />`)}</div>`
-      : html`<div class="stack"><${CardGroupsSel} key=${folder} stageKey=${folder} list=${list} ctx=${cctx} cardCtx=${cardCtx} limit=${12} grid=${LOOK === 'stocks' ? 'skgrid' : 'agrid'} /></div>`}
+      : html`<div class="stack skrows"><${CardGroupsSel} key=${folder} stageKey=${folder} list=${list} ctx=${cctx} cardCtx=${cardCtx} limit=${12} grid=${LOOK === 'stocks' ? 'skgrid' : 'agrid'} /></div>`}
     <${SelectBar} sel=${sel} setSel=${setSel} ctx=${ctx} />`;
 }
 
@@ -1871,7 +1871,7 @@ function PortfolioChart({ pts, onSel }) {
   const pick = (e) => { const r = e.currentTarget.getBoundingClientRect(); const k = Math.max(0, Math.min(pts.length - 1, Math.round((e.clientX - r.left - L) / ((W - L - 8) / (pts.length - 1))))); setSel(k); onSel && onSel(k); };
   const leave = (e) => { if (e.pointerType === 'mouse') { setSel(null); onSel && onSel(null); } };
   const unit = p.unit || 'day', lb = (q) => q.label || mdLabel(q.day);
-  const step = Math.max(1, Math.ceil(pts.length / 6));
+  const step = Math.max(1, Math.ceil(pts.length / (W < 500 ? 4 : 6)));
   return html`<div ref=${box}>
     <div class="small skread"><b>${unit === 'month' ? p.long : mdLabel(p.day)}</b> · total ${signMoney(p.cum)} · that ${unit}${p.partial ? ' so far' : ''} <b class=${p.v >= 0 ? 'pos' : 'neg'}>${signMoney(p.v)}</b>${p.sales != null ? ` · sales ${R.money0(p.sales)}${p.spend != null ? ` · ad spend ${R.money0(p.spend)}` : ''}${p.mer ? ' · MER ' + R.xroas(p.mer) : ''}` : ''}${unit === 'month' && p.days ? ` · ${p.days} days with numbers` : ''}${sel == null ? html` <span class="muted">· hover or tap the chart</span>` : ''}</div>
     <svg width=${W} height=${H} style=${`height:${H}px;display:block`} onPointerDown=${pick} onPointerMove=${pick} onPointerLeave=${leave} role="img" aria-label="Profit over time">
@@ -1879,7 +1879,7 @@ function PortfolioChart({ pts, onSel }) {
       ${[lo, (lo + hi) / 2, hi].map((t) => html`<line x1=${L} x2=${W} y1=${y(t)} y2=${y(t)} stroke="var(--line)" /><text x=${L - 6} y=${y(t) + 4} text-anchor="end" class="skax">${signMoney(t)}</text>`)}
       <path d=${area} fill="url(#skg)" /><polyline points=${line} fill="none" stroke="var(--pass)" stroke-width="2.5" stroke-linejoin="round" />
       <line x1=${x(i)} x2=${x(i)} y1=${T} y2=${H - B} stroke="var(--line2)" /><circle cx=${x(i)} cy=${y(p.cum)} r="5" fill="var(--pass)" stroke="#000" stroke-width="2" />
-      ${pts.map((q, k) => (k % step === 0 || k === pts.length - 1) && !(k !== pts.length - 1 && k > pts.length - 1 - step / 2) && html`<text x=${x(k)} y=${H - 5} text-anchor=${k === pts.length - 1 && k > 0 ? 'end' : k === 0 ? 'start' : 'middle'} class="skax">${lb(q)}</text>`)}
+      ${pts.map((q, k) => (k % step === 0 || k === pts.length - 1) && !(k !== pts.length - 1 && k > pts.length - 1 - step) && html`<text x=${x(k)} y=${H - 5} text-anchor=${k === pts.length - 1 && k > 0 ? 'end' : k === 0 ? 'start' : 'middle'} class="skax">${lb(q)}</text>`)}
     </svg></div>`;
 }
 function Spark({ vals, be }) {
@@ -1893,7 +1893,7 @@ const roasPill = (v) => html`<span class=${'skpill ' + (v == null ? 'q' : v >= 2
 function StocksOverview(p) {
   const { data, products, setModal, cur, prv, day, dayLbl, mt, gLo, gHi, dim, elapsed, todo, heads, liveRows, wk, ready, drop, green, known, budget, bev, VERB } = p;
   const [rng, setRng] = useState(() => lsGet('adlab-sk-range2', 'MTD'));
-  const [newsAll, setNewsAll] = useState(false);
+  const [newsAll, setNewsAll] = useState(false), [tradesAll, setTradesAll] = useState(false);
   const econ = R.econOf(products.find((x) => x.kind === 'crew') || products[0]);
   const all = useMemo(() => {
     // Every day with Shopify numbers or with numbers you entered on Goals, so older months count too.
@@ -1953,11 +1953,25 @@ function StocksOverview(p) {
       <${PortfolioChart} key=${rng} pts=${shown} onSel=${setHv} />
       <div class="row skrng">${[['1W', '1W'], ['MTD', 'This month'], ['3M', '3M'], ['YTD', 'This year']].map(([k, l]) => html`<button class=${rng === k ? 'on' : ''} onClick=${() => { setRng(k); setHv(null); lsSet('adlab-sk-range2', k); }}>${l}</button>`)}<span class="spacer"></span><span class="small muted">profit after ads and all costs · your entered numbers, estimated on days without them</span></div>
       <div class="skstrip">${strip.map(([a, b, c, d]) => html`<div><div class="small muted">${a}</div><div class=${'skv ' + c}>${b}</div><div class="tiny muted">${d}</div></div>`)}</div>
-      <section class="panel sktarget"><div class="row small" style="gap:8px;flex-wrap:wrap"><b>${MON_LONG[+day.slice(5, 7) - 1]} price target</b><span class="muted">${R.money0(gLo)} goal · ${R.money0(gHi)} stretch</span><span class="spacer"></span><b>${signMoney(mt.profit)}</b><span class="muted">· ${elapsed} of ${dim} days</span></div>
-        <div class="row" style="gap:12px"><div class="sktrack grow"><i style=${`width:${Math.max(0, Math.min(100, (mt.profit || 0) / gHi * 100)).toFixed(1)}%`}></i><b style=${`left:${(gLo / gHi * 100).toFixed(1)}%`}></b></div>${ahead != null && html`<span class=${'sig ' + (ahead >= 0 ? 'sig-buy' : 'sig-sell')}>${ahead >= 0 ? 'AHEAD BY ' : 'BEHIND BY '}${R.money0(Math.abs(ahead))}</span>`}</div>
-        <div class="small muted">Goal at the white line${pace != null ? html` · on pace for <b style="color:var(--ink)">${signMoney(pace)}</b>` : ''} · need <b style="color:var(--ink)">${need != null ? R.money0(need) + '/day' : '—'}</b> for the stretch, you’re averaging <b class="pos">${avg != null ? R.money0(avg) + '/day' : '—'}</b> so far</div></section>
+      ${(() => { // Same numbers as Goals: only days you've entered, with the tiers. Days not entered yet are shown as an estimate.
+        const mStart = day.slice(0, 8) + '01', econ = R.econOf(products.find((x) => x.kind === 'crew') || products[0]), ym = mStart.slice(0, 7), mEnd = monthEnd(ym), dimM = R.daysBetween(mStart, mEnd) + 1, yd2 = R.addDays(R.today(), -1);
+        if (!goalCE && products[0]) goalCE = R.econOf(products.find((x) => x.kind === 'crew') || products[0]);
+        const dmG = dayMap(goalPeriods(data), R.storeEcon());
+        const days = Array.from({ length: dimM }, (_, i) => { const d = R.addDays(mStart, i), v = d <= yd2 ? dmG.get(d) : null; return { d, v: v ? v.profit : null }; });
+        const T = goalTiers(gLo, gHi, days); if (T.actual == null) return null;
+        const goal = T.on ? T.cur.amt : gHi, gotDays = days.filter((x) => x.v != null).length, passed = Math.min(dimM, R.daysBetween(mStart, yd2) + 1), leftD = Math.max(1, dimM - passed);
+        const needD = Math.max(0, (goal - T.actual) / leftD), avgD = T.actual / Math.max(1, gotDays), onTr = goal * passed / dimM, ahead2 = T.actual - onTr;
+        const missing = days.filter((x) => x.d <= yd2 && x.v == null).map((x) => x.d), est = missing.reduce((t, d) => t + (dayProfit(data, d, econ) || 0), 0);
+        const cleared = T.tiers.filter((t) => t.i != null && t.amt < goal);
+        return html`<button class="panel sktarget" onClick=${() => { lsSet('adlab-sk-gtab', 'month'); p.setView && p.setView('goal'); }}>
+          <div class="row small" style="gap:8px;flex-wrap:wrap"><b>${MON_LONG[+ym.slice(5) - 1]}</b>${T.on ? html`<span class="tierbadge">${T.cur.name.toUpperCase()}</span>` : html`<span class="muted">${R.money0(gLo)} goal · ${R.money0(gHi)} stretch</span>`}<span class="spacer"></span><span class=${'sig ' + (ahead2 >= 0 ? 'sig-buy' : 'sig-sell')}>${ahead2 >= 0 ? 'AHEAD ' : 'BEHIND '}${R.money0(Math.abs(ahead2))}</span></div>
+          <div class="row" style="gap:10px;align-items:baseline"><b class="sktgt">${signMoney(T.actual)}</b><span class="small muted">of ${R.money0(goal)} · ${R.money0(Math.max(0, goal - T.actual))} to go · ${dimM - passed} days left</span></div>
+          <div class="sktrack"><i style=${`width:${Math.max(0, Math.min(100, T.actual / goal * 100)).toFixed(1)}%`}></i>${(T.on ? cleared : [{ amt: gLo }]).map((t) => html`<b style=${`left:${(t.amt / goal * 100).toFixed(1)}%`}></b>`)}</div>
+          <div class="small muted">need <b style="color:var(--mid)">${R.money0(needD)}/day</b>${T.on ? ` for ${T.cur.name}` : ' for the stretch'} · averaging <b class="pos">${R.money0(avgD)}/day</b>${T.proj != null ? html` · on pace for <b style="color:var(--ink)">${signMoney(T.proj)}</b>` : ''}</div>
+          ${missing.length > 0 && html`<div class="tiny muted">${missing.length === 1 ? mdLabel(missing[0]) + ' isn’t' : missing.length + ' days aren’t'} in Goals yet${est ? ` (about ${signMoney(est)} from Shopify and Meta)` : ''} · Goals counts only what you enter</div>`}
+        </button>`; })()}
       <div class="skgrid2">
-        <div class="stack sktradecol" style="gap:14px"><section class="panel"><div class="row"><h2>Today’s trades · ${todo.length}</h2><span class="spacer"></span><span class="tiny muted">you make them in Meta · this only logs them</span></div>${todo.length ? todo.map(trade) : html`<div class="empty">Nothing to do today.</div>`}</section>
+        <div class="stack sktradecol" style="gap:14px"><section class="panel"><div class="row"><h2>Today’s trades · ${todo.length}</h2><span class="spacer"></span><span class="tiny muted">you make them in Meta · this only logs them</span></div>${todo.length ? html`${(tradesAll ? todo : todo.slice(0, 4)).map(trade)}${todo.length > 4 && html`<button class="link small" style="align-self:flex-start;margin-top:8px" onClick=${() => setTradesAll(!tradesAll)}>${tradesAll ? 'Show less' : `Show ${todo.length - 4} more`}</button>`}` : html`<div class="empty">Nothing to do today.</div>`}</section>
         <${Sectors} data=${data} products=${products} /></div>
         <div class="stack" style="gap:14px">
           <section class="panel"><h2>Earnings calendar · this week</h2>${evs.length ? evs.map(({ d, e }) => html`<div class="skcal"><i class=${'skdot ' + e.tone}></i><b>${d === R.today() ? 'Today' : `${wd(d)} ${mdLabel(d)}`}</b><span>${e.text}</span></div>`) : html`<div class="empty">Nothing due this week.</div>`}</section>
@@ -2867,7 +2881,7 @@ function StocksGoal(g) {
   const all = [...nowSet, ...sets.season, ...sets.store], pts = all.filter((x) => x[2] >= x[3]).reduce((s, x) => s + TIER[x[0]][3], 0);
   const level = Math.floor(pts / 100) + 1, lvlPct = pts % 100;
   const count = (t) => all.filter((x) => x[0] === t && x[2] >= x[3]).length;
-  const tabs = html`<div class="row" style="gap:8px;flex-wrap:wrap"><h1 style="font-size:28px">Goals</h1><div class="skseg">${[['month', 'This month'], ['calendar', 'Calendar'], ['milestones', 'Milestones'], ['room', 'Trophy room'], ['records', 'Records'], ['how', 'How it works']].map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => setTab(k)}>${l}</button>`)}</div><span class="spacer"></span><button class="btn primary" onClick=${() => setModal({ type: PeriodForm, props: {} })}>+ Add numbers</button></div>`;
+  const tabs = html`<div class="row" style="gap:8px;flex-wrap:wrap"><h1 style="font-size:28px">Goals</h1><div class="skseg skgtabs">${[['month', 'This month'], ['calendar', 'Calendar'], ['milestones', 'Milestones'], ['room', 'Trophy room'], ['records', 'Records'], ['how', 'How it works']].map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => setTab(k)}>${l}</button>`)}</div><span class="spacer"></span><button class="btn primary" onClick=${() => setModal({ type: PeriodForm, props: {} })}>+ Add numbers</button></div>`;
   const levelBar = html`<section class="panel skrow2"><span class="small muted">Investor level</span><b style="font-size:28px">${level}</b><div class="skbar grow"><i style=${`width:${lvlPct}%`}></i></div><span class="small muted">${lvlPct}% to level ${level + 1}</span>${['P', 'G', 'S', 'B'].map((t) => html`<span class="row" style="gap:4px"><${Cup} t=${t} w=${22} /><b>${count(t)}</b></span>`)}</section>`;
   if (tab === 'calendar') return html`${tabs}${classicBody}`;
   if (tab === 'milestones') {
@@ -2951,8 +2965,8 @@ function StocksGoal(g) {
         <div class="row" style="align-items:flex-start;gap:20px"><div><div class="small muted">${MON_LONG[+curYm.slice(5) - 1]} so far</div><div class="skhuge">${actual == null ? '—' : signMoney(actual)}</div>
           ${tierOn ? html`<div class="small" style="margin-top:16px"><span class="tierbadge">${TT.cur.name.toUpperCase()}</span> <b>${R.money0(Math.max(0, tg - actual))} to go</b> to ${R.money0(tg)} · <b>${dimNow - elapsed} days left</b></div>`
             : html`<div class="small">of the <b>${R.money0(hi)}</b> stretch · <b>${actual == null ? '—' : R.money0(Math.max(0, hi - actual))} to go</b> · <b>${dimNow - elapsed} days left</b></div>`}</div><span class="spacer"></span>
-          <div style="text-align:right"><div class="small muted">You need</div><div class="skper" style="color:var(--mid)">${tNeed == null ? '—' : R.money0(tNeed)}<small>/day</small></div><div class="small muted" style="margin-top:6px">${tierOn ? `for ${TT.cur.name} · you're averaging` : `You're averaging`}</div><div class="skper pos">${avg == null ? '—' : R.money0(avg)}<small>/day</small></div></div></div>
-        ${tierOn && html`<div class="tierrow">${(showTiers ? [] : tDone).map((t) => html`<span class="tchip done">✓ ${t.name} ${R.money0(t.amt)} <em>${mdLabel(t.on)}</em></span>`)}${!showTiers && html`<span class="tchip now">▶ ${TT.cur.name} ${R.money0(tg)}</span>`}<span class="spacer"></span><button class="btn sm" onClick=${() => setShowTiers(!showTiers)}>${showTiers ? 'Hide tiers' : 'Show tiers'}</button></div>
+          <div class="skneed"><div><div class="small muted">You need${tierOn ? ` for ${TT.cur.name}` : ''}</div><div class="skper" style="color:var(--mid)">${tNeed == null ? '—' : R.money0(tNeed)}<small>/day</small></div></div><div><div class="small muted">You're averaging</div><div class="skper pos">${avg == null ? '—' : R.money0(avg)}<small>/day</small></div></div></div></div>
+        ${tierOn && html`<div class="tierrow">${(showTiers ? [] : tDone).map((t) => html`<span class="tchip done">✓ ${t.name} ${R.money0(t.amt)} <em>${mdLabel(t.on)}</em></span>`)}${!showTiers && html`<span class="tchip now">▶ ${TT.cur.name} ${R.money0(tg)}</span>`}<span class="spacer"></span><button class="btn sm tiertog" onClick=${() => setShowTiers(!showTiers)}>${showTiers ? 'Hide tiers' : 'Show tiers'}</button></div>
           ${showTiers && html`<div class="ttrack">${TT.tiers.map((t) => { const st2 = t.i != null ? 'done' : t.n === TT.cur.n ? 'now' : 'lock', p0 = st2 === 'done' ? 100 : st2 === 'now' ? tPct : 0;
             return html`<div class=${'tcard ' + st2}><div class="tnum">${t.n}${st2 === 'done' ? html`<i>✓</i>` : st2 === 'lock' ? html`<i class="lk">🔒</i>` : ''}</div><div class="tname">${t.n <= 2 ? t.name : 'Tier ' + t.n}</div><div class="tamt">${R.money0(t.amt)}</div><div class="tbar"><i style=${`width:${p0.toFixed(0)}%`}></i></div><div class="tstate">${st2 === 'done' ? 'CLEARED ' + mdLabel(t.on).toUpperCase() : st2 === 'now' ? `${Math.round(tPct)}% · ${R.money0(Math.max(0, t.amt - actual))} to go` : reachN && t.n === reachN.n ? 'THIS PACE GETS HERE' : 'LOCKED'}</div></div>`; })}</div>`}
           <div class="skprog"><div class="trk"><i style=${`width:${Math.max(0, Math.min(100, actual / tg * 100)).toFixed(1)}%`}></i></div>
@@ -3024,7 +3038,7 @@ function GoalLine({ days, lo, hi, dim, tiers, curN }) {
       <span><i style="background:var(--pass)"></i>you: <b>${cum[i] == null ? 'to come' : signMoney(cum[i])}</b></span><span><i style="background:#fff"></i>goal pace: <b>${R.money0(lo * (i + 1) / dim)}</b></span><span class=${tiers ? 'faded' : ''}><i style="background:var(--mid)"></i>stretch pace: <b>${R.money0(hi * (i + 1) / dim)}</b></span>${tc && html`<span><i style="background:var(--tier)"></i>${tc.name} pace: <b>${R.money0(tc.amt * (i + 1) / dim)}</b></span>`}${lastI >= 0 && html`<span class="muted">· ends near ${signMoney(cum[lastI] / (lastI + 1) * dim)} at this pace</span>`}</div>
     <svg width=${W} height=${H} style=${`height:${H}px`} onPointerMove=${move} onPointerDown=${move} onPointerLeave=${() => setHv(null)} role="img" aria-label="Profit so far this month against the goal and stretch pace">
       ${ticks.map((t) => html`<line x1=${L} x2=${W - Rt} y1=${y(t)} y2=${y(t)} class="grid" /><text x=${L - 6} y=${y(t) + 4} class="ax" text-anchor="end">${signMoney(t)}</text>`)}
-      ${[0, 6, 13, 20, 27, dim - 1].filter((k, j, a) => k < dim && a.indexOf(k) === j).map((k) => html`<text x=${x(k)} y=${H - 6} class="ax" text-anchor=${k === dim - 1 ? 'end' : k === 0 ? 'start' : 'middle'}>${mdLabel(days[k].d)}</text>`)}
+      ${[0, 6, 13, 20, 27, dim - 1].filter((k, j, a) => k < dim && a.indexOf(k) === j && (k !== 27 || W >= 700 || dim - 1 - k > 3)).map((k) => html`<text x=${x(k)} y=${H - 6} class="ax" text-anchor=${k === dim - 1 ? 'end' : k === 0 ? 'start' : 'middle'}>${mdLabel(days[k].d)}</text>`)}
       <polyline points=${line((k) => hi * (k + 1) / dim)} fill="none" stroke="var(--mid)" stroke-opacity=${tiers ? '.45' : '1'} stroke-width="2" stroke-dasharray="6 5" vector-effect="non-scaling-stroke" />
       <polyline points=${line((k) => lo * (k + 1) / dim)} fill="none" stroke="#fff" stroke-opacity=${tiers ? '.4' : '.75'} stroke-width="2" stroke-dasharray="6 5" vector-effect="non-scaling-stroke" />
       ${tl.map((t) => html`<polyline points=${line((k) => t.amt * (k + 1) / dim)} fill="none" stroke="var(--tier)" stroke-opacity=${t.i != null ? '.45' : '1'} stroke-width="2" stroke-dasharray=${t.n === curN ? '10 4' : t.i != null ? '6 5' : '2 5'} vector-effect="non-scaling-stroke" />
@@ -3078,7 +3092,7 @@ function MonthByMonth({ data, reload, say }) {
   const last12 = rows.slice(-12), mx = Math.max(1, ...last12.map((r) => r.rev)), mxp = Math.max(1, ...last12.map((r) => Math.abs(r.profit || 0)));
   const yr = (r) => (last12.some((z) => z.key.slice(5) === r.key.slice(5) && z.key !== r.key) ? ` ’${r.key.slice(2, 4)}` : '');
   return html`<section class="panel"><div class="row"><h2>Sales and profit by month</h2><span class="spacer"></span><span class="small muted"><b style="color:#4A8CFF">■</b> sales · <b class="pos">■</b> profit</span></div>
-      <div class="skmbars">${last12.map((r) => html`<div title=${`${r.label}: sales ${R.money0(r.rev)}, profit ${r.profit == null ? '—' : signMoney(r.profit)}`}><span class="tiny">${'$' + (r.rev / 1000).toFixed(1) + 'k'}</span>
+      <div class="skmbars" ref=${(el) => { if (el && !el.dataset.sc) { el.dataset.sc = '1'; requestAnimationFrame(() => { el.scrollLeft = el.scrollWidth; }); } }}>${last12.map((r) => html`<div title=${`${r.label}: sales ${R.money0(r.rev)}, profit ${r.profit == null ? '—' : signMoney(r.profit)}`}><span class="tiny">${'$' + (r.rev / 1000).toFixed(1) + 'k'}</span>
         <span class="skmb2"><i style=${`height:${Math.round(r.rev / mx * 120)}px;background:#4A8CFF`}></i><i class=${r.profit != null && r.profit < 0 ? 'neg' : ''} style=${`height:${Math.round(Math.abs(r.profit || 0) / mxp * 60)}px`}></i></span>
         <span class=${'tiny ' + (r.profit == null ? 'muted' : r.profit >= 0 ? 'pos' : 'neg')}>${r.profit == null ? '—' : signMoney(r.profit)}</span><span class="tiny muted">${r.label.slice(0, 3)}${yr(r)}</span></div>`)}</div></section>
     <${CostTrend} periods=${periods} reload=${reload} say=${say} />`;
