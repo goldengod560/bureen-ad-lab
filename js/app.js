@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=255';
-import * as R from './rules.js?v=255';
-import { importHistory } from './importer.js?v=255';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=255';
+import { createBackend } from './data.js?v=256';
+import * as R from './rules.js?v=256';
+import { importHistory } from './importer.js?v=256';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=256';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1911,12 +1911,12 @@ function monthGoalNow(data, day, gLo, gHi, products) {
 }
 
 // A small version of the Goals chart for the phone: your total, the goal you're chasing as a flat line, and where this pace ends.
-function MiniGoalChart({ ms }) {
-  const [box, W] = useWidth(); const H = 112, P = 4;
+function MiniGoalChart({ ms, h }) {
+  const [box, W] = useWidth(); const H = h || 112, P = 4;
   let c = 0; const cum = ms.days.map((d) => (d.v == null ? null : (c += d.v)));
   const lastI = cum.reduce((m, v, i) => (v != null ? i : m), -1); if (lastI < 0) return null;
   const dim = ms.days.length, endAt = cum[lastI] / (lastI + 1) * dim;
-  const done = ms.T.tiers.filter((t) => t.i != null && t.amt < ms.goal).slice(-1);
+  const done = ms.T.tiers.filter((t) => t.n === 2 && t.i != null && t.amt < ms.goal);
   const max = Math.max(ms.goal, endAt, ...cum.filter((v) => v != null)) * 1.12, min = Math.min(0, ...cum.filter((v) => v != null));
   const x = (i) => P + i * (W - 2 * P) / Math.max(1, dim - 1), y = (v) => 14 + (H - 20) * (1 - (v - min) / (max - min || 1));
   const pts = cum.slice(0, lastI + 1).map((v, i) => `${x(i)},${y(v)}`).join(' ');
@@ -1927,7 +1927,8 @@ function MiniGoalChart({ ms }) {
     <line x1=${P} x2=${W - P} y1=${y(ms.goal)} y2=${y(ms.goal)} stroke="var(--tier)" stroke-width="1.5" stroke-dasharray="8 4" /><text x=${P + 2} y=${y(ms.goal) - 5} class="ax" style="fill:var(--tier);font-weight:700">${tgt.name} · ${R.money0(ms.goal)}</text>
     <line x1=${x(lastI)} y1=${y(cum[lastI])} x2=${x(dim - 1)} y2=${y(endAt)} stroke="var(--pass)" stroke-width="2.5" stroke-dasharray="1 6" stroke-linecap="round" />
     <polyline points=${pts} fill="none" stroke="var(--pass)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" />
-    <circle cx=${x(lastI)} cy=${y(cum[lastI])} r="4.5" fill="var(--pass)" /></svg></div>`;
+    <circle cx=${x(lastI)} cy=${y(cum[lastI])} r="4.5" fill="var(--pass)" />
+    ${h && html`<text x=${P} y=${H - 2} class="ax">${mdLabel(ms.days[0].d)}</text><text x=${W - P} y=${H - 2} class="ax" text-anchor="end">${mdLabel(ms.days[dim - 1].d)}</text><text x=${x(lastI)} y=${y(cum[lastI]) - 9} class="ax" text-anchor="middle" style="fill:var(--pass);font-weight:800">${signMoney(cum[lastI])}</text>`}</svg></div>`;
 }
 
 // The phone's + button: things you add on the go. (No Meta upload here; that's a computer job.)
@@ -2993,7 +2994,7 @@ function StocksGoal(g) {
   const all = [...nowSet, ...sets.season, ...sets.store], pts = all.filter((x) => x[2] >= x[3]).reduce((s, x) => s + TIER[x[0]][3], 0);
   const level = Math.floor(pts / 100) + 1, lvlPct = pts % 100;
   const count = (t) => all.filter((x) => x[0] === t && x[2] >= x[3]).length;
-  const tabs = html`<div class="row" style="gap:8px;flex-wrap:wrap"><h1 style="font-size:28px">Goals</h1><div class="skseg skgtabs">${[['month', 'This month'], ['calendar', 'Calendar'], ['milestones', 'Milestones'], ['room', 'Trophy room'], ['records', 'Records'], ['how', 'How it works']].map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => setTab(k)}>${l}</button>`)}</div><span class="spacer"></span><button class="btn primary" onClick=${() => setModal({ type: PeriodForm, props: {} })}>+ Add numbers</button></div>`;
+  const tabs = html`<div class="row skgtabsrow" style="gap:8px;flex-wrap:wrap"><h1 style="font-size:28px">Goals</h1><div class="skseg skgtabs">${[['month', 'This month'], ['calendar', 'Calendar'], ['milestones', 'Milestones'], ['room', 'Trophy room'], ['records', 'Records'], ['how', 'How it works']].map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => setTab(k)}>${l}</button>`)}</div><span class="spacer"></span><button class="btn primary" onClick=${() => setModal({ type: PeriodForm, props: {} })}>+ Add numbers</button></div>`;
   const levelBar = html`<section class="panel skrow2"><span class="small muted">Investor level</span><b style="font-size:28px">${level}</b><div class="skbar grow"><i style=${`width:${lvlPct}%`}></i></div><span class="small muted">${lvlPct}% to level ${level + 1}</span>${['P', 'G', 'S', 'B'].map((t) => html`<span class="row" style="gap:4px"><${Cup} t=${t} w=${22} /><b>${count(t)}</b></span>`)}</section>`;
   if (tab === 'calendar') return html`${tabs}${classicBody}`;
   if (tab === 'milestones') {
@@ -3077,15 +3078,15 @@ function StocksGoal(g) {
     const wkDays = Array.from({ length: 7 }, (_, k) => { const d = R.addDays(wkStart, k), v = d < R.today() ? dm.get(d) : null; return { d, v: v ? v.profit : null }; });
     const wkMx = Math.max(1, ...wkDays.map((x) => Math.abs(x.v || 0)));
     const cls = (v) => (v == null ? '' : v >= perDayNeed ? ' g' : v >= 0 ? ' a' : ' r');
-    const ladder = TT.tiers.filter((t) => t.n <= TT.cur.n + 2).slice().reverse();
+    const ladder = (phHide.chart ? TT.tiers.filter((t) => t.n <= TT.cur.n + 2) : TT.tiers.filter((t) => t.n >= TT.cur.n - 1 && t.n <= TT.cur.n + 1)).slice().reverse();
     const head = (k, t) => html`<div class="row"><h2>${t}</h2><span class="spacer"></span><button class="link small" onClick=${() => phFlip(k)}>${phHide[k] ? 'Show' : 'Hide'}</button></div>`;
     return html`${tabs}${closeBanner}<div class="phgoals">
       <section class="panel"><div class="row" style="align-items:flex-start"><div><div class="tiny muted">${MON_LONG[+curYm.slice(5) - 1]} so far</div><div class="phbig">${signMoney(actual)}</div></div><span class="spacer"></span>${tierOn ? html`<span class="tierbadge">${TT.cur.name.toUpperCase()}</span>` : html`<span class="tiny muted">${R.money0(lo)} goal · ${R.money0(hi)} stretch</span>`}</div>
         <div class="small" style="margin-top:4px"><b>${actual == null ? '—' : R.money0(Math.max(0, tg - actual))} to go</b> to ${R.money0(tg)} · ${dayN} days left</div>
         <div class="phbar"><i style=${`width:${actual == null ? 0 : Math.max(0, Math.min(100, actual / tg * 100)).toFixed(1)}%`}></i>${tDone.filter((t) => t.amt < tg).map((t) => html`<b style=${`left:${(t.amt / tg * 100).toFixed(1)}%`}></b>`)}</div>
         <div class="phkpis"><div class="panel"><span class="tiny muted">Need</span><b style="color:var(--mid)">${tNeed == null ? '—' : R.money0(tNeed)}/day</b></div><div class="panel"><span class="tiny muted">Averaging</span><b class="pos">${avg == null ? '—' : R.money0(avg)}/day</b></div><div class="panel"><span class="tiny muted">Ends near</span><b>${TT.proj == null ? '—' : signMoney(TT.proj)}</b></div></div></section>
-      <section class="panel">${head('chart', 'Chart')}${!phHide.chart && html`<${GoalLine} days=${daysArr} lo=${lo} hi=${hi} dim=${dimNow} tiers=${tierOn ? TT.tiers.filter((t) => t.n <= TT.cur.n) : null} curN=${tierOn ? TT.cur.n : null} />`}</section>
-      <section class="panel">${head('tiers', 'Tiers')}${!phHide.tiers && html`<div class="phladder">${ladder.map((t) => { const st2 = t.i != null ? 'done' : t.n === TT.cur.n ? 'now' : 'lock';
+      <section class="panel">${head('chart', 'Chart')}${!phHide.chart && actual != null && html`<${MiniGoalChart} ms=${{ days: daysArr, T: TT, goal: tg }} h=${150} /><div class="tiny muted">Dotted green = where this pace ends (~${signMoney(TT.proj)})</div>`}</section>
+      <section class="panel">${head('tiers', 'Tiers')}${!phHide.tiers && html`<div class=${'phladder' + (phHide.chart ? '' : ' tight')}>${ladder.map((t) => { const st2 = t.i != null ? 'done' : t.n === TT.cur.n ? 'now' : 'lock';
           return html`<div class=${'phrung ' + st2}><div class="row"><b>${t.n <= 2 ? t.name : 'Tier ' + t.n}</b>${st2 === 'lock' && html`<span class="tiny"> 🔒</span>`}<span class="spacer"></span><span class="small">${R.money0(t.amt)}</span></div>
             ${st2 === 'done' ? html`<div class="tiny muted">cleared ${mdLabel(t.on)}</div>` : st2 === 'now' ? html`<div class="phbar sm"><i style=${`width:${Math.max(0, Math.min(100, (actual - (TT.prev ? TT.prev.amt : 0)) / (t.amt - (TT.prev ? TT.prev.amt : 0)) * 100)).toFixed(0)}%`}></i></div><div class="tiny" style="color:var(--tier)">${R.money0(Math.max(0, t.amt - actual))} to go · ${tNeed == null ? '' : R.money0(tNeed) + '/day'}</div>` : reachN && reachN.n === t.n ? html`<div class="tiny" style="color:var(--tier)">this pace gets here (~${signMoney(TT.proj)})</div>` : ''}</div>`; })}</div>`}</section>
       <section class="panel"><div class="row"><h2>Every day</h2><span class="spacer"></span><span class="tiny muted">${withV.length} of ${dimNow} entered</span></div>
@@ -3094,8 +3095,11 @@ function StocksGoal(g) {
       <section class="panel"><h2>This week</h2>
         <div class="phwk">${wkDays.map((x) => html`<div><b class=${x.v != null && x.v < 0 ? 'neg' : ''}>${x.v == null ? '' : signMoney(x.v)}</b><i class=${cls(x.v)} style=${`height:${x.v == null ? 0 : Math.max(4, Math.abs(x.v) / wkMx * 100).toFixed(0)}%`}></i><span>${R.parseDay(x.d).toLocaleDateString('en-US', { weekday: 'narrow' })}</span></div>`)}</div>
         ${withV.length > 0 && html`<div class="skbwa"><div><span class="tiny muted">Best day</span><b class="pos">${signMoney(bestD.v)}</b><span class="tiny muted">${mdLabel(bestD.d)}</span></div><div><span class="tiny muted">Worst day</span><b class=${worstD.v < 0 ? 'neg' : ''}>${signMoney(worstD.v)}</b><span class="tiny muted">${mdLabel(worstD.d)}</span></div><div><span class="tiny muted">Average</span><b>${signMoney(actual / withV.length)}</b><span class="tiny muted">${withV.length} days</span></div></div>`}</section>
-      ${flow && html`<section class="panel"><h2>Where the money went</h2><div class="phstack">${flow.costs.map((c) => html`<i title=${c.name} style=${`width:${Math.max(0, c.v / flow.sales * 100).toFixed(1)}%`}></i>`)}${flow.profit > 0 && html`<i class="pf" style=${`width:${(flow.profit / flow.sales * 100).toFixed(1)}%`}></i>`}</div>
-        <div class="tiny muted">${flow.costs.slice(0, 4).map((c) => `${c.name} ${pctOf(c.v)}`).join(' · ')}</div><div class="small" style="margin-top:4px">You keep <b class=${flow.profit >= 0 ? 'pos' : 'neg'}>${pctOf(flow.profit)}</b> · ${signMoney(flow.profit)} of ${R.money0(flow.sales)} sales</div></section>`}
+      ${flow && (() => { const PAL = ['#FF5000', '#FF9548', '#FFC27A', '#B98CFF', '#7FA7FF', '#8A939C', '#5E656E', '#454B53'];
+        const parts = [...flow.costs.map((c, k) => ({ name: c.name, v: c.v, col: PAL[Math.min(k, PAL.length - 1)], est: c.est })), ...(flow.profit > 0 ? [{ name: 'Profit (you keep)', v: flow.profit, col: 'var(--pass)', pf: true }] : [])];
+        return html`<section class="panel"><h2>Where the money went</h2><div class="tiny muted">Out of ${R.money0(flow.sales)} in sales this month</div>
+          <div class="phstack">${parts.map((x) => html`<i style=${`width:${Math.max(0, x.v / flow.sales * 100).toFixed(1)}%;background:${x.col}`}></i>`)}</div>
+          <div class="phleg">${parts.map((x) => html`<div class=${x.pf ? 'pf' : ''}><i style=${`background:${x.col}`}></i><span>${x.name}${x.est ? html` <em class="tiny muted">est.</em>` : ''}</span><b>${pctOf(x.v)}</b><span class="muted">${x.pf ? signMoney(x.v) : '−' + R.money0(x.v)}</span></div>`)}</div></section>`; })()}
     </div>`;
   }
   return html`${tabs}

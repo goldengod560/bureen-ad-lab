@@ -518,3 +518,12 @@ button.sktarget{display:flex;flex-direction:column;text-align:left;width:100%;cu
 .phstack{display:flex;height:14px;border-radius:7px;overflow:hidden;margin:8px 0 6px;gap:2px}.phstack i{background:var(--fail);opacity:.85}.phstack i:nth-child(2){opacity:.7}.phstack i:nth-child(3){opacity:.55}.phstack i:nth-child(n+4){opacity:.4}.phstack i.pf{background:var(--pass);opacity:1}
 @media (max-width:700px){ html[data-look=stocks] main.wrap{padding-bottom:150px} }
 .phmoreset>h1:first-child{display:none}.phmini .ax{font-size:10.5px}
+/* Phone round 2 */
+@media (max-width:700px){
+  .skgtabsrow>h1{order:0;margin:0}.skgtabsrow>.skgtabs{order:2;width:100%}.skgtabsrow>button{order:1;margin-left:auto}.skgtabsrow>.spacer{display:none}
+  html[data-look=stocks] .bnav.phnav{grid-template-columns:repeat(5,minmax(0,1fr));padding:2px 0 calc(4px + env(safe-area-inset-bottom,0px))}
+  .phnav button{padding:9px 0 7px;font-size:12px;font-weight:700;justify-content:center;width:100%}.phnav button span{font-size:22px;margin-bottom:1px}
+}
+.phladder.tight .phrung{padding:6px 10px;margin:5px 0}.phladder.tight .phrung:before{top:9px}.phladder.tight .phrung .small{font-size:12.5px}
+.phleg{display:flex;flex-direction:column;gap:6px;margin-top:4px}.phleg>div{display:grid;grid-template-columns:12px 1fr 44px 70px;gap:8px;align-items:center;font-size:13px}.phleg>div>i{width:12px;height:12px;border-radius:3px}.phleg b{text-align:right}.phleg>div>span:last-child{text-align:right}.phleg .pf{font-weight:800}.phleg .pf b{color:var(--pass)}
+.phstack i{opacity:1!important}
