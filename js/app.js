@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=257';
-import * as R from './rules.js?v=257';
-import { importHistory } from './importer.js?v=257';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=257';
+import { createBackend } from './data.js?v=258';
+import * as R from './rules.js?v=258';
+import { importHistory } from './importer.js?v=258';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=258';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1945,11 +1945,12 @@ function MiniGoalChart({ ms, h }) {
 
 // The phone's + button: things you add on the go. (No Meta upload here; that's a computer job.)
 function PhoneFab({ data, setModal, setView }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(false), [hid, setHid] = useState(false);
+  useEffect(() => { let y0 = window.scrollY; const on = () => { const y = window.scrollY; if (Math.abs(y - y0) > 8) { setHid(y > y0 && y > 120); y0 = y; } }; window.addEventListener('scroll', on, { passive: true }); return () => window.removeEventListener('scroll', on); }, []);
   const yd = R.addDays(R.today(), -1), have = enteredDays(data);
   const miss = have.has(yd) ? null : yd;
   const go = (f) => { setOpen(false); f(); };
-  return html`<button class="phfab" aria-label="Add" onClick=${() => setOpen(true)}>+</button>
+  return html`<button class=${'phfab' + (hid ? ' hid' : '')} aria-label="Add" onClick=${() => setOpen(true)}>+</button>
     ${open && html`<div class="phsheetbg" onClick=${() => setOpen(false)}><div class="phsheet" onClick=${(e) => e.stopPropagation()}><div class="phgrab"></div><h2>Add</h2>
       <button class="phli" onClick=${() => go(() => setModal({ type: PeriodForm, props: miss ? { from: miss, to: miss } : {} }))}><span class="phic">$</span><span><b>Add numbers</b><span class="tiny muted">${miss ? `${R.parseDay(miss).toLocaleDateString('en-US', { weekday: 'short' })} ${mdLabel(miss)} isn't in Goals yet` : 'A day, a week or a month'}</span></span></button>
       <button class="phli" onClick=${() => go(() => setView('learn'))}><span class="phic">✎</span><span><b>Log a change</b><span class="tiny muted">Budget, paused an ad, site or offer change…</span></span></button>
@@ -3014,7 +3015,7 @@ function StocksGoal(g) {
   const all = [...nowSet, ...sets.season, ...sets.store], pts = all.filter((x) => x[2] >= x[3]).reduce((s, x) => s + TIER[x[0]][3], 0);
   const level = Math.floor(pts / 100) + 1, lvlPct = pts % 100;
   const count = (t) => all.filter((x) => x[0] === t && x[2] >= x[3]).length;
-  const tabs = html`<div class="row skgtabsrow" style="gap:8px;flex-wrap:wrap"><h1 style="font-size:28px">Goals</h1><div class="skseg skgtabs">${[['month', 'This month'], ['calendar', 'Calendar'], ['milestones', 'Milestones'], ['room', 'Trophy room'], ['records', 'Records'], ['how', 'How it works']].map(([k, l]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => setTab(k)}>${l}</button>`)}</div><span class="spacer"></span><button class="btn primary" onClick=${() => setModal({ type: PeriodForm, props: {} })}>+ Add numbers</button></div>`;
+  const tabs = html`<div class="row skgtabsrow" style="gap:8px;flex-wrap:wrap"><h1 style="font-size:28px">Goals</h1><div class="skseg skgtabs">${[['month', 'This month', 'Month'], ['calendar', 'Calendar', 'Calendar'], ['milestones', 'Milestones', 'Milestones'], ['room', 'Trophy room', 'Trophies'], ['records', 'Records', 'Records'], ['how', 'How it works', 'How']].map(([k, l, sh]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => setTab(k)}>${phoneG ? sh : l}</button>`)}</div><span class="spacer"></span><button class="btn primary" onClick=${() => setModal({ type: PeriodForm, props: {} })}>+ Add numbers</button></div>`;
   const levelBar = html`<section class="panel skrow2"><span class="small muted">Investor level</span><b style="font-size:28px">${level}</b><div class="skbar grow"><i style=${`width:${lvlPct}%`}></i></div><span class="small muted">${lvlPct}% to level ${level + 1}</span>${['P', 'G', 'S', 'B'].map((t) => html`<span class="row" style="gap:4px"><${Cup} t=${t} w=${22} /><b>${count(t)}</b></span>`)}</section>`;
   if (tab === 'calendar') return html`${tabs}${classicBody}`;
   if (tab === 'milestones') {
@@ -3099,14 +3100,18 @@ function StocksGoal(g) {
     const wkMx = Math.max(1, ...wkDays.map((x) => Math.abs(x.v || 0)));
     const cls = (v) => (v == null ? '' : v >= perDayNeed ? ' g' : v >= 0 ? ' a' : ' r');
     const ladder = (phHide.chart ? TT.tiers.filter((t) => t.n <= TT.cur.n + 2) : TT.tiers.filter((t) => t.n >= TT.cur.n - 1 && t.n <= TT.cur.n + 1)).slice().reverse();
-    const head = (k, t) => html`<div class="row"><h2>${t}</h2><span class="spacer"></span><button class="link small" onClick=${() => phFlip(k)}>${phHide[k] ? 'Show' : 'Hide'}</button></div>`;
+    const head = (k, t, sum) => html`<div class="row"><h2>${t}</h2><span class="spacer"></span><button class="link small" onClick=${() => phFlip(k)}>${phHide[k] ? 'Show' : 'Hide'}</button></div>${phHide[k] && sum}`;
+    const prevAmt = TT.prev ? TT.prev.amt : 0, curPct = actual == null ? 0 : Math.max(0, Math.min(100, (actual - prevAmt) / (tg - prevAmt) * 100));
+    const daysTo = actual != null && avg > 0 && tg > actual ? Math.ceil((tg - actual) / avg) : null, hitOn = daysTo != null ? R.addDays(R.today(), daysTo - 1) : null;
+    const tierSum = html`<button class="phsum" onClick=${() => phFlip('tiers')}><div class="row"><span class="tierbadge">${(TT.cur.n <= 2 ? TT.cur.name : 'Tier ' + TT.cur.n).toUpperCase()}</span><b>${R.money0(tg)}</b><span class="spacer"></span><b style="color:var(--tier)">${Math.round(curPct)}%</b></div><div class="phbar sm"><i style=${`width:${curPct.toFixed(0)}%;background:var(--tier)`}></i></div><div class="tiny muted">${actual == null ? '' : `${R.money0(Math.max(0, tg - actual))} to go · ${tNeed == null ? '' : R.money0(tNeed) + '/day'}`}${reachN && reachN.n > TT.cur.n ? ` · this pace reaches ${reachN.n <= 2 ? reachN.name : 'Tier ' + reachN.n}` : ''}</div></button>`;
+    const chartSum = actual == null ? null : html`<button class="phsum" onClick=${() => phFlip('chart')}><div class="row" style="gap:12px"><div class="phsumk"><span class="tiny muted">On pace for</span><b class="pos">${signMoney(TT.proj)}</b></div><div class="phsumk"><span class="tiny muted">${TT.cur.n <= 2 ? TT.cur.name : 'Tier ' + TT.cur.n} by</span><b>${hitOn == null ? '—' : hitOn > monthEnd(curYm) ? 'not this month' : mdLabel(hitOn)}</b></div><span class="spacer"></span><${Spark} vals=${(() => { let c = 0; return daysArr.filter((x) => x.v != null).map((x) => (c += x.v)); })()} be=${0} /></div></button>`;
     return html`${tabs}${closeBanner}<div class="phgoals">
       <section class="panel"><div class="row" style="align-items:flex-start"><div><div class="tiny muted">${MON_LONG[+curYm.slice(5) - 1]} so far</div><div class="phbig">${signMoney(actual)}</div></div><span class="spacer"></span>${tierOn ? html`<span class="tierbadge">${TT.cur.name.toUpperCase()}</span>` : html`<span class="tiny muted">${R.money0(lo)} goal · ${R.money0(hi)} stretch</span>`}</div>
         <div class="small" style="margin-top:4px"><b>${actual == null ? '—' : R.money0(Math.max(0, tg - actual))} to go</b> to ${R.money0(tg)} · ${dayN} days left</div>
         <div class="phbar"><i style=${`width:${actual == null ? 0 : Math.max(0, Math.min(100, actual / tg * 100)).toFixed(1)}%`}></i>${tDone.filter((t) => t.amt < tg).map((t) => html`<b style=${`left:${(t.amt / tg * 100).toFixed(1)}%`}></b>`)}</div>
         <div class="phkpis"><div class="panel"><span class="tiny muted">Need</span><b style="color:var(--mid)">${tNeed == null ? '—' : R.money0(tNeed)}/day</b></div><div class="panel"><span class="tiny muted">Averaging</span><b class="pos">${avg == null ? '—' : R.money0(avg)}/day</b></div><div class="panel"><span class="tiny muted">Ends near</span><b>${TT.proj == null ? '—' : signMoney(TT.proj)}</b></div></div></section>
-      <section class="panel">${head('chart', 'Chart')}${!phHide.chart && actual != null && html`<${MiniGoalChart} ms=${{ days: daysArr, T: TT, goal: tg }} h=${210} /><div class="tiny muted">Dotted green = where this pace ends (~${signMoney(TT.proj)})</div>`}</section>
-      <section class="panel">${head('tiers', 'Tiers')}${!phHide.tiers && html`<div class=${'phladder' + (phHide.chart ? '' : ' tight')}>${ladder.map((t) => { const st2 = t.i != null ? 'done' : t.n === TT.cur.n ? 'now' : 'lock';
+      <section class="panel">${head('chart', 'Chart', chartSum)}${!phHide.chart && actual != null && html`<${MiniGoalChart} ms=${{ days: daysArr, T: TT, goal: tg }} h=${210} /><div class="tiny muted">Dotted green = where this pace ends (~${signMoney(TT.proj)})</div>`}</section>
+      <section class="panel">${head('tiers', 'Tiers', tierSum)}${!phHide.tiers && html`<div class=${'phladder' + (phHide.chart ? '' : ' tight')}>${ladder.map((t) => { const st2 = t.i != null ? 'done' : t.n === TT.cur.n ? 'now' : 'lock';
           return html`<div class=${'phrung ' + st2}><div class="row"><b>${t.n <= 2 ? t.name : 'Tier ' + t.n}</b>${st2 === 'lock' && html`<span class="tiny"> 🔒</span>`}<span class="spacer"></span><span class="small">${R.money0(t.amt)}</span></div>
             ${st2 === 'done' ? html`<div class="tiny muted">cleared ${mdLabel(t.on)}</div>` : st2 === 'now' ? html`<div class="phbar sm"><i style=${`width:${Math.max(0, Math.min(100, (actual - (TT.prev ? TT.prev.amt : 0)) / (t.amt - (TT.prev ? TT.prev.amt : 0)) * 100)).toFixed(0)}%`}></i></div><div class="tiny" style="color:var(--tier)">${R.money0(Math.max(0, t.amt - actual))} to go · ${tNeed == null ? '' : R.money0(tNeed) + '/day'}</div>` : reachN && reachN.n === t.n ? html`<div class="tiny" style="color:var(--tier)">this pace gets here (~${signMoney(TT.proj)})</div>` : ''}</div>`; })}</div>`}</section>
       <section class="panel"><div class="row"><h2>Every day</h2><span class="spacer"></span><span class="tiny muted">${withV.length} of ${dimNow} entered</span></div>
@@ -5564,7 +5569,8 @@ function PlanPage(ctx) {
       <section class="panel phlist"><h2>Coming up</h2>${groups.length ? groups.map((g) => html`<div class=${'phwkl' + (g.k === 'late' ? ' late' : '')}>${g.lbl}</div>${g.items.map(arow)}`) : html`<div class="empty">Nothing planned. Tap + To-do to add something.</div>`}
         ${doneList.length > 0 && html`<button class="link small" style="align-self:flex-start;margin-top:8px" onClick=${() => setShowDone(!showDone)}>${showDone ? 'Hide completed' : `Completed (${doneList.length})`}</button>`}
         ${showDone && doneList.map(arow)}</section>
-      <section class="panel phlist"><h2>Products</h2>${prods.map((x) => html`<button class="phli" onClick=${() => setOpenP(openP === x.p.id ? null : x.p.id)}><i class=${'tdot k-' + x.p.kind} style="width:10px;height:10px"></i><span><b>${x.p.name}</b><span class="tiny muted">${x.st.live.length ? `${x.st.live.length} test${x.st.live.length === 1 ? '' : 's'} live` : x.st.next ? `next test ${mdLabel(x.st.next.d.a)}${x.st.next.s.when ? ' (est.)' : ''}` : 'nothing planned'}</span></span><span class="spacer"></span><span class=${'chip t-' + x.st.flag[1]}>${x.st.flag[0]}</span><span class="muted">${openP === x.p.id ? '▴' : '▾'}</span></button>${openP === x.p.id && card(x)}`)}</section>
+      <section class="panel phlist"><h2>Products</h2>${prods.map((x) => { const f = x.st.flag, short = { 'TESTING NOW': 'Testing', 'NEEDS NEW ADS': 'Needs ads', 'IN THE PLAN NOW': 'In plan', OK: 'OK', 'NOT IN THE PLAN': 'Not planned', WAITING: 'Waiting' }[f[0]] || (f[0].startsWith('NEXT') ? 'Next' : f[0]);
+        return html`<button class=${'phprod' + (openP === x.p.id ? ' open' : '')} onClick=${() => setOpenP(openP === x.p.id ? null : x.p.id)}><i class=${'tdot k-' + x.p.kind}></i><span class="phtx"><b>${x.p.name}</b><span class="tiny muted">${x.st.live.length ? `${x.st.live.length} test${x.st.live.length === 1 ? '' : 's'} live` : x.st.next ? `next test ${mdLabel(x.st.next.d.a)}${x.st.next.s.when ? ' (est.)' : ''}` : x.st.nc ? `${x.st.nc.hits} of ${x.st.nc.checks.length} checks say it needs ads` : 'nothing planned'}</span></span><span class=${'phflag t-' + f[1]}>${short}</span><span class="phchev">${openP === x.p.id ? '▴' : '▾'}</span></button>${openP === x.p.id && html`<div class="phprodcard">${card(x)}</div>`}`; })}</section>
     </div>`;
   }
   return html`
