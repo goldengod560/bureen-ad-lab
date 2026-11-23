@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=258';
-import * as R from './rules.js?v=258';
-import { importHistory } from './importer.js?v=258';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=258';
+import { createBackend } from './data.js?v=259';
+import * as R from './rules.js?v=259';
+import { importHistory } from './importer.js?v=259';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=259';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -5007,7 +5007,7 @@ function PeriodForm(ctx) {
         <${Field} label="Ad spend (all ads)"><input inputmode="decimal" value=${f.spend} onInput=${set('spend')} placeholder=${metaSpend ? `auto ${R.money0(metaSpend)} (Meta files)` : '$'} /><//>
         <${Field} label="Apps and subscriptions"><input inputmode="decimal" value=${f.fixedCost} onInput=${set('fixedCost')} placeholder=${`auto ${R.money(appsFor(days || 1))}`} /><//>
         <${Field} label="Other costs"><input inputmode="decimal" value=${f.other} onInput=${set('other')} placeholder="$ chargebacks, extra shipping…" /><//>
-        <div class="tiny muted full">Apps and ad spend fill in by themselves: apps ${R.money(appsFor(days || 1))} for these ${days || 1} days (your ${R.money(R.num(R.storeEcon().fixedMonthly) || 0)}/month list, Goal → Apps)${metaSpend ? `, ad spend ${R.money(metaSpend)} from your Meta files` : ''}. Only type a number if it was different.</div>
+        <div class="tiny muted full">Apps and ad spend fill in by themselves: apps ${R.money(appsFor(days || 1))} for these ${days || 1} days (your ${R.money(R.num(R.storeEcon().fixedMonthly) || 0)}/month list, Goal → Apps)${metaSpend ? `, ad spend ${R.money(metaSpend)} from your Meta files for ${f.from === f.to ? R.parseDay(f.from).toLocaleDateString('en-US', { weekday: 'short' }) + ' ' + mdLabel(f.from) : mdLabel(f.from) + '–' + mdLabel(f.to)}` : ''}. Only type a number if it was different.</div>
         <div class="fsec full">Optional</div>
         <${Field} full label="Exact profit, if you already know it (overrides everything above)"><input inputmode="decimal" value=${f.exact} onInput=${set('exact')} placeholder="$" /><//>
         ${(() => { // live profit for these dates
