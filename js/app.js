@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=266';
-import * as R from './rules.js?v=266';
-import { importHistory } from './importer.js?v=266';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=266';
+import { createBackend } from './data.js?v=267';
+import * as R from './rules.js?v=267';
+import { importHistory } from './importer.js?v=267';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=267';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1968,7 +1968,7 @@ function MiniGoalChart({ ms, h }) {
     <svg width=${W} height=${H} style=${`height:${H}px;touch-action:pan-y`} onPointerMove=${move} onPointerDown=${move} onPointerLeave=${() => setHv(null)}>
     ${ticks.map((t) => html`<line x1=${L} x2=${W - Rt} y1=${y(t)} y2=${y(t)} stroke="var(--line)" /><text x=${L - 6} y=${y(t) + 4} class="ax" text-anchor="end">${t >= 1000 ? '$' + (t / 1000).toFixed(t % 1000 ? 1 : 0) + 'k' : '$' + t}</text>`)}
     ${(ms.bands || []).map((b) => { const w = (W - L - Rt) / Math.max(1, dim - 1), x0 = Math.max(L, x(b.i0) - w / 2), x1 = Math.min(W - Rt, x(b.i1) + w / 2);
-      return html`<rect x=${x0} y=${T - 6} width=${x1 - x0} height=${H - T - B + 6} fill="var(--mid)" fill-opacity=".09" /><text x=${(x0 + x1) / 2} y=${T + 4} text-anchor="middle" class="ax" style="fill:var(--mid);font-weight:800;font-size:9.5px">SALE</text>`; })}
+      return html`<rect x=${x0} y=${T - 6} width=${x1 - x0} height=${H - T - B + 6} fill="var(--mid)" fill-opacity=".09" /><line x1=${x0} x2=${x0} y1=${T - 6} y2=${H - B} stroke="var(--mid)" stroke-opacity=".5" stroke-dasharray="3 3" /><text x=${x0 + 4} y=${H - B - 5} class="ax" style="fill:var(--mid);font-weight:800;font-size:9.5px">SALE</text>`; })}
     <polygon points=${`${x(0)},${y(0)} ${pts} ${x(lastI)},${y(0)}`} fill="var(--pass)" fill-opacity=".16" />
     ${stretch && html`<line x1=${L} x2=${W - Rt} y1=${y(stretch.amt)} y2=${y(stretch.amt)} stroke="var(--mid)" stroke-opacity=".55" stroke-width="1.5" stroke-dasharray="5 4" /><text x=${W - Rt - 2} y=${y(stretch.amt) + 13} text-anchor="end" class="ax" style="fill:var(--mid);font-weight:700">Stretch ✓</text>`}
     <line x1=${L} x2=${W - Rt} y1=${y(ms.goal)} y2=${y(ms.goal)} stroke="var(--tier)" stroke-width="2.5" stroke-dasharray="9 5" /><text x=${L + 4} y=${y(ms.goal) - 6} class="ax" style="fill:var(--tier);font-weight:800">${tgt.name} · ${R.money0(ms.goal)}</text>
@@ -3260,7 +3260,8 @@ function GoalLine({ days, lo, hi, dim, tiers, curN, bands }) {
       ${ticks.map((t) => html`<line x1=${L} x2=${W - Rt} y1=${y(t)} y2=${y(t)} class="grid" /><text x=${L - 6} y=${y(t) + 4} class="ax" text-anchor="end">${signMoney(t)}</text>`)}
       ${[0, 6, 13, 20, 27, dim - 1].filter((k, j, a) => k < dim && a.indexOf(k) === j && (k !== 27 || W >= 700 || dim - 1 - k > 3)).map((k) => html`<text x=${x(k)} y=${H - 6} class="ax" text-anchor=${k === dim - 1 ? 'end' : k === 0 ? 'start' : 'middle'}>${mdLabel(days[k].d)}</text>`)}
       ${(bands || []).map((b) => { const w = (W - L - Rt) / Math.max(1, dim - 1), x0 = Math.max(L, x(b.i0) - w / 2), x1 = Math.min(W - Rt, x(b.i1) + w / 2);
-        return html`<rect x=${x0} y=${T} width=${x1 - x0} height=${H - T - B} fill="var(--mid)" fill-opacity=".08" /><text x=${(x0 + x1) / 2} y=${T + 12} text-anchor="middle" class="ax" style="fill:var(--mid);font-weight:800;letter-spacing:.06em">${(b.s.name || 'SALE').toUpperCase()}</text>`; })}
+        return html`<rect x=${x0} y=${T} width=${x1 - x0} height=${H - T - B} fill="var(--mid)" fill-opacity=".08" /><line x1=${x0} x2=${x0} y1=${T} y2=${H - B} stroke="var(--mid)" stroke-opacity=".5" stroke-dasharray="3 3" />
+          <text x=${x0 + 6} y=${H - B - 8} class="ax" style="fill:var(--mid);font-weight:800;letter-spacing:.04em">${(b.s.name || 'SALE').toUpperCase()} · ${mdLabel(days[b.i0].d)}–${mdLabel(days[b.i1].d).replace(/^\w+ /, '')}</text>`; })}
       ${area && html`<polygon points=${area} fill="var(--pass)" fill-opacity=".14" />`}
       ${goals.map((g) => { const done = g.i != null, cur = g === target && !done, op = done ? 0.45 : cur ? 1 : 0.6;
         return html`<line x1=${L} x2=${W - Rt} y1=${y(g.amt)} y2=${y(g.amt)} stroke=${g.col} stroke-opacity=${op} stroke-width="2" stroke-dasharray=${done ? '4 4' : cur ? '9 4' : '2 5'} />
