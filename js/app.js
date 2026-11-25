@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=263';
-import * as R from './rules.js?v=263';
-import { importHistory } from './importer.js?v=263';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=263';
+import { createBackend } from './data.js?v=264';
+import * as R from './rules.js?v=264';
+import { importHistory } from './importer.js?v=264';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=264';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -233,7 +233,7 @@ function ProductTabs({ data, products, product, setPid, setModal, saleTab, onSal
   const sTab = sl && html`<button role="tab" aria-selected=${!!saleTab} class=${'ptab saletab' + (saleTab ? ' on' : '') + (slLast ? ' over' : '')} onClick=${() => setPid('sale')}><span class="salechip">SALE</span>${sl.name || 'Sale'}${slLast ? html`<span class="n">ended</span>` : ''}</button>`;
   return html`<div class="ptabs" role="tablist" aria-label="Products">
     ${!slLast && sTab}
-    ${products.map((p) => { const n = data.ads.filter((a) => a.product_id === p.id && a.stage !== 'retired' && a.stage !== 'seasonal').length;
+    ${(LOOK === 'stocks' ? runningOrder(data, products) : products).map((p) => { const n = data.ads.filter((a) => a.product_id === p.id && a.stage !== 'retired' && a.stage !== 'seasonal').length;
       if (LOOK === 'stocks') { const mp = mainPlan(data, p), r = mp && mp.cur.spend ? mp.cur.roas : null;
         return html`<button role="tab" aria-selected=${!saleTab && p.id === product.id} class=${'ptab' + (!saleTab && p.id === product.id ? ' on' : '')} onClick=${() => setPid(p.id)}><i class=${'tdot k-' + p.kind}></i>${p.name}${r != null && html`<span class="n">${r.toFixed(2)}x</span>`}</button>`; }
       return html`<button role="tab" aria-selected=${p.id === product.id} class=${'ptab' + (p.id === product.id ? ' on' : '')} onClick=${() => setPid(p.id)}>${p.name}<span class="n">${n}</span></button>`; })}
@@ -2017,7 +2017,7 @@ function PhoneAds({ data, products, setModal }) {
   const nm = (a) => displayName(a).replace(/^(IMG|VID|Image|Video)\s*[|–-]\s*/i, '').replace(/\s*\|\s*V\d+$/i, '');
   return html`<div class="phads">
     <div class="row"><h1 style="font-size:26px;margin:0">Ads</h1><span class="spacer"></span><button class="btn sm" onClick=${() => setModal({ type: AdForm, props: { mode: 'new' } })}>+ New ad</button></div>
-    <div class="phchips">${[['all', 'All products'], ...products.map((x) => [x.id, x.name])].map(([k, l]) => html`<button class=${pf === k ? 'on' : ''} onClick=${() => setPf(k)}>${l}</button>`)}</div>
+    <div class="phchips">${[['all', 'All products'], ...runningOrder(data, products).map((x) => [x.id, x.name])].map(([k, l]) => html`<button class=${pf === k ? 'on' : ''} onClick=${() => setPf(k)}>${l}</button>`)}</div>
     <div class="phseg">${PH_STAGES.map(([k, l]) => html`<button class=${stg === k ? 'on' : ''} onClick=${() => setStg(k)}>${l}<i>${cnt(k)}</i></button>`)}</div>
     ${['main', 'testing', 'seasonal'].includes(stg) && html`<div class="row tiny muted" style="margin:2px 2px 0"><span>ROAS · last 7 days</span></div>`}
     <section class="panel phlist">${list.length ? list.map(({ a, t }) => html`<button class="phad" onClick=${() => setModal({ type: AdDetail, props: { adId: a.id } })}>
@@ -5685,6 +5685,19 @@ function PlanEdit({ data, close, reload, say }) {
 }
 // Overview strip: the plan in one line, and any product that needs new ads.
 // A sale's own ads: added from the sale, kept out of tests and Main, with their numbers since the sale started.
+// Product order for the tabs: products running ads now first, the longest-running first; then the rest in their usual order.
+// "Running" = its ads spent in the last 7 days of your Meta files; a run counts as unbroken unless it stopped for 14+ days.
+const runOrderCache = new WeakMap();
+function runningOrder(data, products) {
+  let m = runOrderCache.get(data);
+  if (!m) { m = new Map(); const last = lastMetaDay(data);
+    for (const p of data.products) { const days = [...new Set(data.ads.filter((a) => a.product_id === p.id && a.stage !== 'seasonal').flatMap((a) => rowsForAd(a, data.meta_days)).filter((r) => +r.spend > 0).map((r) => r.day))].sort().reverse();
+      if (!last || !days.length || days[0] < R.addDays(last, -6)) continue;
+      let since = days[0]; for (let i = 0; i + 1 < days.length && R.daysBetween(days[i + 1], days[i]) <= 14; i++) since = days[i + 1];
+      m.set(p.id, since); }
+    runOrderCache.set(data, m); }
+  return products.slice().sort((a, b) => { const x = m.get(a.id), y = m.get(b.id); if (x && y) return x.localeCompare(y) || a.sort - b.sort; if (x) return -1; if (y) return 1; return a.sort - b.sort; });
+}
 function saleTabSale(data) { const td = R.today(); return planOf(data).steps.filter((x) => x.kind === 'sale' && x.end && R.addDays(x.end, 7) >= td && x.start <= R.addDays(td, 14)).sort((a, b) => a.start.localeCompare(b.start))[0] || null; }
 function saleOn(data) { const td = R.today(); return planOf(data).steps.filter((x) => x.kind === 'sale' && x.end && x.end >= R.addDays(td, -2) && x.start <= R.addDays(td, 14)).sort((a, b) => a.start.localeCompare(b.start))[0] || null; }
 function SaleAds({ data, sale, setModal, compact, noList }) {
