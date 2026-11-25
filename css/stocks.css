@@ -562,3 +562,4 @@ button.sktarget{display:flex;flex-direction:column;text-align:left;width:100%;cu
 .ptab.saletab{border-color:color-mix(in srgb,var(--mid) 60%,transparent)}
 .saleshead{border-left:3px solid var(--mid)}
 .sktable{width:100%;border-collapse:collapse;font-size:13px}.sktable th{text-align:left;color:var(--muted);font-weight:700;font-size:11.5px;padding:6px 8px;border-bottom:1px solid var(--line)}.sktable td{padding:8px;border-bottom:1px solid var(--line)}.tablewrap{overflow-x:auto}
+.ptab.saletab.over{opacity:.75}
