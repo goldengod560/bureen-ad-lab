@@ -557,3 +557,4 @@ button.sktarget{display:flex;flex-direction:column;text-align:left;width:100%;cu
 /* Sale ads */
 .saleads{border-left:3px solid var(--mid);gap:6px}.saleads .phad:first-of-type{border-top:0}
 .saletot{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:4px 0}.saletot>div{background:var(--panel2);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:1px}.saletot b{font-size:17px;font-weight:900}
+.carmove{display:inline-flex;align-items:center;gap:6px}.carmove .small{white-space:nowrap}

@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=260';
-import * as R from './rules.js?v=260';
-import { importHistory } from './importer.js?v=260';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=260';
+import { createBackend } from './data.js?v=261';
+import * as R from './rules.js?v=261';
+import { importHistory } from './importer.js?v=261';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=261';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -637,6 +637,7 @@ function Board(ctx) {
       <${SignalLegend} />
       <${MainPlan} data=${data} product=${product} setModal=${ctx.setModal} reload=${ctx.reload} say=${ctx.say} />
       <${ProductDaily} data=${data} product=${product} />
+      ${saleOn(data) && html`<${SaleAds} data=${data} sale=${saleOn(data)} setModal=${ctx.setModal} />`}
       <${Toolbar} b=${b} data=${data} product=${product} sel=${sel} setSel=${setSel} extra=${upload} />
       ${dragging && html`<div class="droprow"><span class="small muted">Drop on a folder:</span>${FOLDERS.map((f) => html`<span class=${'dropchip' + (dropCol === f ? ' on' : '')} ...${dz(f)}>${skName(f)}</span>`)}</div>`}
       ${searching ? html`<section class="panel"><div class="row"><h2>Search: ${results.length} ad${results.length === 1 ? '' : 's'}</h2><span class="muted small">across every folder</span></div>
@@ -1014,13 +1015,15 @@ function MediaGallery({ ad, setLightbox, reload, say }) {
   const add = async (fl) => {
     if (!fl) return; setBusy(true);
     try {
-      const label = prompt('Label for this file (for example 9:16 or Story):', '') || '';
+      const nCards = 1 + (tags.files || []).filter((x) => /^card\b/i.test(x.label || '')).length;
+      const label = prompt('Label for this file (for example 9:16 or Story):', (ad.format === 'carousel' || nCards > 1) ? 'Card ' + (nCards + 1) : '') || '';
       const path = await be.upload(`${ad.product_id}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${extOf(fl)}`, fl);
       await be.update('ads', ad.id, { tags: { ...tags, files: [...(tags.files || []), { path, type: fl.type, label }] } }); await reload(); say('File added'); setI(files.length);
     } catch (e) { say('Could not add: ' + e.message); }
     setBusy(false);
   };
-  const removeCur = async () => { if (cur.main) return; await be.update('ads', ad.id, { tags: { ...tags, files: (tags.files || []).filter((x) => x.path !== cur.path) } }); setI(0); await reload(); say('File removed'); };
+  const removeCur = async () => { if (cur.main) return; let n = 1; const left = (tags.files || []).filter((x) => x.path !== cur.path).map((x) => (/^card\b/i.test(x.label || '') ? { ...x, label: 'Card ' + (++n) } : x));
+    await be.update('ads', ad.id, { tags: { ...tags, files: left } }); setI(0); await reload(); say('File removed'); };
   const makeMain = async () => {
     if (cur.main) return;
     const rest = (tags.files || []).filter((x) => x.path !== cur.path);
@@ -1029,14 +1032,28 @@ function MediaGallery({ ad, setLightbox, reload, say }) {
     await be.update('ads', ad.id, { media_path: cur.path, media_type: cur.type, tags: t }); setI(0); await reload(); say('Set as main');
   };
   const copyName = async () => { try { await navigator.clipboard.writeText(ad.launched_on ? displayName(ad) : ad.base_name); say('Name copied'); } catch (e) { say('Could not copy'); } };
+  // Carousel: the main picture is card 1, then the files labelled "Card …". Moving one re-saves the order and the labels.
+  const isCar = ad.format === 'carousel' || (tags.files || []).some((x) => /^card\b/i.test(x.label || ''));
+  const deck = files.filter((x) => x.main || /^card\b/i.test(x.label || ''));
+  const di = cur ? deck.findIndex((x) => x.path === cur.path) : -1;
+  const moveCard = async (dir) => {
+    const k = di + dir; if (di < 0 || k < 0 || k >= deck.length) return;
+    const arr = deck.slice(); [arr[di], arr[k]] = [arr[k], arr[di]];
+    const others = (tags.files || []).filter((x) => !/^card\b/i.test(x.label || ''));
+    const t = { ...tags, files: [...arr.slice(1).map((x, j) => ({ path: x.path, type: x.type, label: 'Card ' + (j + 2) })), ...others] };
+    if (arr[0].path !== ad.media_path) delete t.poster;
+    await be.update('ads', ad.id, { media_path: arr[0].path, media_type: arr[0].type, tags: t });
+    await reload(); setI(files.findIndex((x) => x.path === arr[k].path) >= 0 ? (k === 0 ? 0 : k) : 0); say(`Moved to card ${k + 1}`);
+  };
   return html`<div class="stack" style="gap:8px">
     ${cur ? html`<${Media} big path=${cur.path} type=${cur.type} onOpen=${(url, video) => setLightbox({ url, video })} />` : html`<div class="bigmedia empty">No image yet</div>`}
-    ${files.length > 1 && html`<div class="gallery">${files.map((x, j) => html`<button class=${'gthumb' + (j === i ? ' on' : '')} onClick=${() => setI(j)} title=${x.label}><${Media} path=${x.path} type=${x.type} poster=${x.main ? tags.poster : null} /><span>${x.label || 'File ' + (j + 1)}</span></button>`)}</div>`}
+    ${files.length > 1 && html`<div class="gallery">${files.map((x, j) => html`<button class=${'gthumb' + (j === i ? ' on' : '')} onClick=${() => setI(j)} title=${x.label}><${Media} path=${x.path} type=${x.type} poster=${x.main ? tags.poster : null} /><span>${isCar && (x.main || /^card\b/i.test(x.label || '')) ? 'Card ' + (deck.indexOf(x) + 1) : x.label || 'File ' + (j + 1)}</span></button>`)}</div>`}
     <div class="row">
       ${cur && html`<button class="btn sm" onClick=${() => downloadMedia(cur.path, ad.base_name + (cur.main ? '' : ' - ' + (cur.label || 'extra'))).catch((e) => say('Download failed: ' + e.message))}>Download</button>`}
       <button class="btn sm" onClick=${copyName}>Copy name</button>
       <label class="btn sm ghost">${busy ? 'Adding…' : '+ Add file'}<input type="file" accept="image/*,video/*" hidden onChange=${(e) => { add(e.target.files[0]); e.target.value = ''; }} /></label>
-      ${cur && !cur.main && html`<button class="btn sm ghost" onClick=${makeMain}>Make main</button><button class="btn sm ghost danger" onClick=${removeCur}>Remove</button>`}
+      ${isCar && di >= 0 && deck.length > 1 && html`<span class="carmove"><button class="btn sm" disabled=${di === 0} onClick=${() => moveCard(-1)} aria-label="Move card earlier">◀</button><span class="small">Card ${di + 1} of ${deck.length}</span><button class="btn sm" disabled=${di === deck.length - 1} onClick=${() => moveCard(1)} aria-label="Move card later">▶</button></span>`}
+      ${cur && !cur.main && !(isCar && di >= 0) && html`<button class="btn sm ghost" onClick=${makeMain}>Make main</button>`}${cur && !cur.main && html`<button class="btn sm ghost danger" onClick=${removeCur}>Remove</button>`}
     </div></div>`;
 }
 
