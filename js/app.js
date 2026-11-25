@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=265';
-import * as R from './rules.js?v=265';
-import { importHistory } from './importer.js?v=265';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=265';
+import { createBackend } from './data.js?v=266';
+import * as R from './rules.js?v=266';
+import { importHistory } from './importer.js?v=266';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=266';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -229,7 +229,7 @@ function Login() {
 }
 
 function ProductTabs({ data, products, product, setPid, setModal, saleTab, onSale }) {
-  const sl = onSale ? saleTabSale(data) : null, slLast = sl && R.today() > sl.end;
+  const sl = onSale ? saleTabSale(data) : null, slLast = sl && R.today() > saleLastDay(sl);
   const sTab = sl && html`<button role="tab" aria-selected=${!!saleTab} class=${'ptab saletab' + (saleTab ? ' on' : '') + (slLast ? ' over' : '')} onClick=${() => setPid('sale')}><span class="salechip">SALE</span>${sl.name || 'Sale'}${slLast ? html`<span class="n">ended</span>` : ''}</button>`;
   return html`<div class="ptabs" role="tablist" aria-label="Products">
     ${!slLast && sTab}
@@ -3084,7 +3084,7 @@ function StocksGoal(g) {
   const shouldBe = hi * elapsed / dimNow, ahead = actual != null ? actual - shouldBe : null;
   const pct = actual != null ? Math.max(0, Math.min(100, actual / hi * 100)) : 0;
   const saleSteps = planOf(data).steps.filter((x) => x.kind === 'sale' && x.start && x.end);
-  const saleOfDay = (d) => saleSteps.find((x) => d >= x.start && d <= x.end) || null;
+  const saleOfDay = (d) => saleSteps.find((x) => d >= x.start && d <= saleLastDay(x)) || null;
   const daysArr = Array.from({ length: dimNow }, (_, i) => { const d = curYm + '-' + String(i + 1).padStart(2, '0'); const v = dm.get(d); return { d, v: v ? v.profit : null, today: d === R.today(), sale: saleOfDay(d) }; });
   // Sale stretches in this month (for the chart band) and how much of the month's profit came during them.
   const saleBands = []; daysArr.forEach((x, i) => { if (!x.sale) return; const b = saleBands[saleBands.length - 1]; if (b && b.s === x.sale && b.i1 === i - 1) b.i1 = i; else saleBands.push({ s: x.sale, i0: i, i1: i }); });
@@ -5678,7 +5678,7 @@ function PlanEdit({ data, close, reload, say }) {
         : s.kind === 'sale' ? html`<input class="inp" value=${s.name || ''} placeholder="Sale name" onInput=${(e) => up(i, { name: e.target.value })} />
             <input class="inp" value=${s.offer || ''} placeholder="The offer, e.g. 15% off sitewide" onInput=${(e) => up(i, { offer: e.target.value })} style="min-width:220px" />
             <label class="f"><span>Last test launch</span><input class="inp" type="date" value=${s.lastLaunch || (s.start ? R.addDays(s.start, -8) : '')} onInput=${(e) => up(i, { lastLaunch: e.target.value || null })} /></label>
-            <label class="f"><span>From</span><input class="inp" type="date" value=${s.start} onInput=${(e) => up(i, { start: e.target.value })} /></label><label class="f"><span>To</span><input class="inp" type="date" value=${s.end} onInput=${(e) => up(i, { end: e.target.value })} /></label>`
+            <label class="f"><span>From</span><input class="inp" type="date" value=${s.start} onInput=${(e) => up(i, { start: e.target.value })} /></label><label class="f"><span>Off the morning of</span><input class="inp" type="date" value=${s.end} onInput=${(e) => up(i, { end: e.target.value })} /></label>`
           : html`<select class="inp" value=${s.when ? 'stable:' + s.when.pid : 'date'} onChange=${(e) => (e.target.value === 'date' ? up(i, { when: null, start: s.start || R.addDays(R.today(), 7) }) : up(i, { when: { type: 'stable', pid: e.target.value.slice(7) }, start: null }))}>
               <option value="date">Starts on a date</option>${prods.filter((x) => x.id !== s.pid).map((x) => html`<option value=${'stable:' + x.id}>When ${x.name} is stable</option>`)}</select>
             ${s.when ? html`<span class="tiny muted">stable = 2 weeks in Main above break-even</span>` : html`<label class="f"><span>Starts</span><input class="inp" type="date" value=${s.start} onInput=${(e) => up(i, { start: e.target.value })} /></label>`}
@@ -5709,6 +5709,8 @@ function runningOrder(data, products) {
     runOrderCache.set(data, m); }
   return products.slice().sort((a, b) => { const x = m.get(a.id), y = m.get(b.id); if (x && y) return x.localeCompare(y) || a.sort - b.sort; if (x) return -1; if (y) return 1; return a.sort - b.sort; });
 }
+// A sale's "To" date is the morning you turn it off, so its last full selling day is the day before.
+const saleLastDay = (s) => (s.end && s.start && s.end > s.start ? R.addDays(s.end, -1) : s.end);
 function saleTabSale(data) { const td = R.today(); return planOf(data).steps.filter((x) => x.kind === 'sale' && x.end && R.addDays(x.end, 7) >= td && x.start <= R.addDays(td, 14)).sort((a, b) => a.start.localeCompare(b.start))[0] || null; }
 function saleOn(data) { const td = R.today(); return planOf(data).steps.filter((x) => x.kind === 'sale' && x.end && x.end >= R.addDays(td, -2) && x.start <= R.addDays(td, 14)).sort((a, b) => a.start.localeCompare(b.start))[0] || null; }
 function SaleAds({ data, sale, setModal, compact, noList }) {
@@ -5717,9 +5719,9 @@ function SaleAds({ data, sale, setModal, compact, noList }) {
   const pOf = (a) => data.products.find((x) => x.id === a.product_id) || {};
   const rows = ads.map((a) => ({ a, t: sumRows(rowsForAd(a, data.meta_days).filter((r) => r.day >= sale.start && r.day <= sale.end)) })).sort((x, y) => y.t.spend - x.t.spend);
   const tot = rows.reduce((m, x) => ({ spend: m.spend + x.t.spend, revenue: m.revenue + x.t.revenue, purchases: m.purchases + x.t.purchases }), { spend: 0, revenue: 0, purchases: 0 });
-  const left = R.daysBetween(td, sale.start), on = td >= sale.start && td <= sale.end;
+  const left = R.daysBetween(td, sale.start), on = td >= sale.start && td <= saleLastDay(sale);
   const nm = (a) => a.base_name.replace(/^(IMG|VID|CAR|Image|Video|Carousel)\s*[|–-]\s*/i, '');
-  return html`<section class="panel saleads"><div class="row" style="gap:8px;flex-wrap:wrap"><span class="sig sig-hold">SALE</span><h2 style="margin:0">${sale.name || 'Sale'} ads</h2><span class="spacer"></span><span class="small muted">${on ? 'on now' : left > 0 ? `starts in ${left} day${left === 1 ? '' : 's'}` : 'ended'} · ${mdLabel(sale.start)}–${mdLabel(sale.end)}</span></div>
+  return html`<section class="panel saleads"><div class="row" style="gap:8px;flex-wrap:wrap"><span class="sig sig-hold">SALE</span><h2 style="margin:0">${sale.name || 'Sale'} ads</h2><span class="spacer"></span><span class="small muted">${on ? 'on now' : left > 0 ? `starts in ${left} day${left === 1 ? '' : 's'}` : 'ended'} · ${mdLabel(sale.start)}–${mdLabel(saleLastDay(sale))}</span></div>
     ${rows.length ? html`${tot.spend > 0 && html`<div class="saletot"><div><span class="tiny muted">Spent</span><b>${R.money0(tot.spend)}</b></div><div><span class="tiny muted">Purchases</span><b>${Math.round(tot.purchases)}</b></div><div><span class="tiny muted">ROAS</span><b class=${tot.revenue / tot.spend >= 2.85 ? 'pos' : 'neg'}>${R.xroas(tot.revenue / tot.spend)}</b></div><div><span class="tiny muted">CPA</span><b>${tot.purchases ? R.money(tot.spend / tot.purchases) : '—'}</b></div></div>`}
       ${!noList && rows.map(({ a, t }) => html`<button class="phad" onClick=${() => setModal({ type: AdDetail, props: { adId: a.id } })}><${Media} path=${a.media_path} type=${a.media_type} poster=${a.tags && a.tags.poster} cls="sm" />
         <span class="phadn"><b>${nm(a)}</b><span class="tiny muted">${a.format === 'carousel' ? 'Carousel' : a.format === 'video' ? 'Video' : 'Image'}${t.spend ? ` · ${R.money0(t.spend)} · ${Math.round(t.purchases)} buys` : ' · no spend yet'}</span></span>${t.spend ? roasPill(t.revenue / t.spend) : html`<span class="muted">›</span>`}</button>`)}`
@@ -5735,7 +5737,7 @@ function SalePage(ctx) {
   // Ads added the normal way (they land under a product's Ideas or Up Next): bring them onto the sale.
   const strays = data.ads.filter((a) => ['ideas', 'next'].includes(a.stage) && (Date.parse(a.created_at) || 0) >= Date.parse(R.addDays(sale.start, -21) + 'T00:00:00')).sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
   const moveIn = async () => { const a = data.ads.find((x) => x.id === mv); if (!a) return; await be.update('ads', a.id, { stage: 'seasonal', tags: { ...(a.tags || {}), season: sale.name || 'Sale', sale: sale.id } }); setMv(''); await reload(); say(`Moved to ${sale.name || 'the sale'}`); };
-  const td = R.today(), yd = R.addDays(td, -1), last = [yd, sale.end].sort()[0];
+  const td = R.today(), yd = R.addDays(td, -1), sEnd = saleLastDay(sale), last = [yd, sEnd].sort()[0];
   const days = []; for (let d = sale.start; d <= last; d = R.addDays(d, 1)) days.push(d);
   const n = days.length, before = Array.from({ length: Math.max(n, 7) }, (_, i) => R.addDays(sale.start, -(i + 1)));
   const shop = new Map(data.shop_days.map((r) => [r.day, r])), sales = (d) => { const r = shop.get(d); return r ? (+r.gross || 0) - (+r.refunds || 0) : null; };
@@ -5747,11 +5749,11 @@ function SalePage(ctx) {
   const chg = (a, b) => (a == null || !b ? null : (a - b) / b * 100);
   const tile = (k, v, sub, c) => html`<div class="tile"><div class="k">${k}</div><div class=${'v ' + (c || '')}>${v}</div><div class="s">${sub}</div></div>`;
   const pct = (x) => (x == null ? '' : html`<span class=${x >= 0 ? 'pos' : 'neg'}>${x >= 0 ? '▲' : '▼'} ${Math.abs(Math.round(x))}%</span> vs before`);
-  const on = td >= sale.start && td <= sale.end, left = R.daysBetween(td, sale.start);
+  const on = td >= sale.start && td <= sEnd, left = R.daysBetween(td, sale.start);
   const byDay = days.map((d) => { const sr = sumRows(saleRows.filter((r) => r.day === d)), sp = metaDay.get(d) || 0, sl = sales(d), o = shop.get(d); return { d, sl, orders: o ? +o.orders || 0 : null, sp, saleSp: sr.spend, saleRoas: sr.spend ? sr.revenue / sr.spend : null, mer: sl != null && sp ? sl / sp : null }; });
   return html`<div class="stack" style="gap:16px">
     <section class="panel saleshead"><div class="row" style="gap:10px;flex-wrap:wrap"><span class="salechip big">SALE</span><h1 style="margin:0;font-size:30px">${sale.name || 'Sale'}</h1><span class="spacer"></span>
-      <span class="small">${on ? `on now · day ${R.daysBetween(sale.start, td) + 1} of ${R.daysBetween(sale.start, sale.end) + 1}` : left > 0 ? `starts in ${left} day${left === 1 ? '' : 's'}` : 'ended'} · ${mdLabel(sale.start)}–${mdLabel(sale.end)}</span></div>
+      <span class="small">${on ? `on now · day ${R.daysBetween(sale.start, td) + 1} of ${R.daysBetween(sale.start, sEnd) + 1}` : left > 0 ? `starts in ${left} day${left === 1 ? '' : 's'}` : 'ended'} · ${mdLabel(sale.start)}–${mdLabel(sEnd)} · off the morning of ${mdLabel(sale.end)}</span></div>
       ${sale.offer && html`<div class="small" style="margin-top:6px"><b>Offer:</b> ${sale.offer}</div>`}</section>
     ${n > 0 && S.got > 0 ? html`<section class="tiles">
       ${tile('Sales during the sale', R.money0(S.sales), html`${S.got} day${S.got === 1 ? '' : 's'} · ${R.money0(per(S, 'sales'))}/day ${pct(chg(per(S, 'sales'), per(B, 'sales')))}`)}
