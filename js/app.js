@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=259';
-import * as R from './rules.js?v=259';
-import { importHistory } from './importer.js?v=259';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=259';
+import { createBackend } from './data.js?v=260';
+import * as R from './rules.js?v=260';
+import { importHistory } from './importer.js?v=260';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=260';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -193,6 +193,7 @@ function App() {
       ${view === 'board' && (phone ? html`<${PhoneAds} ...${ctx} />` : html`<${Board} key=${product.id} ...${ctx} stage=${stage} setStage=${setStage} />`)}
       ${view === 'archive' && html`<${Archive} key=${product.id} ...${ctx} />`}
       ${view === 'today' && !phone && html`<${TodoCheckins} data=${data} reload=${reload} say=${say} compact=${true} />`}
+      ${view === 'today' && !phone && look === 'stocks' && saleOn(data) && html`<${SaleAds} data=${data} sale=${saleOn(data)} setModal=${setModal} />`}
       ${view === 'today' && !phone && html`<${PlanStrip} data=${data} setView=${setView} />`}
       ${view === 'today' && !phone && html`<${CloseCalls} data=${data} setView=${setView} />`}
       ${view === 'today' && html`<${Today} ...${ctx} setPid=${setPid} />`}
@@ -1290,25 +1291,33 @@ function TestPanel({ data, test, rules, econ, setModal, reload, say }) {
 const FMT_PREFIX = { image: 'IMG', video: 'VID', carousel: 'CAR' };
 const buildName = (f) => [FMT_PREFIX[f.format] || 'IMG', f.short.trim() || '…', f.variant.trim(), 'V' + (f.v || 1)].filter(Boolean).join(' | ');
 function AdForm(ctx) {
-  const { data, product, mode, adId, recycle, close, reload, say, setModal } = ctx;
+  const { data, product, mode, adId, recycle, close, reload, say, setModal, saleId } = ctx;
   const src = adId ? data.ads.find((a) => a.id === adId) : null;
+  const sale = saleId ? planOf(data).steps.find((x) => x.id === saleId) : null;
+  const [cards, setCards] = useState([]);
   const bumpV = (n) => /V\d+\s*$/i.test(n) ? n.replace(/V(\d+)\s*$/i, (_, d) => 'V' + (+d + 1)) : n + ' | V2';
   const init = mode === 'new'
     ? { base_name: '', short: '', variant: '', v: 1, format: 'image', angle: '', offer: OFFERS[0], headline: '', primary_text: '', notes: '', concept: '', hook: '', ratio: '1:1' }
     : { ...src, offer: offerOf(src), hook: (src.tags || {}).hook || '', ratio: (src.tags || {}).ratio || '1:1', aliasText: (((src.tags || {}).aliases) || []).join('\n'), short: '', variant: '', base_name: mode === 'version' ? bumpV(src.base_name) : src.base_name, notes: mode === 'version' ? (recycle ? 'Recycled. The fix: ' : 'What changed: ') : src.notes };
   const [f, setF] = useState({ ...init, product_id: src ? src.product_id : product.id }); const [file, setFile] = useState(null); const [story, setStory] = useState(null); const [busy, setBusy] = useState(false); const [upNext, setUpNext] = useState(false);
   const hasStory = src && ((src.tags || {}).files || []).some((x) => x.label === '9:16');
-  const [custom, setCustom] = useState(mode !== 'new');
+  const [custom, setCustom] = useState(mode !== 'new' || !!sale);
   const [more, setMore] = useState(mode === 'edit' && !!(src.headline || src.primary_text || src.notes || src.concept));
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const name = custom ? f.base_name : buildName(f);
   const cs = conceptStats(data, f.concept);
-  const pickFile = (fl) => { setFile(fl); if (fl) { const fmt = /^video/.test(fl.type) ? 'video' : 'image'; setF((o) => ({ ...o, format: fmt, short: o.short || fl.name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').trim() })); } };
+  const pickFile = (fl) => { setFile(fl); if (fl) { const fmt = /^video/.test(fl.type) ? 'video' : 'image'; setF((o) => ({ ...o, format: o.format === 'carousel' ? 'carousel' : fmt, short: o.short || fl.name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').trim() })); } };
+  // Several files picked at once = a carousel: the first is the main picture, the rest are its cards.
+  const pickFiles = (list) => { const fs = [...(list || [])]; pickFile(fs[0] || null); setCards(fs.slice(1)); if (fs.length > 1) setF((o) => ({ ...o, format: 'carousel' })); };
+  // Ad names in your Meta files that aren't in the app yet (newest first), so a sale ad can be picked instead of typed.
+  const unknownNames = useMemo(() => { const known = new Set(data.ads.flatMap((a) => namesOf(a))), seen = new Map();
+    for (const r of data.meta_days || []) { const k = normName(r.ad_name); if (!known.has(k) && (!seen.has(k) || seen.get(k).day < r.day)) seen.set(k, r); }
+    return [...seen.values()].sort((a, b) => b.day.localeCompare(a.day)).slice(0, 40).map((r) => r.ad_name); }, [data]);
   const save = async () => {
     if (!name.trim() || name.includes('…')) { say('Give the ad a short name.'); return; }
     setBusy(true);
     try {
-      const pidUse = src ? src.product_id : product.id;
+      const pidUse = src ? src.product_id : (sale ? f.product_id : product.id);
       let media_path = mode === 'new' ? null : src.media_path, media_type = mode === 'new' ? null : src.media_type;
       const tags = mode === 'edit' ? { ...(src.tags || {}) } : {};
       if (file) {
@@ -1317,6 +1326,7 @@ function AdForm(ctx) {
         if (/^video/.test(file.type)) { try { const pb = await videoPoster(file); tags.poster = await be.upload(`${stamp}.poster.jpg`, new File([pb], 'poster.jpg', { type: 'image/jpeg' })); } catch (e) { /* optional */ } }
       } else if (mode === 'version' && src.tags && src.tags.poster) tags.poster = src.tags.poster;
       if (mode === 'version' && !file && src.tags && src.tags.files) tags.files = src.tags.files;
+      for (let k = 0; k < cards.length; k++) { const c = cards[k]; const cp = await be.upload(`${pidUse}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}-c${k + 2}.${extOf(c)}`, c); tags.files = [...(tags.files || []), { path: cp, type: c.type, label: 'Card ' + (k + 2) }]; }
       if (story) {
         const sp = await be.upload(`${pidUse}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}-916.${extOf(story)}`, story);
         tags.files = [...(tags.files || []).filter((x) => x.label !== '9:16'), { path: sp, type: story.type, label: '9:16' }];
@@ -1331,6 +1341,8 @@ function AdForm(ctx) {
       }
       const row = { base_name: name.trim(), format: f.format, angle: f.angle || null, offer: f.offer, headline: f.headline, primary_text: f.primary_text, notes: f.notes, concept: f.concept || null, media_path, media_type, tags };
       if (mode === 'edit') { await be.update('ads', src.id, { ...row, product_id: f.product_id }); await reload(); close(); say(f.product_id !== src.product_id ? 'Moved to ' + ((data.products.find((p) => p.id === f.product_id) || {}).name || 'other product') : 'Saved'); return; }
+      if (sale) { const ins = await be.insert('ads', { ...row, tags: { ...(row.tags || {}), season: sale.name || 'Sale', sale: sale.id }, product_id: pidUse, stage: 'seasonal', version: 1, parent_id: null, history: {} });
+        await reload(); say(`Added to ${sale.name || 'the sale'}`); setModal({ type: AdDetail, props: { adId: ins.id } }); return; }
       if (upNext) row.tags = { ...(row.tags || {}), queue: Date.now() };
       const ins = await be.insert('ads', { ...row, product_id: pidUse, stage: upNext ? 'next' : 'ideas', version: mode === 'version' ? (src.version || 1) + 1 : 1, parent_id: mode === 'version' ? src.id : null, history: {} });
       await reload(); say(upNext ? 'Added to Up Next' : mode === 'version' ? 'New version added to Ideas' : 'Added to Ideas');
@@ -1338,19 +1350,21 @@ function AdForm(ctx) {
     } catch (e) { say('Could not save: ' + e.message); }
     setBusy(false);
   };
-  return html`<${Modal} title=${mode === 'new' ? 'New ad' : mode === 'edit' ? 'Edit ad' : recycle ? 'Recycle with a fix' : 'New version'} sub=${mode === 'new' ? product.name : src.base_name} onClose=${close}>
+  return html`<${Modal} title=${sale ? `${sale.name || 'Sale'} ad` : mode === 'new' ? 'New ad' : mode === 'edit' ? 'Edit ad' : recycle ? 'Recycle with a fix' : 'New version'} sub=${sale ? 'Tracked on its own: not a test, and not counted in Main' : mode === 'new' ? product.name : src.base_name} onClose=${close}>
     <div class="form">
-      ${mode === 'edit' && html`<${Field} full label="Product (which product the ad shows)"><select value=${f.product_id} onChange=${set('product_id')}>${data.products.filter((p) => !p.archived).map((p) => html`<option value=${p.id}>${p.name}</option>`)}</select><//>`}
+      ${(mode === 'edit' || sale) && html`<${Field} full label=${sale ? 'Product (for a mixed ad, the one it shows most)' : 'Product (which product the ad shows)'}><select value=${f.product_id} onChange=${set('product_id')}>${data.products.filter((p) => !p.archived).map((p) => html`<option value=${p.id}>${p.name}</option>`)}</select><//>`}
       <div class="f fdiv"><div class="row" style="gap:8px;align-items:center;justify-content:space-between"><span>${mode === 'edit' ? `Replace ${f.ratio} (feed, optional)` : `${f.ratio} (feed) · main`}</span>
         <div class="seg sm" role="group" aria-label="Feed size">${['1:1', '4:5'].map((r) => html`<button type="button" class=${f.ratio === r ? 'on' : ''} onClick=${() => setF({ ...f, ratio: r })}>${r}</button>`)}</div></div>
-        <input type="file" accept="image/*,video/*" onChange=${(e) => pickFile(e.target.files[0] || null)} /></div>
+        <input type="file" multiple accept="image/*,video/*" onChange=${(e) => pickFiles(e.target.files)} />
+        <span class="tiny muted">${cards.length ? `Carousel: ${cards.length + 1} cards` : 'Carousel? Pick all its pictures at once (in order).'}</span></div>
       <${Field} label=${hasStory ? 'Replace 9:16 (Stories / Reels)' : '9:16 (Stories / Reels) · optional'}><input type="file" accept="image/*,video/*" onChange=${(e) => setStory(e.target.files[0] || null)} /><//>
       ${!custom ? html`
         <${Field} label="Format"><select value=${f.format} onChange=${set('format')}><option value="image">Image</option><option value="video">Video</option><option value="carousel">Carousel</option></select><//>
         <${Field} label="What it says (short)"><input value=${f.short} onInput=${set('short')} placeholder="$6 Each" /><//>
         <${Field} label="Variant (optional)"><input value=${f.variant} onInput=${set('variant')} placeholder="Olive" /><//>
         <div class="namepreview full"><span class="tiny muted">Name in Ads Manager</span><b class="mono">${name}</b><button class="link small" onClick=${() => { setF({ ...f, base_name: name.replace('…', '') }); setCustom(true); }}>Edit name</button></div>`
-      : html`<${Field} full label="Name, exactly as in Ads Manager (the launch date is added when it goes live)"><input value=${f.base_name} onInput=${set('base_name')} /><//>`}
+      : html`<${Field} full label=${sale ? 'Name, exactly as in Ads Manager' : 'Name, exactly as in Ads Manager (the launch date is added when it goes live)'}><input list="adl-unknown" value=${f.base_name} onInput=${set('base_name')} placeholder=${unknownNames.length ? 'Type or pick a name from your Meta files' : ''} /><datalist id="adl-unknown">${unknownNames.map((n) => html`<option value=${n} />`)}</datalist><//>
+        ${sale && html`<${Field} label="Format"><select value=${f.format} onChange=${set('format')}><option value="image">Image</option><option value="video">Video</option><option value="carousel">Carousel</option></select><//>`}`}
       <div class="full pickpair"><div><div class="tiny muted" style="margin-bottom:6px">Angle: what it says</div><${AnglePicker} value=${f.angle} onPick=${(v) => setF({ ...f, angle: v })} product=${data.products.find((p) => p.id === f.product_id) || product} reload=${reload} say=${say} /></div>
       <div><div class="tiny muted" style="margin-bottom:6px">Concept: what it shows</div><${ConceptPicker} value=${f.concept || ''} onPick=${(v) => setF({ ...f, concept: v })} product=${data.products.find((p) => p.id === f.product_id) || product} data=${data} reload=${reload} say=${say} />
         ${cs && cs.counted > 0 && html`<div class="tiny muted" style="margin-top:6px">${f.concept}: ${cs.won} of ${cs.counted} worked since Era 1.</div>`}</div></div>
@@ -1363,8 +1377,8 @@ function AdForm(ctx) {
         <${Field} full label="Notes"><textarea value=${f.notes || ''} onInput=${set('notes')}></textarea><//>
         ${mode === 'edit' && html`<${Field} full label="Old names, one per line (files under these still count for this ad)"><textarea value=${f.aliasText || ''} onInput=${set('aliasText')} placeholder="Renaming the ad adds its old name here automatically"></textarea><//>`}`}
     </div>
-    ${mode !== 'edit' && html`<label class="chk"><input type="checkbox" checked=${upNext} onChange=${(e) => setUpNext(e.target.checked)} /> Ready to launch: put it in Up Next (otherwise it goes to Ideas)</label>`}
-    <div class="row"><button class="btn primary" disabled=${busy} onClick=${save}>${busy ? 'Saving…' : upNext ? 'Save to Up Next' : 'Save to Ideas'}</button><button class="btn ghost" onClick=${close}>Cancel</button></div>
+    ${mode !== 'edit' && !sale && html`<label class="chk"><input type="checkbox" checked=${upNext} onChange=${(e) => setUpNext(e.target.checked)} /> Ready to launch: put it in Up Next (otherwise it goes to Ideas)</label>`}
+    <div class="row"><button class="btn primary" disabled=${busy} onClick=${save}>${busy ? 'Saving…' : sale ? `Add to ${sale.name || 'sale'}` : upNext ? 'Save to Up Next' : 'Save to Ideas'}</button><button class="btn ghost" onClick=${close}>Cancel</button></div>
   <//>`;
 }
 
@@ -1968,7 +1982,7 @@ const PH_ICON = {
   plan: phSvg(html`<rect x="3" y="4.5" width="18" height="16.5" rx="2" /><path d="M3 9.5h18M8 2.5v4M16 2.5v4" /><path d="M7.5 14l2 2 4-4" />`),
   more: phSvg(html`<circle cx="5" cy="12" r="1.6" fill="currentColor" /><circle cx="12" cy="12" r="1.6" fill="currentColor" /><circle cx="19" cy="12" r="1.6" fill="currentColor" />`),
 };
-const PH_STAGES = [['main', 'Main'], ['testing', 'Testing'], ['bench', 'Bench'], ['next', 'Up next'], ['ideas', 'Ideas']];
+const PH_STAGES = [['main', 'Main'], ['testing', 'Testing'], ['seasonal', 'Sale'], ['bench', 'Bench'], ['next', 'Up next'], ['ideas', 'Ideas']];
 function PhoneAds({ data, products, setModal }) {
   const [stg, setStg0] = useState(() => lsGet('adlab-ph-stage', 'main')), [pf, setPf0] = useState(() => lsGet('adlab-ph-prod', 'all'));
   const setStg = (k) => { setStg0(k); lsSet('adlab-ph-stage', k); }, setPf = (k) => { setPf0(k); lsSet('adlab-ph-prod', k); };
@@ -1977,18 +1991,18 @@ function PhoneAds({ data, products, setModal }) {
   const ads = data.ads.filter((a) => (pf === 'all' || a.product_id === pf) && products.some((x) => x.id === a.product_id));
   const cnt = (k) => ads.filter((a) => a.stage === k).length;
   const r7 = (a) => { const t = sumRows(rowsForAd(a, data.meta_days).filter((r) => r.day > R.addDays(last, -7) && r.day <= last)); return t.spend ? { roas: t.revenue / t.spend, spend: t.spend, buys: t.purchases } : null; };
-  const list = ads.filter((a) => a.stage === stg).map((a) => ({ a, t: ['main', 'testing'].includes(stg) ? r7(a) : null }))
+  const list = ads.filter((a) => a.stage === stg).map((a) => ({ a, t: ['main', 'testing', 'seasonal'].includes(stg) ? r7(a) : null }))
     .sort((x, y) => (y.t ? y.t.roas : -1) - (x.t ? x.t.roas : -1));
   const nm = (a) => displayName(a).replace(/^(IMG|VID|Image|Video)\s*[|–-]\s*/i, '').replace(/\s*\|\s*V\d+$/i, '');
   return html`<div class="phads">
     <div class="row"><h1 style="font-size:26px;margin:0">Ads</h1><span class="spacer"></span><button class="btn sm" onClick=${() => setModal({ type: AdForm, props: { mode: 'new' } })}>+ New ad</button></div>
     <div class="phchips">${[['all', 'All products'], ...products.map((x) => [x.id, x.name])].map(([k, l]) => html`<button class=${pf === k ? 'on' : ''} onClick=${() => setPf(k)}>${l}</button>`)}</div>
     <div class="phseg">${PH_STAGES.map(([k, l]) => html`<button class=${stg === k ? 'on' : ''} onClick=${() => setStg(k)}>${l}<i>${cnt(k)}</i></button>`)}</div>
-    ${['main', 'testing'].includes(stg) && html`<div class="row tiny muted" style="margin:2px 2px 0"><span>ROAS · last 7 days</span></div>`}
+    ${['main', 'testing', 'seasonal'].includes(stg) && html`<div class="row tiny muted" style="margin:2px 2px 0"><span>ROAS · last 7 days</span></div>`}
     <section class="panel phlist">${list.length ? list.map(({ a, t }) => html`<button class="phad" onClick=${() => setModal({ type: AdDetail, props: { adId: a.id } })}>
         <${Media} path=${a.media_path} type=${a.media_type} poster=${a.tags && a.tags.poster} cls="sm" />
         <span class="phadn"><b>${nm(a)}</b><span class="tiny muted"><i class=${'tdot k-' + pOf(a).kind}></i> ${pOf(a).name}${t ? ` · ${R.money0(t.spend)} · ${Math.round(t.buys)} buys` : ''}</span></span>
-        ${['main', 'testing'].includes(stg) ? html`<${Spark} vals=${adDaily(a, data)} be=${R.econOf(pOf(a)).opBE || 2.85} />${roasPill(t ? t.roas : null)}` : html`<span class="muted">›</span>`}</button>`)
+        ${['main', 'testing', 'seasonal'].includes(stg) ? html`<${Spark} vals=${adDaily(a, data)} be=${R.econOf(pOf(a)).opBE || 2.85} />${roasPill(t ? t.roas : null)}` : html`<span class="muted">›</span>`}</button>`)
       : html`<div class="empty">No ${PH_STAGES.find((x) => x[0] === stg)[1].toLowerCase()} ads${pf !== 'all' ? ' for this product' : ''}.</div>`}</section>
   </div>`;
 }
@@ -2079,6 +2093,7 @@ function StocksOverview(p) {
         <div class="row tiny muted" style="gap:6px"><span>need <b style="color:var(--mid)">${R.money0(ms.needD)}/day</b> · averaging <b class="pos">${R.money0(ms.avgD)}/day</b>${ms.missing.length ? ` · ${mdLabel(ms.missing[ms.missing.length - 1])} not entered yet` : ''}</span><span class="spacer"></span><button class="link small" onClick=${goGoals}>Goals ›</button></div></section>`}
       <div class="phkpis">${kp.map(([a, b, c]) => html`<div class="panel"><span class="tiny muted">${a}</span><b class=${c}>${b}</b></div>`)}</div>
       <${TodoCheckins} data=${data} reload=${p.reload} say=${p.say} compact=${true} />
+      <${SaleAds} data=${data} sale=${saleOn(data)} setModal=${setModal} compact=${true} />
       ${todo.length > 0 && html`<section class="panel phlist"><div class="row"><h2>Needs you · ${todo.length}</h2></div>${(tradesAll ? todo : todo.slice(0, 4)).map(prow)}${todo.length > 4 && html`<button class="link small" style="align-self:flex-start;margin-top:6px" onClick=${() => setTradesAll(!tradesAll)}>${tradesAll ? 'Show less' : `Show ${todo.length - 4} more`}</button>`}</section>`}
       ${mains.length > 0 && html`<section class="panel phlist"><div class="row"><h2>Main · last 7 days</h2><span class="spacer"></span><button class="link small" onClick=${() => { lsSet('adlab-ph-stage', 'main'); p.setView('board'); }}>All ›</button></div>${mains.map(wrow)}</section>`}
       ${tests.length > 0 && html`<section class="panel phlist"><div class="row"><h2>Testing</h2><span class="spacer"></span><button class="link small" onClick=${() => { lsSet('adlab-ph-stage', 'testing'); p.setView('board'); }}>All ›</button></div>${tests.map(wrow)}</section>`}
@@ -4031,7 +4046,7 @@ const BF_DAY = '2026-11-25'; // Black Friday sale runs Nov 25 to the morning of 
 function mainCampaignRows(data, product) {
   const tests = data.tests.filter((t) => t.stage === 1 && t.product_id === product.id && t.start_date);
   const inTest = (ad, d) => tests.some((t) => t.ad_id === ad.id && d >= ((t.conditions || {}).spendFrom || t.start_date) && (t.status === 'active' || d <= R.addDays(t.start_date, (t.planned_days || 7) - 1)));
-  return data.ads.filter((a) => a.product_id === product.id).flatMap((ad) => rowsForAd(ad, data.meta_days).filter((r) => !(/test/i.test(r.campaign || '') || inTest(ad, r.day))));
+  return data.ads.filter((a) => a.product_id === product.id && a.stage !== 'seasonal').flatMap((ad) => rowsForAd(ad, data.meta_days).filter((r) => !(/test/i.test(r.campaign || '') || inTest(ad, r.day))));
 }
 function mainPlan(data, product) {
   const w = healthWindow(data); if (!w) return null;
@@ -4141,7 +4156,7 @@ function ProductDaily({ data, product }) {
   const setOpen = (v) => { setOpen0(v); try { localStorage.setItem('adlab-pd-open', v ? '1' : '0'); } catch (e) {} };
   const w = healthWindow(data); if (!w) return null;
   const be = R.econOf(product).opBE;
-  const ads = data.ads.filter((a) => a.product_id === product.id);
+  const ads = data.ads.filter((a) => a.product_id === product.id && a.stage !== 'seasonal');
   const tests = data.tests.filter((t) => t.stage === 1 && t.product_id === product.id && t.start_date);
   const inTest = (ad, d) => tests.some((t) => t.ad_id === ad.id && d >= ((t.conditions || {}).spendFrom || t.start_date) && (t.status === 'active' || d <= R.addDays(t.start_date, (t.planned_days || 7) - 1)));
   const z = () => ({ spend: 0, revenue: 0, purchases: 0 });
@@ -5564,7 +5579,7 @@ function PlanPage(ctx) {
         ${x.noTick ? html`<i class=${'dot t-' + x.c}></i>` : html`<button class=${'pltick' + (x.done ? ' on' : '')} disabled=${x.byApp} onClick=${() => tick(x)}>${x.skipped ? '–' : x.done ? '✓' : ''}</button>`}</div>`; };
     return html`<div class="phplan">
       <div class="row"><h1 style="font-size:26px;margin:0">Plan</h1><span class="spacer"></span><button class="btn sm" onClick=${() => setModal({ type: PlanEdit, props: {} })}>Edit</button><button class="btn sm primary" onClick=${() => setModal({ type: PlanTask, props: {} })}>+ To-do</button></div>
-      ${sales.map((x) => { const left = R.daysBetween(td, x.start); return html`<section class="panel phsale"><div class="row"><span class="sig sig-hold">SALE</span><b>${x.name}</b><span class="spacer"></span><span class="small">${left > 0 ? `in ${left} day${left === 1 ? '' : 's'}` : 'on now'}</span></div><div class="tiny muted">${mdLabel(x.start)} – ${mdLabel(x.end)}${x.offer ? ' · ' + x.offer : ''}</div></section>`; })}
+      ${sales.map((x) => html`<${SaleAds} data=${data} sale=${x} setModal=${setModal} compact=${true} />`)}
       <${TodoCheckins} data=${data} reload=${reload} say=${say} />
       <section class="panel phlist"><h2>Coming up</h2>${groups.length ? groups.map((g) => html`<div class=${'phwkl' + (g.k === 'late' ? ' late' : '')}>${g.lbl}</div>${g.items.map(arow)}`) : html`<div class="empty">Nothing planned. Tap + To-do to add something.</div>`}
         ${doneList.length > 0 && html`<button class="link small" style="align-self:flex-start;margin-top:8px" onClick=${() => setShowDone(!showDone)}>${showDone ? 'Hide completed' : `Completed (${doneList.length})`}</button>`}
@@ -5576,6 +5591,7 @@ function PlanPage(ctx) {
   return html`
     <div class="row" style="flex-wrap:wrap;gap:10px"><h1 style="font-size:30px">Plan</h1><span class="small muted">which product gets the test slots, and when</span><span class="spacer"></span><button class="btn" onClick=${() => setModal({ type: PlanTask, props: {} })}>+ Add to-do</button><button class="btn" onClick=${() => setModal({ type: PlanEdit, props: {} })}>Edit plan</button></div>
     ${plan.isDefault && html`<div class="status live small">This is the plan you described: Long Sleeve now, Thermal (3) + Crew (1) Nov 16, Black Friday, Crew Dec 2, then V-Neck once Thermal is stable. Change anything in Edit plan.</div>`}
+    <${SaleAds} data=${data} sale=${saleOn(data)} setModal=${setModal} />
     <${TodoCheckins} data=${data} reload=${reload} say=${say} />
     <section class="panel"><div class="row"><h2 style="margin:0">Next 6 weeks</h2><span class="spacer"></span><span class="tiny muted">your test slots are shared by all products · dashed = estimated</span></div>
       <${PlanBar} data=${data} plan=${plan} w0=${w0} days=${days} onTickTodo=${(x) => tick(x)} onTick=${(id) => act((p2) => { const t = p2.steps.find((x) => x.id === id); if (t) { t.done = !t.done; t.doneOn = t.done ? td : null; } }, 'Updated')} onEdit=${() => setModal({ type: PlanEdit, props: {} })} /></section>
@@ -5647,6 +5663,24 @@ function PlanEdit({ data, close, reload, say }) {
     </div><//>`;
 }
 // Overview strip: the plan in one line, and any product that needs new ads.
+// A sale's own ads: added from the sale, kept out of tests and Main, with their numbers since the sale started.
+function saleOn(data) { const td = R.today(); return planOf(data).steps.filter((x) => x.kind === 'sale' && x.end && x.end >= R.addDays(td, -2) && x.start <= R.addDays(td, 14)).sort((a, b) => a.start.localeCompare(b.start))[0] || null; }
+function SaleAds({ data, sale, setModal, compact }) {
+  if (!sale) return null;
+  const td = R.today(), ads = data.ads.filter((a) => a.stage === 'seasonal' && (a.tags || {}).sale === sale.id);
+  const pOf = (a) => data.products.find((x) => x.id === a.product_id) || {};
+  const rows = ads.map((a) => ({ a, t: sumRows(rowsForAd(a, data.meta_days).filter((r) => r.day >= sale.start && r.day <= sale.end)) })).sort((x, y) => y.t.spend - x.t.spend);
+  const tot = rows.reduce((m, x) => ({ spend: m.spend + x.t.spend, revenue: m.revenue + x.t.revenue, purchases: m.purchases + x.t.purchases }), { spend: 0, revenue: 0, purchases: 0 });
+  const left = R.daysBetween(td, sale.start), on = td >= sale.start && td <= sale.end;
+  const nm = (a) => a.base_name.replace(/^(IMG|VID|CAR|Image|Video|Carousel)\s*[|–-]\s*/i, '');
+  return html`<section class="panel saleads"><div class="row" style="gap:8px;flex-wrap:wrap"><span class="sig sig-hold">SALE</span><h2 style="margin:0">${sale.name || 'Sale'} ads</h2><span class="spacer"></span><span class="small muted">${on ? 'on now' : left > 0 ? `starts in ${left} day${left === 1 ? '' : 's'}` : 'ended'} · ${mdLabel(sale.start)}–${mdLabel(sale.end)}</span></div>
+    ${rows.length ? html`${tot.spend > 0 && html`<div class="saletot"><div><span class="tiny muted">Spent</span><b>${R.money0(tot.spend)}</b></div><div><span class="tiny muted">Purchases</span><b>${Math.round(tot.purchases)}</b></div><div><span class="tiny muted">ROAS</span><b class=${tot.revenue / tot.spend >= 2.85 ? 'pos' : 'neg'}>${R.xroas(tot.revenue / tot.spend)}</b></div><div><span class="tiny muted">CPA</span><b>${tot.purchases ? R.money(tot.spend / tot.purchases) : '—'}</b></div></div>`}
+      ${rows.map(({ a, t }) => html`<button class="phad" onClick=${() => setModal({ type: AdDetail, props: { adId: a.id } })}><${Media} path=${a.media_path} type=${a.media_type} poster=${a.tags && a.tags.poster} cls="sm" />
+        <span class="phadn"><b>${nm(a)}</b><span class="tiny muted"><i class=${'tdot k-' + pOf(a).kind}></i> ${pOf(a).name}${a.format === 'carousel' ? ' · carousel' : ''}${t.spend ? ` · ${R.money0(t.spend)} · ${Math.round(t.purchases)} buys` : ' · no spend yet'}</span></span>${t.spend ? roasPill(t.revenue / t.spend) : html`<span class="muted">›</span>`}</button>`)}`
+    : html`<div class="small muted">Add the ads you made for this sale. They're kept out of your tests and Main, so they don't mess up those numbers.</div>`}
+    <div class="row" style="gap:8px;margin-top:8px"><button class="btn sm primary" onClick=${() => setModal({ type: AdForm, props: { mode: 'new', saleId: sale.id } })}>+ Add ${sale.name || 'sale'} ad</button>${!compact && rows.length > 0 && html`<span class="tiny muted">Numbers come from your Meta files, ${mdLabel(sale.start)} on. Names must match Ads Manager exactly.</span>`}</div></section>`;
+}
+
 // Check-ins: once a to-do's day comes (its end day, if it spans days) and it isn't ticked, ask about it
 // on Overview and on Plan: done, give it more time, or drop it. Keyed plan items (like the last test launch) get done / not needed / ask tomorrow.
 const CHECKIN_KEYS = /^(last|ready|launch):/;
