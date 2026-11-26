@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=268';
-import * as R from './rules.js?v=268';
-import { importHistory } from './importer.js?v=268';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=268';
+import { createBackend } from './data.js?v=269';
+import * as R from './rules.js?v=269';
+import { importHistory } from './importer.js?v=269';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=269';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2036,7 +2036,7 @@ function PhoneMore(ctx) {
   const goal = (t) => { lsSet('adlab-sk-gtab', t); setView('goal'); };
   const items = [['▥', 'Stats', 'Month by month, sales and profit', () => setView('stats')], ['★', 'Records', 'Your best days, weeks and months', () => setView('records')],
     ['🏆', 'Trophy room', 'Trophies and your level', () => goal('room')], ['▦', 'Calendar', 'Every day you entered', () => goal('calendar')], ['⛳', 'Milestones', 'The long game and its checks', () => goal('milestones')],
-    ['⌛', 'History', 'Every ad you ran, by result', () => setView('archive')], ['✎', 'Journal', 'Learnings, changes and decisions', () => setView('learn')], ['⚙', 'Rules', 'Testing rules, break-even and costs', () => setView('rules')]];
+    ['⌛', 'History', 'Every ad you ran, by result', () => setView('archive')], ['✎', 'Journal', 'Learnings, changes and decisions', () => setView('learn')], ['⚙', 'Rules', 'Testing rules, break-even and costs', () => setView('rules')], ['$', 'Apps and subscriptions', `${R.money(R.num(R.storeEcon().fixedMonthly) || 0)}/month · change the list`, () => ctx.setModal({ type: AppsForm, props: {} })]];
   return html`<div class="phmore"><h1 style="font-size:26px;margin:0 0 10px">More</h1>
     <section class="panel phlist">${items.map(([ic, t, d, f]) => html`<button class="phli" onClick=${f}><span class="phic">${ic}</span><span><b>${t}</b><span class="tiny muted">${d}</span></span><span class="spacer"></span><span class="muted">›</span></button>`)}</section>
     <div class="sklbl" style="margin:18px 2px 8px">Settings and data</div>
@@ -5005,7 +5005,7 @@ function CostTrend({ periods, reload, say }) {
   </section>`;
 }
 function PeriodForm(ctx) {
-  const { data, id, from: f0, to: t0, close, reload, say } = ctx;
+  const { data, id, from: f0, to: t0, close, reload, say, setModal } = ctx;
   goalCE = R.econOf(data.products.find((p) => p.kind === 'crew') || data.products[0]);
   const ex = id ? goalPeriods(data).find((x) => x.id === id) : null;
   const t = R.today(), y = R.addDays(t, -1), td = R.parseDay(t), mon = R.addDays(t, -((td.getDay() + 6) % 7));
@@ -5057,7 +5057,7 @@ function PeriodForm(ctx) {
         <${Field} label="Ad spend (all ads)"><input inputmode="decimal" value=${f.spend} onInput=${set('spend')} placeholder=${metaSpend ? `auto ${R.money0(metaSpend)} (Meta files)` : '$'} /><//>
         <${Field} label="Apps and subscriptions"><input inputmode="decimal" value=${f.fixedCost} onInput=${set('fixedCost')} placeholder=${`auto ${R.money(appsFor(days || 1))}`} /><//>
         <${Field} label="Other costs"><input inputmode="decimal" value=${f.other} onInput=${set('other')} placeholder="$ chargebacks, extra shipping…" /><//>
-        <div class="tiny muted full">Apps and ad spend fill in by themselves: apps ${R.money(appsFor(days || 1))} for these ${days || 1} days (your ${R.money(R.num(R.storeEcon().fixedMonthly) || 0)}/month list, Goal → Apps)${metaSpend ? `, ad spend ${R.money(metaSpend)} from your Meta files for ${f.from === f.to ? R.parseDay(f.from).toLocaleDateString('en-US', { weekday: 'short' }) + ' ' + mdLabel(f.from) : mdLabel(f.from) + '–' + mdLabel(f.to)}` : ''}. Only type a number if it was different.</div>
+        <div class="tiny muted full">Apps and ad spend fill in by themselves: apps ${R.money(appsFor(days || 1))} for these ${days || 1} days (your ${R.money(R.num(R.storeEcon().fixedMonthly) || 0)}/month list, <button class="link small" onClick=${() => setModal({ type: AppsForm, props: {} })}>change it</button>)${metaSpend ? `, ad spend ${R.money(metaSpend)} from your Meta files for ${f.from === f.to ? R.parseDay(f.from).toLocaleDateString('en-US', { weekday: 'short' }) + ' ' + mdLabel(f.from) : mdLabel(f.from) + '–' + mdLabel(f.to)}` : ''}. Only type a number if it was different.</div>
         <div class="fsec full">Optional</div>
         <${Field} full label="Exact profit, if you already know it (overrides everything above)"><input inputmode="decimal" value=${f.exact} onInput=${set('exact')} placeholder="$" /><//>
         ${(() => { // live profit for these dates
