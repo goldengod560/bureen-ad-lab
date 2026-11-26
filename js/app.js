@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=267';
-import * as R from './rules.js?v=267';
-import { importHistory } from './importer.js?v=267';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=267';
+import { createBackend } from './data.js?v=268';
+import * as R from './rules.js?v=268';
+import { importHistory } from './importer.js?v=268';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=268';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -3161,8 +3161,10 @@ function StocksGoal(g) {
       <section class="panel"><div class="row"><h2>Every day</h2><span class="spacer"></span><span class="tiny muted">${withV.length} of ${dimNow} entered</span></div>
         <div class="phcal">${['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((w) => html`<span class="wd">${w}</span>`)}${Array.from({ length: off }, () => html`<span></span>`)}${daysArr.map((x, i) => html`<div class=${'skday' + cls(x.v) + (x.today ? ' today' : '') + (x.sale ? ' sale' : '')}>${x.v == null ? i + 1 : signMoney(x.v)}${x.sale && html`<span class="saletag">SALE</span>`}</div>`)}</div>
         <div class="tiny muted"><i class="skkey g"></i>made ${R.money0(perDayNeed)}+ · <i class="skkey a"></i>under · <i class="skkey r"></i>lost money</div></section>
-      <section class="panel"><h2>This week</h2>
-        <div class="phwk">${wkDays.map((x) => html`<div><b class=${x.v != null && x.v < 0 ? 'neg' : ''}>${x.v == null ? '' : signMoney(x.v)}</b><i class=${cls(x.v)} style=${`height:${x.v == null ? 0 : Math.max(4, Math.abs(x.v) / wkMx * 100).toFixed(0)}%`}></i><span>${R.parseDay(x.d).toLocaleDateString('en-US', { weekday: 'narrow' })}</span></div>`)}</div>
+      <section class="panel"><div class="row"><h2>${phHide.wkMode ? 'By week' : 'This week'}</h2><span class="spacer"></span><div class="phseg sm"><button class=${!phHide.wkMode ? 'on' : ''} onClick=${() => phHide.wkMode && phFlip('wkMode')}>This week</button><button class=${phHide.wkMode ? 'on' : ''} onClick=${() => !phHide.wkMode && phFlip('wkMode')}>By week</button></div></div>
+        ${phHide.wkMode ? html`<div class="phwk">${wks.map((w) => html`<div><b class=${w.v != null && w.v < 0 ? 'neg' : ''}>${w.v == null ? '' : signMoney(w.v)}</b><i class=${(w.v == null ? '' : w.v >= 0 ? ' g' : ' r') + (w.now || (w.v != null && w.n < w.len) ? ' part' : '')} style=${`height:${w.v == null ? 0 : Math.max(4, Math.abs(w.v) / wkMax * 100).toFixed(0)}%`}></i><span>${mdLabel(w.a).replace(/^\w+ /, '')}–${mdLabel(w.b).replace(/^\w+ /, '')}</span></div>`)}</div>
+          ${(() => { const cw = wks.find((w) => w.now), lw = wks.filter((w) => w.v != null && w.n === w.len && !w.now).slice(-1)[0]; return cw && cw.v != null && lw ? html`<div class="small" style="margin-bottom:8px">This week so far <b>${signMoney(cw.v)}</b> in ${cw.n} day${cw.n === 1 ? '' : 's'} · last full week <b>${signMoney(lw.v)}</b></div>` : ''; })()}`
+        : html`<div class="phwk">${wkDays.map((x) => html`<div><b class=${x.v != null && x.v < 0 ? 'neg' : ''}>${x.v == null ? '' : signMoney(x.v)}</b><i class=${cls(x.v)} style=${`height:${x.v == null ? 0 : Math.max(4, Math.abs(x.v) / wkMx * 100).toFixed(0)}%`}></i><span>${R.parseDay(x.d).toLocaleDateString('en-US', { weekday: 'narrow' })}</span></div>`)}</div>`}
         ${withV.length > 0 && html`<div class="skbwa"><div><span class="tiny muted">Best day</span><b class="pos">${signMoney(bestD.v)}</b><span class="tiny muted">${mdLabel(bestD.d)}</span></div><div><span class="tiny muted">Worst day</span><b class=${worstD.v < 0 ? 'neg' : ''}>${signMoney(worstD.v)}</b><span class="tiny muted">${mdLabel(worstD.d)}</span></div><div><span class="tiny muted">Average</span><b>${signMoney(actual / withV.length)}</b><span class="tiny muted">${withV.length} days</span></div></div>`}</section>
       ${flow && (() => { const PAL = ['#FF5000', '#FF9548', '#FFC27A', '#B98CFF', '#7FA7FF', '#8A939C', '#5E656E', '#454B53'];
         const parts = [...flow.costs.map((c, k) => ({ name: c.name, v: c.v, col: PAL[Math.min(k, PAL.length - 1)], est: c.est })), ...(flow.profit > 0 ? [{ name: 'Profit (you keep)', v: flow.profit, col: 'var(--pass)', pf: true }] : [])];
