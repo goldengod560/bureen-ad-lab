@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=269';
-import * as R from './rules.js?v=269';
-import { importHistory } from './importer.js?v=269';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=269';
+import { createBackend } from './data.js?v=270';
+import * as R from './rules.js?v=270';
+import { importHistory } from './importer.js?v=270';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=270';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2116,6 +2116,7 @@ function StocksOverview(p) {
         <div class="row tiny muted" style="gap:6px"><span>need <b style="color:var(--mid)">${R.money0(ms.needD)}/day</b> · averaging <b class="pos">${R.money0(ms.avgD)}/day</b>${ms.missing.length ? ` · ${mdLabel(ms.missing[ms.missing.length - 1])} not entered yet` : ''}</span><span class="spacer"></span><button class="link small" onClick=${goGoals}>Goals ›</button></div></section>`}
       <div class="phkpis">${kp.map(([a, b, c]) => html`<div class="panel"><span class="tiny muted">${a}</span><b class=${c}>${b}</b></div>`)}</div>
       <${TodoCheckins} data=${data} reload=${p.reload} say=${p.say} compact=${true} />
+      <${CloseCalls} data=${data} setView=${p.setView} />
       <${SaleAds} data=${data} sale=${saleOn(data)} setModal=${setModal} compact=${true} />
       ${todo.length > 0 && html`<section class="panel phlist"><div class="row"><h2>Needs you · ${todo.length}</h2></div>${(tradesAll ? todo : todo.slice(0, 4)).map(prow)}${todo.length > 4 && html`<button class="link small" style="align-self:flex-start;margin-top:6px" onClick=${() => setTradesAll(!tradesAll)}>${tradesAll ? 'Show less' : `Show ${todo.length - 4} more`}</button>`}</section>`}
       ${mains.length > 0 && html`<section class="panel phlist"><div class="row"><h2>Main · last 7 days</h2><span class="spacer"></span><button class="link small" onClick=${() => { lsSet('adlab-ph-stage', 'main'); p.setView('board'); }}>All ›</button></div>${mains.map(wrow)}</section>`}
@@ -2582,7 +2583,7 @@ function recordBook(data) {
   // Sale periods from your Plan (Black Friday and so on): a day inside a sale, a week with 2+ sale days, a month with 5+.
   // They get a SALE badge and their own list, so a sale doesn't make your normal records unbeatable.
   let saleSteps = []; try { saleSteps = planOf(data).steps.filter((s) => s.kind === 'sale' && s.start); } catch (e) {}
-  const saleDay = new Map(); for (const s of saleSteps) for (let d = s.start; d <= (s.end || s.start); d = R.addDays(d, 1)) saleDay.set(d, s);
+  const saleDay = new Map(); for (const s of saleSteps) for (let d = s.start; d <= (saleLastDay(s) || s.start); d = R.addDays(d, 1)) saleDay.set(d, s);
   const saleCount = (a, b) => { let n = 0; for (let d = a; d <= b; d = R.addDays(d, 1)) if (saleDay.has(d)) n++; return n; };
   const isSale = (g, p) => (g === 'day' ? saleDay.has(p.a) : g === 'week' ? saleCount(p.a, p.b) >= 2 : g === 'month' ? saleCount(p.a, p.b) >= 5 : false);
   const span = (a, b) => { const o = { orders: 0, sales: 0, units: 0, spend: 0, rev: 0, buys: 0, shopAll: true, metaAll: true, n: 0, metaN: 0 };
@@ -2680,8 +2681,10 @@ function recordBook(data) {
     const ranked = (arr) => { const out = []; arr.forEach((x, j) => { const r = j && fmt(x.v) === fmt(arr[j - 1].v) ? out[j - 1].rank : j + 1; out.push({ ...x, rank: r }); }); return out; };
     const rk = ranked(sorted);
     // Close call: the period that just ended came 2nd or 3rd, or tied the record
-    const i = rk.findIndex((x) => x.p.end === y && !x.p.ytd);
-    if (i > 0 && rk[i].rank <= 3 && n > need) close.push({ key, group, name, rank: rk[i].rank, tie: rk[i].rank === 1, value: fmt(rk[i].v), gap: fmt(Math.abs(sorted[0].v - rk[i].v)), rec: fmt(sorted[0].v), recWhen: sorted[0].p.label, when: rk[i].p.label, lower, a: rk[i].p.a, b: rk[i].p.b });
+    // A sale period is ranked against everything (sale and normal), so a sale day that comes 2nd or 3rd ever still shows.
+    const lastSale = sale.find((x) => x.p.end === y), pool = lastSale ? srt([...all, ...sale]) : sorted, rkC = lastSale ? ranked(pool) : rk;
+    const i = rkC.findIndex((x) => x.p.end === y && !x.p.ytd);
+    if (i > 0 && rkC[i].rank <= 3 && (lastSale ? nA : n) > need) close.push({ key, group, name, rank: rkC[i].rank, tie: rkC[i].rank === 1, value: fmt(rkC[i].v), gap: fmt(Math.abs(pool[0].v - rkC[i].v)), rec: fmt(pool[0].v), recWhen: pool[0].p.label, when: rkC[i].p.label, lower, a: rkC[i].p.a, b: rkC[i].p.b, sale: !!lastSale });
     const other = (x) => { if (group === 'year') { if (/_roas$/.test(key)) { const m = yearMer('')(x.p); return m != null ? 'MER ' + x2(m) : ''; } if (/_mer$/.test(key)) { const o = yearMeta('')(x.p); return o ? 'Meta ROAS ' + x2(o.rev / o.spend) : ''; } return ''; }
       const o = sp(x.p); if (!o.spend) return ''; if (/_roas$/.test(key)) { const sv = o.shopAll ? o.sales : fromEntries(x.p, salesE); return sv != null ? 'MER ' + x2(sv / o.spend) : ''; } if (/_mer$/.test(key)) return 'Meta ROAS ' + x2(o.rev / o.spend); return ''; };
     const beatY = (x) => { if (!x.p.ytd || x.rank !== 1) return ''; const prev = rk.find((z) => !z.p.ytd); return prev && fmt(prev.v) !== fmt(x.v) ? ` · already beat ${prev.p.a.slice(0, 4)}` : ''; };
@@ -2973,7 +2976,7 @@ function CloseCalls({ data, setView }) {
       <button class="recx" style="position:static" aria-label="Hide for today" onClick=${() => { lsSet('adlab-close-seen', R.today()); setHide(true); }}>×</button></div>
     ${beat.map((e) => html`<div class="ccrow"><${RecMedal} t="G" w=${24} /><span>${beatRow(e)}${e.sale ? html`<span class="salebadge">SALE</span>` : ''}</span></div>`)}
     ${beat.length > 0 && list.length > 0 && html`<b class="small" style="letter-spacing:.06em;display:block;margin-top:10px">CLOSE CALL${list.length > 1 ? 'S' : ''}</b>`}
-    ${list.map((c) => html`<div class="ccrow"><${RecMedal} t=${c.rank === 1 ? 'G' : c.rank === 2 ? 'S' : 'B'} w=${24} /><span>${c.tie ? html`${when[c.group]} <b>tied your ${kind(c)}</b> record: <b>${c.value}${recUnitN(c.key, c.value)}</b>, same as ${c.recWhen}.` : html`${when[c.group]} was your <b>${c.rank === 2 ? '2nd' : '3rd'} ${kind(c)}</b> ever: <b>${c.value}${recUnitN(c.key, c.value)}</b>, ${c.gap}${recUnitN(c.key, c.gap)} ${c.lower ? 'above' : 'short of'} the record (${c.rec} · ${c.recWhen}).`}</span></div>`)}</section>`;
+    ${list.map((c) => html`<div class="ccrow"><${RecMedal} t=${c.rank === 1 ? 'G' : c.rank === 2 ? 'S' : 'B'} w=${24} /><span>${c.tie ? html`${when[c.group]} <b>tied your ${kind(c)}</b> record: <b>${c.value}${recUnitN(c.key, c.value)}</b>, same as ${c.recWhen}.` : html`${when[c.group]} was your <b>${c.rank === 2 ? '2nd' : '3rd'} ${kind(c)}</b> ever: <b>${c.value}${recUnitN(c.key, c.value)}</b>, ${c.gap}${recUnitN(c.key, c.gap)} ${c.lower ? 'above' : 'short of'} the record (${c.rec} · ${c.recWhen}).`}${c.sale ? html`<span class="salebadge">SALE</span>` : ''}</span></div>`)}</section>`;
 }
 
 // Goal tiers, like a battle pass that never ends: Tier 1 is the month's goal, Tier 2 the stretch, and after that a new
