@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=271';
-import * as R from './rules.js?v=271';
-import { importHistory } from './importer.js?v=271';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=271';
+import { createBackend } from './data.js?v=272';
+import * as R from './rules.js?v=272';
+import { importHistory } from './importer.js?v=272';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=272';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2114,7 +2114,7 @@ function StocksOverview(p) {
         <div class="row" style="align-items:flex-start"><div><div class="tiny muted">Profit this month</div><div class="phbig">${signMoney(ms.T.actual)}</div>${cur.profit != null && html`<div class=${'small ' + (cur.profit >= 0 ? 'pos' : 'neg')}>${cur.profit >= 0 ? '+' : '−'}${R.money0(Math.abs(cur.profit))} ${dayLbl}</div>`}</div><span class="spacer"></span>
           <span class="tierbadge">${ms.T.on ? ms.T.cur.name.toUpperCase() + ' · ' : ''}${R.money0(Math.max(0, ms.goal - ms.T.actual))} to go</span></div>
         <${MiniGoalChart} ms=${ms} h=${170} />
-        <div class="row tiny muted" style="gap:6px"><span>need <b style="color:var(--mid)">${R.money0(ms.needD)}/day</b> · averaging <b class="pos">${R.money0(ms.avgD)}/day</b>${ms.ordD != null ? html` · <b style="color:var(--ink)">${ms.ordD.toFixed(1)}</b> orders/day` : ''}${ms.missing.length ? ` · ${mdLabel(ms.missing[ms.missing.length - 1])} not entered yet` : ''}</span><span class="spacer"></span><button class="link small" onClick=${goGoals}>Goals ›</button></div></section>`}
+        <div class="row tiny muted" style="gap:6px"><span>need <b style="color:var(--mid)">${R.money0(ms.needD)}/day</b> · averaging <b class="pos">${R.money0(ms.avgD)}/day</b>${ms.missing.length ? ` · ${mdLabel(ms.missing[ms.missing.length - 1])} not entered yet` : ''}</span><span class="spacer"></span><button class="link small" onClick=${goGoals}>Goals ›</button></div></section>`}
       <div class="phkpis">${kp.map(([a, b, c]) => html`<div class="panel"><span class="tiny muted">${a}</span><b class=${c}>${b}</b></div>`)}</div>
       <${TodoCheckins} data=${data} reload=${p.reload} say=${p.say} compact=${true} />
       <${CloseCalls} data=${data} setView=${p.setView} />
@@ -2138,7 +2138,7 @@ function StocksOverview(p) {
           <div class="row small" style="gap:8px;flex-wrap:wrap"><b>${MON_LONG[+ym.slice(5) - 1]}</b>${T.on ? html`<span class="tierbadge">${T.cur.name.toUpperCase()}</span>` : html`<span class="muted">${R.money0(gLo)} goal · ${R.money0(gHi)} stretch</span>`}<span class="spacer"></span><span class=${'sig ' + (ahead2 >= 0 ? 'sig-buy' : 'sig-sell')}>${ahead2 >= 0 ? 'AHEAD ' : 'BEHIND '}${R.money0(Math.abs(ahead2))}</span></div>
           <div class="row" style="gap:10px;align-items:baseline"><b class="sktgt">${signMoney(T.actual)}</b><span class="small muted">of ${R.money0(goal)} · ${R.money0(Math.max(0, goal - T.actual))} to go · ${dimM - passed} days left</span></div>
           <div class="sktrack"><i style=${`width:${Math.max(0, Math.min(100, T.actual / goal * 100)).toFixed(1)}%`}></i>${(T.on ? cleared : [{ amt: gLo }]).map((t) => html`<b style=${`left:${(t.amt / goal * 100).toFixed(1)}%`}></b>`)}</div>
-          <div class="small muted">need <b style="color:var(--mid)">${R.money0(needD)}/day</b>${T.on ? ` for ${T.cur.name}` : ' for the stretch'} · averaging <b class="pos">${R.money0(avgD)}/day</b>${T.proj != null ? html` · on pace for <b style="color:var(--ink)">${signMoney(T.proj)}</b>` : ''}${ordD != null ? html` · <b style="color:var(--ink)">${ordD.toFixed(1)}</b> orders/day` : ''}</div>
+          <div class="small muted">need <b style="color:var(--mid)">${R.money0(needD)}/day</b>${T.on ? ` for ${T.cur.name}` : ' for the stretch'} · averaging <b class="pos">${R.money0(avgD)}/day</b>${T.proj != null ? html` · on pace for <b style="color:var(--ink)">${signMoney(T.proj)}</b>` : ''}</div>
           ${missing.length > 0 && html`<div class="tiny muted">${missing.length === 1 ? mdLabel(missing[0]) + ' isn’t' : missing.length + ' days aren’t'} in Goals yet${est ? ` (about ${signMoney(est)} from Shopify and Meta)` : ''} · Goals counts only what you enter</div>`}
         </button>`; })()}
       <div class="skgrid2">
