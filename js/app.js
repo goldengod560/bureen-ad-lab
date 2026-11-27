@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=273';
-import * as R from './rules.js?v=273';
-import { importHistory } from './importer.js?v=273';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=273';
+import { createBackend } from './data.js?v=274';
+import * as R from './rules.js?v=274';
+import { importHistory } from './importer.js?v=274';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf, looseName } from './metafile.js?v=274';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1331,8 +1331,8 @@ function AdForm(ctx) {
   // Several files picked at once = a carousel: the first is the main picture, the rest are its cards.
   const pickFiles = (list) => { const fs = [...(list || [])]; pickFile(fs[0] || null); setCards(fs.slice(1)); if (fs.length > 1) setF((o) => ({ ...o, format: 'carousel' })); };
   // Ad names in your Meta files that aren't in the app yet (newest first), so a sale ad can be picked instead of typed.
-  const unknownNames = useMemo(() => { const known = new Set(data.ads.flatMap((a) => namesOf(a))), seen = new Map();
-    for (const r of data.meta_days || []) { const k = normName(r.ad_name); if (!known.has(k) && (!seen.has(k) || seen.get(k).day < r.day)) seen.set(k, r); }
+  const unknownNames = useMemo(() => { const known = new Set(data.ads.flatMap((a) => namesOf(a))), saleLoose = new Set(data.ads.filter((a) => a.stage === 'seasonal').flatMap((a) => namesOf(a).map(looseName))), seen = new Map();
+    for (const r of data.meta_days || []) { const k = normName(r.ad_name); if (!known.has(k) && !saleLoose.has(looseName(k)) && (!seen.has(k) || seen.get(k).day < r.day)) seen.set(k, r); }
     return [...seen.values()].sort((a, b) => b.day.localeCompare(a.day)).slice(0, 40).map((r) => r.ad_name); }, [data]);
   const save = async () => {
     if (!name.trim() || name.includes('…')) { say('Give the ad a short name.'); return; }
@@ -5734,7 +5734,7 @@ function SaleAds({ data, sale, setModal, compact, noList }) {
       ${!noList && rows.map(({ a, t }) => html`<button class="phad" onClick=${() => setModal({ type: AdDetail, props: { adId: a.id } })}><${Media} path=${a.media_path} type=${a.media_type} poster=${a.tags && a.tags.poster} cls="sm" />
         <span class="phadn"><b>${nm(a)}</b><span class="tiny muted">${a.format === 'carousel' ? 'Carousel' : a.format === 'video' ? 'Video' : 'Image'}${t.spend ? ` · ${R.money0(t.spend)} · ${Math.round(t.purchases)} buys` : ' · no spend yet'}</span></span>${t.spend ? roasPill(t.revenue / t.spend) : html`<span class="muted">›</span>`}</button>`)}`
     : html`<div class="small muted">Add the ads you made for this sale. They're kept out of your tests and Main, so they don't mess up those numbers.</div>`}
-    <div class="row" style="gap:8px;margin-top:8px"><button class="btn sm primary" onClick=${() => setModal({ type: AdForm, props: { mode: 'new', saleId: sale.id } })}>+ Add ${sale.name || 'sale'} ad</button>${!compact && rows.length > 0 && html`<span class="tiny muted">Numbers come from your Meta files, ${mdLabel(sale.start)} on. Names must match Ads Manager exactly.</span>`}</div></section>`;
+    <div class="row" style="gap:8px;margin-top:8px"><button class="btn sm primary" onClick=${() => setModal({ type: AdForm, props: { mode: 'new', saleId: sale.id } })}>+ Add ${sale.name || 'sale'} ad</button>${!compact && rows.length > 0 && html`<span class="tiny muted">Numbers come from your Meta files, ${mdLabel(sale.start)} on. Copies in Ads Manager ("… | Nov 26", "- Copy") count for the same ad.</span>`}</div></section>`;
 }
 
 // The sale's own page in Portfolio: the store during the sale vs before it, the sale ads, and day by day.

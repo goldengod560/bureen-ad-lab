@@ -1,6 +1,6 @@
 // Reads an Ads Manager export (CSV or Excel) into one row per ad per day.
 // Export at the Ad level, either one day at a time or with Breakdown → Time → Day.
-import * as R from './rules.js?v=273';
+import * as R from './rules.js?v=274';
 
 function parseCSV(text) {
   const rows = []; let row = [], cell = '', q = false;
@@ -135,8 +135,12 @@ function indexOf(metaDays) {
   if (!ix) { ix = new Map(); metaDays.forEach((r, i) => { const k = normName(r.ad_name); let a = ix.get(k); if (!a) ix.set(k, (a = [])); a.push(i); }); rowIndex.set(metaDays, ix); }
   return ix;
 }
+// Sale ads are often duplicated in Ads Manager ("… | Nov 26", "… - Copy"). For them, a copy counts as the same ad:
+// the name matches once a trailing "| Nov 26"-style date and "- Copy" are taken off.
+export const looseName = (s) => normName(s).replace(/\s*-\s*copy(\s*\d+)?$/, '').replace(/\s*\|\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}$/, '').trim();
 export function rowsForAd(ad, metaDays) {
   const ix = indexOf(metaDays), ns = [...new Set(namesOf(ad))];
+  if (ad.stage === 'seasonal') { const want = new Set(ns.map(looseName)); const hit = []; for (const [k, v] of ix) if (ns.includes(k) || want.has(looseName(k))) hit.push(...v); return [...new Set(hit)].sort((a, b) => a - b).map((i) => metaDays[i]); }
   if (ns.length === 1) return (ix.get(ns[0]) || []).map((i) => metaDays[i]);
   const all = ns.flatMap((n) => ix.get(n) || []).sort((a, b) => a - b);
   return all.map((i) => metaDays[i]);
