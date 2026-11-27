@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=272';
-import * as R from './rules.js?v=272';
-import { importHistory } from './importer.js?v=272';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=272';
+import { createBackend } from './data.js?v=273';
+import * as R from './rules.js?v=273';
+import { importHistory } from './importer.js?v=273';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=273';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -2106,7 +2106,7 @@ function StocksOverview(p) {
     const goGoals = () => { lsSet('adlab-sk-gtab', 'month'); p.setView('goal'); };
     const prow = (it) => html`<button class="phad" onClick=${it.go}>${it.ad ? html`<${Media} path=${it.ad.media_path} type=${it.ad.media_type} poster=${it.ad.tags && it.ad.tags.poster} cls="sm" />` : html`<span class="phic">⇪</span>`}
       <span class="phadn"><b>${it.title}</b><span class="tiny muted phclamp">${it.sub}</span></span>${it.ad ? html`<${SigChip} s=${adSignal(it.ad, data)} inline />` : html`<span class="muted">›</span>`}</button>`;
-    const kp = [['Profit ' + dayLbl, signMoney(cur.profit), cur.profit == null ? '' : cur.profit >= 0 ? 'pos' : 'neg'], ['Sales ' + dayLbl, cur.hasShop ? R.money0(cur.revenue) : '—', ''], ['MER', R.xroas(cur.mer), cur.mer != null && bev.roas ? (cur.mer >= bev.roas ? 'pos' : 'neg') : '']];
+    const kp = [['Profit ' + dayLbl, signMoney(cur.profit), cur.profit == null ? '' : cur.profit >= 0 ? 'pos' : 'neg'], ['Sales ' + dayLbl, cur.hasShop ? R.money0(cur.revenue) : '—', ''], ['MER ' + dayLbl, R.xroas(cur.mer), cur.mer != null && bev.roas ? (cur.mer >= bev.roas ? 'pos' : 'neg') : '']];
     const mains = byBest(liveRows.filter((r) => r.kind !== 'TEST')), tests = byBest(liveRows.filter((r) => r.kind === 'TEST'));
     return html`<div class="phhome">
       <div class="row phhead"><div><div class="tiny muted">${nowD.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</div><div class="phhi">Hey Yasin</div></div><span class="spacer"></span>${synced && html`<span class="phpill">Synced ${new Date(synced).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>`}</div>
