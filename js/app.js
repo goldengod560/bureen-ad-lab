@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=270';
-import * as R from './rules.js?v=270';
-import { importHistory } from './importer.js?v=270';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=270';
+import { createBackend } from './data.js?v=271';
+import * as R from './rules.js?v=271';
+import { importHistory } from './importer.js?v=271';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf } from './metafile.js?v=271';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -1936,13 +1936,14 @@ function monthGoalNow(data, day, gLo, gHi, products) {
   const mStart = day.slice(0, 8) + '01', econ = R.econOf(crewP), ym = mStart.slice(0, 7), mEnd = monthEnd(ym), dimM = R.daysBetween(mStart, mEnd) + 1, yd2 = R.addDays(R.today(), -1);
   if (!goalCE && crewP) goalCE = R.econOf(crewP);
   const dmG = dayMap(goalPeriods(data), R.storeEcon());
-  const days = Array.from({ length: dimM }, (_, i) => { const d = R.addDays(mStart, i), v = d <= yd2 ? dmG.get(d) : null; return { d, v: v ? v.profit : null }; });
+  const days = Array.from({ length: dimM }, (_, i) => { const d = R.addDays(mStart, i), v = d <= yd2 ? dmG.get(d) : null; return { d, v: v ? v.profit : null, o: v ? v.orders : null }; });
   const T = goalTiers(gLo, gHi, days); if (T.actual == null) return null;
+  const oDays = days.filter((x) => x.o != null), ordD = oDays.length ? oDays.reduce((t, x) => t + x.o, 0) / oDays.length : null;
   const goal = T.on ? T.cur.amt : gHi, gotDays = days.filter((x) => x.v != null).length, passed = Math.min(dimM, R.daysBetween(mStart, yd2) + 1), leftD = Math.max(1, dimM - passed);
   const needD = Math.max(0, (goal - T.actual) / leftD), avgD = T.actual / Math.max(1, gotDays), onTr = goal * passed / dimM, ahead2 = T.actual - onTr;
   const missing = days.filter((x) => x.d <= yd2 && x.v == null).map((x) => x.d), est = missing.reduce((t, d) => t + (dayProfit(data, d, econ) || 0), 0);
   const cleared = T.tiers.filter((t) => t.i != null && t.amt < goal);
-  return { T, ym, days, goal, passed, dimM, needD, avgD, ahead2, missing, est, cleared, gLo, gHi };
+  return { T, ym, days, goal, passed, dimM, needD, avgD, ahead2, missing, est, cleared, gLo, gHi, ordD };
 }
 
 // The phone's Goals chart: your total, the goal you're chasing as a flat line, ✓ where you cleared each goal, and where this pace ends.
@@ -2113,7 +2114,7 @@ function StocksOverview(p) {
         <div class="row" style="align-items:flex-start"><div><div class="tiny muted">Profit this month</div><div class="phbig">${signMoney(ms.T.actual)}</div>${cur.profit != null && html`<div class=${'small ' + (cur.profit >= 0 ? 'pos' : 'neg')}>${cur.profit >= 0 ? '+' : '−'}${R.money0(Math.abs(cur.profit))} ${dayLbl}</div>`}</div><span class="spacer"></span>
           <span class="tierbadge">${ms.T.on ? ms.T.cur.name.toUpperCase() + ' · ' : ''}${R.money0(Math.max(0, ms.goal - ms.T.actual))} to go</span></div>
         <${MiniGoalChart} ms=${ms} h=${170} />
-        <div class="row tiny muted" style="gap:6px"><span>need <b style="color:var(--mid)">${R.money0(ms.needD)}/day</b> · averaging <b class="pos">${R.money0(ms.avgD)}/day</b>${ms.missing.length ? ` · ${mdLabel(ms.missing[ms.missing.length - 1])} not entered yet` : ''}</span><span class="spacer"></span><button class="link small" onClick=${goGoals}>Goals ›</button></div></section>`}
+        <div class="row tiny muted" style="gap:6px"><span>need <b style="color:var(--mid)">${R.money0(ms.needD)}/day</b> · averaging <b class="pos">${R.money0(ms.avgD)}/day</b>${ms.ordD != null ? html` · <b style="color:var(--ink)">${ms.ordD.toFixed(1)}</b> orders/day` : ''}${ms.missing.length ? ` · ${mdLabel(ms.missing[ms.missing.length - 1])} not entered yet` : ''}</span><span class="spacer"></span><button class="link small" onClick=${goGoals}>Goals ›</button></div></section>`}
       <div class="phkpis">${kp.map(([a, b, c]) => html`<div class="panel"><span class="tiny muted">${a}</span><b class=${c}>${b}</b></div>`)}</div>
       <${TodoCheckins} data=${data} reload=${p.reload} say=${p.say} compact=${true} />
       <${CloseCalls} data=${data} setView=${p.setView} />
@@ -2132,12 +2133,12 @@ function StocksOverview(p) {
       <${PortfolioChart} key=${rng} pts=${shown} onSel=${setHv} />
       <div class="row skrng">${[['1W', '1W'], ['MTD', 'This month'], ['3M', '3M'], ['YTD', 'This year']].map(([k, l]) => html`<button class=${rng === k ? 'on' : ''} onClick=${() => { setRng(k); setHv(null); lsSet('adlab-sk-range2', k); }}>${l}</button>`)}<span class="spacer"></span><span class="small muted">profit after ads and all costs · your entered numbers, estimated on days without them</span></div>
       <div class="skstrip">${strip.map(([a, b, c, d]) => html`<div><div class="small muted">${a}</div><div class=${'skv ' + c}>${b}</div><div class="tiny muted">${d}</div></div>`)}</div>
-      ${(() => { const ms = monthNow; if (!ms) return null; const { T, ym, goal, passed, dimM, needD, avgD, ahead2, missing, est, cleared } = ms;
+      ${(() => { const ms = monthNow; if (!ms) return null; const { T, ym, goal, passed, dimM, needD, avgD, ahead2, missing, est, cleared, ordD } = ms;
         return html`<button class="panel sktarget" onClick=${() => { lsSet('adlab-sk-gtab', 'month'); p.setView && p.setView('goal'); }}>
           <div class="row small" style="gap:8px;flex-wrap:wrap"><b>${MON_LONG[+ym.slice(5) - 1]}</b>${T.on ? html`<span class="tierbadge">${T.cur.name.toUpperCase()}</span>` : html`<span class="muted">${R.money0(gLo)} goal · ${R.money0(gHi)} stretch</span>`}<span class="spacer"></span><span class=${'sig ' + (ahead2 >= 0 ? 'sig-buy' : 'sig-sell')}>${ahead2 >= 0 ? 'AHEAD ' : 'BEHIND '}${R.money0(Math.abs(ahead2))}</span></div>
           <div class="row" style="gap:10px;align-items:baseline"><b class="sktgt">${signMoney(T.actual)}</b><span class="small muted">of ${R.money0(goal)} · ${R.money0(Math.max(0, goal - T.actual))} to go · ${dimM - passed} days left</span></div>
           <div class="sktrack"><i style=${`width:${Math.max(0, Math.min(100, T.actual / goal * 100)).toFixed(1)}%`}></i>${(T.on ? cleared : [{ amt: gLo }]).map((t) => html`<b style=${`left:${(t.amt / goal * 100).toFixed(1)}%`}></b>`)}</div>
-          <div class="small muted">need <b style="color:var(--mid)">${R.money0(needD)}/day</b>${T.on ? ` for ${T.cur.name}` : ' for the stretch'} · averaging <b class="pos">${R.money0(avgD)}/day</b>${T.proj != null ? html` · on pace for <b style="color:var(--ink)">${signMoney(T.proj)}</b>` : ''}</div>
+          <div class="small muted">need <b style="color:var(--mid)">${R.money0(needD)}/day</b>${T.on ? ` for ${T.cur.name}` : ' for the stretch'} · averaging <b class="pos">${R.money0(avgD)}/day</b>${T.proj != null ? html` · on pace for <b style="color:var(--ink)">${signMoney(T.proj)}</b>` : ''}${ordD != null ? html` · <b style="color:var(--ink)">${ordD.toFixed(1)}</b> orders/day` : ''}</div>
           ${missing.length > 0 && html`<div class="tiny muted">${missing.length === 1 ? mdLabel(missing[0]) + ' isn’t' : missing.length + ' days aren’t'} in Goals yet${est ? ` (about ${signMoney(est)} from Shopify and Meta)` : ''} · Goals counts only what you enter</div>`}
         </button>`; })()}
       <div class="skgrid2">
@@ -3156,7 +3157,8 @@ function StocksGoal(g) {
         <div class="small" style="margin-top:4px"><b>${actual == null ? '—' : R.money0(Math.max(0, tg - actual))} to go</b> to ${R.money0(tg)} · ${dayN} days left</div>
         <div class="phbar"><i style=${`width:${actual == null ? 0 : Math.max(0, Math.min(100, actual / tg * 100)).toFixed(1)}%`}></i>${tDone.filter((t) => t.amt < tg).map((t) => html`<b style=${`left:${(t.amt / tg * 100).toFixed(1)}%`}></b>`)}</div>
         ${saleProfit.length > 0 && html`${saleProfit.map((x) => html`<div class="salesum small"><span class="salechip">SALE</span><span><b>${signMoney(x.v)}</b> of this month's ${signMoney(actual)} came during ${x.name}${actual > 0 && x.v > 0 ? ` (${Math.round(x.v / actual * 100)}%)` : ''}.</span></div>`)}`}
-        <div class="phkpis"><div class="panel"><span class="tiny muted">Need</span><b style="color:var(--mid)">${tNeed == null ? '—' : R.money0(tNeed)}/day</b></div><div class="panel"><span class="tiny muted">Averaging</span><b class="pos">${avg == null ? '—' : R.money0(avg)}/day</b></div><div class="panel"><span class="tiny muted">Ends near</span><b>${TT.proj == null ? '—' : signMoney(TT.proj)}</b></div></div></section>
+        <div class="phkpis"><div class="panel"><span class="tiny muted">Need</span><b style="color:var(--mid)">${tNeed == null ? '—' : R.money0(tNeed)}/day</b></div><div class="panel"><span class="tiny muted">Averaging</span><b class="pos">${avg == null ? '—' : R.money0(avg)}/day</b></div><div class="panel"><span class="tiny muted">Ends near</span><b>${TT.proj == null ? '—' : signMoney(TT.proj)}</b></div></div>
+        ${s.days > 0 && html`<div class="row small muted" style="gap:14px;margin-top:10px;flex-wrap:wrap"><span><b style="color:var(--ink)">${(s.orders / s.days).toFixed(1)}</b> orders/day</span><span><b style="color:var(--ink)">${Math.round(s.orders)}</b> orders</span><span><b style="color:var(--ink)">${R.money0(s.rev)}</b> sales</span><span>MER <b style="color:var(--ink)">${s.spend ? R.xroas(s.rev / s.spend) : '—'}</b></span></div>`}</section>
       <section class="panel">${head('chart', 'Chart', chartSum)}${!phHide.chart && actual != null && html`<${MiniGoalChart} ms=${{ days: daysArr, T: TT, goal: tg, bands: saleBands }} h=${210} /><div class="tiny muted">Dotted green = where this pace ends (~${signMoney(TT.proj)})</div>`}</section>
       <section class="panel">${head('tiers', 'Tiers', tierSum)}${!phHide.tiers && html`<div class=${'phladder' + (phHide.chart ? '' : ' tight')}>${ladder.map((t) => { const st2 = t.i != null ? 'done' : t.n === TT.cur.n ? 'now' : 'lock';
           return html`<div class=${'phrung ' + st2}><div class="row"><b>${t.n <= 2 ? t.name : 'Tier ' + t.n}</b>${st2 === 'lock' && html`<span class="tiny"> 🔒</span>`}<span class="spacer"></span><span class="small">${R.money0(t.amt)}</span></div>
@@ -3198,7 +3200,7 @@ function StocksGoal(g) {
         ${saleProfit.length > 0 && html`${saleProfit.map((x) => html`<div class="salesum small"><span class="salechip">SALE</span><span><b>${signMoney(x.v)}</b> of this month's ${signMoney(actual)} came during ${x.name}${actual > 0 && x.v > 0 ? ` (${Math.round(x.v / actual * 100)}%)` : ''}. It counts toward your tiers; just don't read it as your normal pace.</span></div>`)}`}
         <div class="row small"><b>Every day this month</b><span class="spacer"></span><span class="muted"><i class="skkey g"></i>made ${R.money0(perDayNeed)}+ · <i class="skkey a"></i>made money, under ${R.money0(perDayNeed)} · <i class="skkey r"></i>lost money · empty = to come${saleBands.length ? ' · SALE = sale day' : ''}</span></div>
         <div class="skdays">${daysArr.map((x, i) => html`<div class=${'skday' + (x.v == null ? '' : x.v >= perDayNeed ? ' g' : x.v >= 0 ? ' a' : ' r') + (x.today ? ' today' : '') + (x.sale ? ' sale' : '')} title=${x.d + (x.sale ? ' · ' + (x.sale.name || 'Sale') : '')}>${x.v == null ? i + 1 : signMoney(x.v)}${x.sale && html`<span class="saletag">SALE</span>`}</div>`)}</div>
-        <div class="skstrip" style="border-top:1px solid var(--line);padding-top:12px">${[['Sales', R.money0(s.rev)], ['Ad spend', R.money0(s.spend)], ['Profit', signMoney(actual)], ['MER', s.spend ? R.xroas(s.rev / s.spend) : '—'], ['Orders', Math.round(s.orders || 0)], ['Days with numbers', `${cm.days} of ${dimNow}`]].map(([a, b]) => html`<div><div class="small muted">${a}</div><div class="skv">${b}</div></div>`)}</div>
+        <div class="skstrip s7" style="border-top:1px solid var(--line);padding-top:12px">${[['Sales', R.money0(s.rev)], ['Ad spend', R.money0(s.spend)], ['Profit', signMoney(actual)], ['MER', s.spend ? R.xroas(s.rev / s.spend) : '—'], ['Orders', Math.round(s.orders || 0)], ['Orders a day', s.days ? (s.orders / s.days).toFixed(1) : '—'], ['Days with numbers', `${cm.days} of ${dimNow}`]].map(([a, b]) => html`<div><div class="small muted">${a}</div><div class="skv">${b}</div></div>`)}</div>
         <div class="tiny muted">${cc.final ? `${MON_LONG[+curYm.slice(5) - 1]} is closed: these numbers are exact.` : cc.whole ? `Exact except product cost, which is an estimate until you put in the Sada bill.` : `Estimates for now: shipping, fees and returns aren't exact until the month ends. On ${mdLabel(R.addDays(monthEnd(curYm), 1))} the app will ask for ${MON_LONG[+curYm.slice(5) - 1]}'s whole-month numbers, and product cost is exact once you pay Sada.`}</div>
       </section>
       <div class="stack" style="gap:14px">
@@ -4940,7 +4942,7 @@ function ReportCard({ data, dm, months, before }) {
     ${!open ? html`<div class="small muted">${name(ym)} at a glance: profit, best and worst ad, what changed, one lesson.</div>` : html`
     <div class="mp-tiles">
       <div class="mp-tile"><small class="row" style="gap:6px">Profit${g && r.s0.days ? html`<span class=${'gbadge t-' + gradeTone(monthGrade(r.s0.profit, g.lo, g.hi))} style="position:static;height:20px">${monthGrade(r.s0.profit, g.lo, g.hi)}</span>` : ''}</small><b class=${grade === 'hit' || grade === 'crushed' ? 'good' : grade === 'missed' ? 'bad' : ''}>${r.s0.days ? R.money0(r.s0.profit) : '—'}</b><span>${!g.pre ? `Goal ${R.money0(g.lo)}–${R.money0(g.hi)}${grade ? ' · ' + ({ hit: 'Hit', crushed: 'Crushed it', close: 'Close', missed: 'Missed' }[grade] || '') : ''}` : `Before the plan · graded vs the Rebuild goal (${R.money0(g.lo)}–${R.money0(g.hi)})`}${r.s0.days && r.p0.days ? html` · ${D(r.s0.profit, r.p0.profit, R.money0)}` : ''}</span>${r.s0.days && r.s0.days < R.daysBetween(ym + '-01', monthEnd(ym)) + 1 ? html`<span>Numbers for ${r.s0.days} days only</span>` : ''}</div>
-      <div class="mp-tile"><small>Sales · ads</small><b>${r.s0.days ? R.money0(r.s0.rev) : '—'}</b><span>${r.s0.days ? html`Ads ${R.money0(r.s0.spend)} · ${r.s0.spend ? R.xroas(r.s0.rev / r.s0.spend) : '—'} blended ·${D(r.s0.spend ? r.s0.rev / r.s0.spend : 0, r.p0.spend ? r.p0.rev / r.p0.spend : 0, (v) => R.xroas(v))}` : r.meta.spend ? `Meta: ${R.money0(r.meta.spend)} spent, ${R.xroas(r.meta.revenue / r.meta.spend)}` : 'No numbers'}</span><span>${r.s0.orders ? `${Math.round(r.s0.orders)} orders · ${R.money(r.s0.rev / r.s0.orders)} average` : ''}</span></div>
+      <div class="mp-tile"><small>Sales · ads</small><b>${r.s0.days ? R.money0(r.s0.rev) : '—'}</b><span>${r.s0.days ? html`Ads ${R.money0(r.s0.spend)} · ${r.s0.spend ? R.xroas(r.s0.rev / r.s0.spend) : '—'} blended ·${D(r.s0.spend ? r.s0.rev / r.s0.spend : 0, r.p0.spend ? r.p0.rev / r.p0.spend : 0, (v) => R.xroas(v))}` : r.meta.spend ? `Meta: ${R.money0(r.meta.spend)} spent, ${R.xroas(r.meta.revenue / r.meta.spend)}` : 'No numbers'}</span><span>${r.s0.orders ? `${Math.round(r.s0.orders)} orders · ${(r.s0.orders / r.s0.days).toFixed(1)}/day${r.p0.orders && r.p0.days ? ` (${(r.p0.orders / r.p0.days).toFixed(1)} the month before)` : ''} · ${R.money(r.s0.rev / r.s0.orders)} average` : ''}</span></div>
       <div class="mp-tile"><small>Best ad</small>${r.best ? html`<b class="good">${R.xroas(r.best.roas)}</b><span>${r.best.name.slice(0, 40)}</span><span>${R.money0(r.best.spend)} spent · ${r.best.buys} buy${r.best.buys === 1 ? '' : 's'}</span>` : html`<span>Not enough spend</span>`}</div>
       <div class="mp-tile"><small>Worst ad</small>${r.worst ? html`<b class="bad">${R.xroas(r.worst.roas)}</b><span>${r.worst.name.slice(0, 40)}</span><span>${R.money0(r.worst.spend)} spent · ${r.worst.buys} buy${r.worst.buys === 1 ? '' : 's'}</span>` : html`<span>Only one ad with $50+ spend</span>`}</div>
     </div>
