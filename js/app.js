@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=276';
-import * as R from './rules.js?v=276';
-import { importHistory } from './importer.js?v=276';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf, looseName } from './metafile.js?v=276';
+import { createBackend } from './data.js?v=277';
+import * as R from './rules.js?v=277';
+import { importHistory } from './importer.js?v=277';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf, looseName } from './metafile.js?v=277';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -746,7 +746,7 @@ function Archive(ctx) {
   const [folder, setFolder] = useState(() => lsGet('adlab-folder', 'ideas'));
   const [sel, setSel] = useState(null);
   useEffect(() => lsSet('adlab-folder', folder), [folder]);
-  const ads = data.ads.filter((a) => (a.stage === 'seasonal' ? true : a.product_id === product.id));
+  const ads = data.ads.filter((a) => (a.stage === 'seasonal' ? saleAdDone(data, a) : a.product_id === product.id));
   const count = (k) => ads.filter((a) => a.stage === k).length;
   const toggle = (id) => setSel(sel.includes(id) ? sel.filter((x) => x !== id) : [...sel, id]);
   const cctx = { ...ctx, select: !!sel, onToggle: toggle };
@@ -2041,9 +2041,9 @@ function PhoneAds({ data, products, setModal }) {
   const last = lastMetaDay(data) || R.addDays(R.today(), -1);
   const pOf = (a) => products.find((x) => x.id === a.product_id) || {};
   const ads = data.ads.filter((a) => (a.stage === 'seasonal' || pf === 'all' || a.product_id === pf) && products.some((x) => x.id === a.product_id));
-  const cnt = (k) => ads.filter((a) => a.stage === k).length;
+  const cnt = (k) => ads.filter((a) => a.stage === k && !(k === 'seasonal' && saleAdDone(data, a))).length;
   const r7 = (a) => { const t = sumRows(rowsForAd(a, data.meta_days).filter((r) => r.day > R.addDays(last, -7) && r.day <= last)); return t.spend ? { roas: t.revenue / t.spend, spend: t.spend, buys: t.purchases } : null; };
-  const list = ads.filter((a) => a.stage === stg).map((a) => ({ a, t: ['main', 'testing', 'seasonal'].includes(stg) ? r7(a) : null }))
+  const list = ads.filter((a) => a.stage === stg && !(stg === 'seasonal' && saleAdDone(data, a))).map((a) => ({ a, t: ['main', 'testing', 'seasonal'].includes(stg) ? r7(a) : null }))
     .sort((x, y) => (y.t ? y.t.roas : -1) - (x.t ? x.t.roas : -1));
   const nm = (a) => displayName(a).replace(/^(IMG|VID|Image|Video)\s*[|–-]\s*/i, '').replace(/\s*\|\s*V\d+$/i, '');
   return html`<div class="phads">
@@ -5747,6 +5747,8 @@ function runningOrder(data, products) {
 }
 // A sale's "To" date is the morning you turn it off, so its last full selling day is the day before.
 const saleLastDay = (s) => (s.end && s.start && s.end > s.start ? R.addDays(s.end, -1) : s.end);
+// A sale ad is "done" (goes to History) once you turn it off, or once its sale is over.
+function saleAdDone(data, a) { const t = a.tags || {}; if (t.off || !t.sale) return true; const st = planOf(data).steps.find((x) => x.id === t.sale); return !st || saleLastDay(st) < R.today(); }
 function saleTabSale(data) { const td = R.today(); return planOf(data).steps.filter((x) => x.kind === 'sale' && x.end && R.addDays(x.end, 7) >= td && x.start <= R.addDays(td, 14)).sort((a, b) => a.start.localeCompare(b.start))[0] || null; }
 function saleOn(data) { const td = R.today(); return planOf(data).steps.filter((x) => x.kind === 'sale' && x.end && x.end >= R.addDays(td, -2) && x.start <= R.addDays(td, 14)).sort((a, b) => a.start.localeCompare(b.start))[0] || null; }
 function SaleAds({ data, sale, setModal, compact, noList }) {
@@ -5759,8 +5761,9 @@ function SaleAds({ data, sale, setModal, compact, noList }) {
   const nm = (a) => a.base_name.replace(/^(IMG|VID|CAR|Image|Video|Carousel)\s*[|–-]\s*/i, '');
   return html`<section class="panel saleads"><div class="row" style="gap:8px;flex-wrap:wrap"><span class="sig sig-hold">SALE</span><h2 style="margin:0">${sale.name || 'Sale'} ads</h2><span class="spacer"></span><span class="small muted">${on ? 'on now' : left > 0 ? `starts in ${left} day${left === 1 ? '' : 's'}` : 'ended'} · ${mdLabel(sale.start)}–${mdLabel(saleLastDay(sale))}</span></div>
     ${rows.length ? html`${tot.spend > 0 && html`<div class="saletot"><div><span class="tiny muted">Spent</span><b>${R.money0(tot.spend)}</b></div><div><span class="tiny muted">Purchases</span><b>${Math.round(tot.purchases)}</b></div><div><span class="tiny muted">ROAS</span><b class=${tot.revenue / tot.spend >= 2.85 ? 'pos' : 'neg'}>${R.xroas(tot.revenue / tot.spend)}</b></div><div><span class="tiny muted">CPA</span><b>${tot.purchases ? R.money(tot.spend / tot.purchases) : '—'}</b></div></div>`}
-      ${!noList && rows.map(({ a, t }) => html`<button class=${'phad' + ((a.tags || {}).off ? ' saleoff' : '')} onClick=${() => setModal({ type: AdDetail, props: { adId: a.id } })}><${Media} path=${a.media_path} type=${a.media_type} poster=${a.tags && a.tags.poster} cls="sm" />
-        <span class="phadn"><b>${nm(a)}</b><span class="tiny muted">${(a.tags || {}).off ? html`<b class="neg">Off ${mdLabel(a.tags.off)}</b> · ` : ''}${a.format === 'carousel' ? 'Carousel' : a.format === 'video' ? 'Video' : 'Image'}${t.spend ? ` · ${R.money0(t.spend)} · ${Math.round(t.purchases)} buys` : ' · no spend yet'}</span></span>${t.spend ? roasPill(t.revenue / t.spend) : html`<span class="muted">›</span>`}</button>`)}`
+      ${!noList && rows.filter((x) => !(x.a.tags || {}).off).map(({ a, t }) => html`<button class=${'phad' + ((a.tags || {}).off ? ' saleoff' : '')} onClick=${() => setModal({ type: AdDetail, props: { adId: a.id } })}><${Media} path=${a.media_path} type=${a.media_type} poster=${a.tags && a.tags.poster} cls="sm" />
+        <span class="phadn"><b>${nm(a)}</b><span class="tiny muted">${(a.tags || {}).off ? html`<b class="neg">Off ${mdLabel(a.tags.off)}</b> · ` : ''}${a.format === 'carousel' ? 'Carousel' : a.format === 'video' ? 'Video' : 'Image'}${t.spend ? ` · ${R.money0(t.spend)} · ${Math.round(t.purchases)} buys` : ' · no spend yet'}</span></span>${t.spend ? roasPill(t.revenue / t.spend) : html`<span class="muted">›</span>`}</button>`)}
+    ${rows.some((x) => (x.a.tags || {}).off) && html`<div class="tiny muted" style="margin-top:4px">${rows.filter((x) => (x.a.tags || {}).off).length} turned off: ${rows.filter((x) => (x.a.tags || {}).off).map((x) => nm(x.a)).join(', ')} · in History → Seasonal (still counted in the totals above)</div>`}`
     : html`<div class="small muted">Add the ads you made for this sale. They're kept out of your tests and Main, so they don't mess up those numbers.</div>`}
     <div class="row" style="gap:8px;margin-top:8px"><button class="btn sm primary" onClick=${() => setModal({ type: AdForm, props: { mode: 'new', saleId: sale.id } })}>+ Add ${sale.name || 'sale'} ad</button>${!compact && rows.length > 0 && html`<span class="tiny muted">Numbers come from your Meta files, ${mdLabel(sale.start)} on. Copies in Ads Manager ("… | Nov 26", "- Copy") count for the same ad.</span>`}</div></section>`;
 }
@@ -5801,7 +5804,7 @@ function SalePage(ctx) {
     ${strays.length > 0 && html`<section class="panel"><div class="row" style="gap:8px;flex-wrap:wrap"><span class="small">Added a ${sale.name || 'sale'} ad the normal way and it landed under a product? Move it here:</span>
       <select class="inp" style="max-width:360px" value=${mv} onChange=${(e) => setMv(e.target.value)}><option value="">Pick the ad…</option>${strays.map((a) => html`<option value=${a.id}>${a.base_name} (${(data.products.find((p) => p.id === a.product_id) || {}).name} · ${skName(a.stage)})</option>`)}</select>
       <button class="btn sm primary" disabled=${!mv} onClick=${moveIn}>Move to ${sale.name || 'sale'}</button></div></section>`}
-    ${saleAds.length > 0 && html`<section class="panel"><h2>The ads</h2><div class="skgrid">${saleAds.map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${ctx} />`)}</div></section>`}
+    ${saleAds.some((a) => !(a.tags || {}).off) && html`<section class="panel"><h2>The ads</h2><div class="skgrid">${saleAds.filter((a) => !(a.tags || {}).off).map((ad) => html`<${Card} key=${ad.id} ad=${ad} ...${ctx} />`)}</div></section>`}
     ${n > 0 && html`<section class="panel"><h2>Day by day</h2><div class="tablewrap"><table class="sktable"><thead><tr><th>Day</th><th>Sales</th><th>Orders</th><th>All ad spend</th><th>MER</th><th>Sale ads spend</th><th>Sale ads ROAS</th></tr></thead>
       <tbody>${byDay.map((x) => html`<tr><td>${R.parseDay(x.d).toLocaleDateString('en-US', { weekday: 'short' })} ${mdLabel(x.d)}</td><td>${x.sl == null ? '—' : R.money0(x.sl)}</td><td>${x.orders == null ? '—' : x.orders}</td><td>${R.money0(x.sp)}</td><td>${x.mer == null ? '—' : R.xroas(x.mer)}</td><td>${x.saleSp ? R.money0(x.saleSp) : '—'}</td><td>${x.saleRoas == null ? '—' : roasPill(x.saleRoas)}</td></tr>`)}</tbody></table></div>
       <div class="tiny muted">Sales and orders from Shopify (tax included, refunds out). Ad spend from your Meta files, so it needs the file for that day.</div></section>`}
