@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=275';
-import * as R from './rules.js?v=275';
-import { importHistory } from './importer.js?v=275';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf, looseName } from './metafile.js?v=275';
+import { createBackend } from './data.js?v=276';
+import * as R from './rules.js?v=276';
+import { importHistory } from './importer.js?v=276';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf, looseName } from './metafile.js?v=276';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -379,7 +379,7 @@ function cardInfo(ad, ctx) {
   if (ad.stage === 'ideas') return { line: ad.angle || 'Idea', chip: tags.review ? `Check ${tags.review.score}` : null, tone: tags.review ? (tags.review.score >= 80 ? 'pass' : tags.review.score >= 60 ? 'mid' : 'fail') : 'muted' };
   if (ad.stage === 'retest') return { line: stats || ad.angle || '', chip: null };
   if (ad.stage === 'bench') return { line: stats || 'Passed', chip: ad.result === 'strong_pass' ? 'Strong' : null, tone: 'pass', glow: 'pass' };
-  if (ad.stage === 'seasonal') return { line: tags.off ? `Turned off ${mdLabel(tags.off)}${stats ? ' · ' + stats : ''}` : stats || '', chip: tags.off ? 'OFF' : tags.season || null, tone: tags.off ? 'muted' : 'ins' };
+  if (ad.stage === 'seasonal') return { line: tags.off ? `Turned off ${mdLabel(tags.off)}${tags.offReason ? ` (${tags.offReason})` : ''}${stats ? ' · ' + stats : ''}` : stats || '', chip: tags.off ? 'OFF' : tags.season || null, tone: tags.off ? 'muted' : 'ins' };
   return { line: stats || '', chip: null };
 }
 
@@ -1148,8 +1148,8 @@ function AdDetail(ctx) {
       const tg = ad.tags || {};
       if (tg.sale) {
         // You turn it off in Meta; this only logs it so the app shows it as off.
-        const setOff = async (on) => { const t = { ...tg }; if (on) t.off = R.today(); else delete t.off; await be.update('ads', ad.id, { tags: t }); await reload(); say(on ? 'Marked as turned off' : 'Marked as running again'); };
-        actions.push(tg.off ? A('Turned back on', () => setOff(false)) : A('I turned it off in Meta', () => setOff(true), 'primary'));
+        const backOn = async () => { const t = { ...tg }; delete t.off; delete t.offReason; await be.update('ads', ad.id, { tags: t }); await be.insert('decisions', { product_id: ad.product_id, ad_id: ad.id, kind: 'move', day: R.today(), choice: 'Sale ad turned back on', reason: '' }); await reload(); say('Marked as running again'); };
+        actions.push(tg.off ? A('Turned back on', backOn) : A('I turned it off in Meta', () => open(SaleOffForm), 'primary'));
       } else actions.push(A('Queue it: Up Next', () => move('next', 'Pulled from Seasonal')));
       break; }
   }
@@ -1696,6 +1696,29 @@ function MainForm(ctx) {
       <div class="row" style="flex-wrap:wrap;gap:8px"><button class=${'btn ' + (!cmp || cmp.keep ? 'primary' : '')} onClick=${() => record(true)}>Keep in Main</button>
         <button class=${'btn ' + (cmp && !cmp.keep && cmp.a != null ? 'primary' : '')} onClick=${() => record(false, 'bench')}>Back to Bench</button>
         <button class="btn" onClick=${() => record(false, 'mid')}>Mid-Tier</button><button class="btn danger" onClick=${() => record(false, 'failed')}>Failed</button><button class="btn ghost" onClick=${close}>Cancel</button></div>`}
+  <//>`;
+}
+
+// A sale ad turned off in Meta: when and why. It stays with the sale (its numbers still count) and shows as OFF.
+function SaleOffForm(ctx) {
+  const { data, adId, close, reload, say } = ctx;
+  const ad = data.ads.find((a) => a.id === adId);
+  const [f, setF] = useState({ date: R.today(), reason: 'not converting', note: '' });
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const t = sumRows(rowsForAd(ad, data.meta_days));
+  const go = async () => {
+    await be.update('ads', ad.id, { tags: { ...(ad.tags || {}), off: f.date, offReason: f.reason } });
+    await be.insert('decisions', { product_id: ad.product_id, ad_id: ad.id, kind: 'kill', day: f.date, choice: `Sale ad turned off: ${f.reason}`, reason: f.note });
+    await reload(); close(); say('Marked as turned off');
+  };
+  return html`<${Modal} title="Turned off" sub=${ad.base_name} onClose=${close}>
+    <div class="form">
+      <${Field} label="Date turned off"><input type="date" value=${f.date} max=${R.today()} onInput=${set('date')} /><//>
+      <${Field} label="Why"><select value=${f.reason} onChange=${set('reason')}><option value="not converting">Not converting (failed)</option><option value="too expensive">Cost per buy too high</option><option value="replaced">Moved budget to a better ad</option><option value="sale over">Sale is over</option><option value="other">Other</option></select><//>
+      <${Field} full label="Note"><input value=${f.note} onInput=${set('note')} placeholder="optional" /><//>
+    </div>
+    ${t.spend > 0 && html`<div class="status live">So far: ${R.money0(t.spend)} spent · ${Math.round(t.purchases)} buy${Math.round(t.purchases) === 1 ? '' : 's'} · ${t.spend ? R.xroas(t.revenue / t.spend) : '—'} ROAS. These still count in the sale totals.</div>`}
+    <div class="row"><button class="btn primary" onClick=${go}>Mark as turned off</button><button class="btn ghost" onClick=${close}>Cancel</button></div>
   <//>`;
 }
 
