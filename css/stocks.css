@@ -572,3 +572,4 @@ button.sktarget{display:flex;flex-direction:column;text-align:left;width:100%;cu
 .phwk i.part{opacity:.55}
 .closecall .salebadge{margin-left:6px}
 @media (min-width:1101px){.skstrip.s7{grid-template-columns:repeat(7,minmax(0,1fr))}}
+.saleoff{opacity:.55}

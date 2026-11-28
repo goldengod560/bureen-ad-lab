@@ -1,10 +1,10 @@
 import { h, render } from 'preact';
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import htm from 'htm';
-import { createBackend } from './data.js?v=274';
-import * as R from './rules.js?v=274';
-import { importHistory } from './importer.js?v=274';
-import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf, looseName } from './metafile.js?v=274';
+import { createBackend } from './data.js?v=275';
+import * as R from './rules.js?v=275';
+import { importHistory } from './importer.js?v=275';
+import { readMetaFile, rowsForAd, sumRows, normName, readTable, namesOf, looseName } from './metafile.js?v=275';
 
 const html = htm.bind(h);
 const be = createBackend();
@@ -379,7 +379,7 @@ function cardInfo(ad, ctx) {
   if (ad.stage === 'ideas') return { line: ad.angle || 'Idea', chip: tags.review ? `Check ${tags.review.score}` : null, tone: tags.review ? (tags.review.score >= 80 ? 'pass' : tags.review.score >= 60 ? 'mid' : 'fail') : 'muted' };
   if (ad.stage === 'retest') return { line: stats || ad.angle || '', chip: null };
   if (ad.stage === 'bench') return { line: stats || 'Passed', chip: ad.result === 'strong_pass' ? 'Strong' : null, tone: 'pass', glow: 'pass' };
-  if (ad.stage === 'seasonal') return { line: stats || '', chip: tags.season || null, tone: 'ins' };
+  if (ad.stage === 'seasonal') return { line: tags.off ? `Turned off ${mdLabel(tags.off)}${stats ? ' · ' + stats : ''}` : stats || '', chip: tags.off ? 'OFF' : tags.season || null, tone: tags.off ? 'muted' : 'ins' };
   return { line: stats || '', chip: null };
 }
 
@@ -1144,9 +1144,14 @@ function AdDetail(ctx) {
       actions.push(A('Recycle with a fix', () => setModal({ type: AdForm, props: { mode: 'version', adId: ad.id, recycle: true } })));
       if (ad.setup_era === 'era1') actions.push(A('Move to Retest (Era 1 result)', () => move('retest', 'Era 1 result was not a fair test')));
       break;
-    case 'seasonal':
-      actions.push(A('Queue it: Up Next', () => move('next', 'Pulled from Seasonal')));
-      break;
+    case 'seasonal': {
+      const tg = ad.tags || {};
+      if (tg.sale) {
+        // You turn it off in Meta; this only logs it so the app shows it as off.
+        const setOff = async (on) => { const t = { ...tg }; if (on) t.off = R.today(); else delete t.off; await be.update('ads', ad.id, { tags: t }); await reload(); say(on ? 'Marked as turned off' : 'Marked as running again'); };
+        actions.push(tg.off ? A('Turned back on', () => setOff(false)) : A('I turned it off in Meta', () => setOff(true), 'primary'));
+      } else actions.push(A('Queue it: Up Next', () => move('next', 'Pulled from Seasonal')));
+      break; }
   }
   const era = R.ERAS[ad.setup_era];
   if (LOOK === 'stocks') return html`<${StockQuote} ...${ctx} ad=${ad} product=${product} actions=${actions} tests=${tests} decisions=${decisions} family=${family} active=${active} move=${move} confirmDel=${confirmDel} setConfirmDel=${setConfirmDel} del=${del} rules=${rules} econ=${econ} />`;
@@ -5725,14 +5730,14 @@ function SaleAds({ data, sale, setModal, compact, noList }) {
   if (!sale) return null;
   const td = R.today(), ads = data.ads.filter((a) => a.stage === 'seasonal' && (a.tags || {}).sale === sale.id);
   const pOf = (a) => data.products.find((x) => x.id === a.product_id) || {};
-  const rows = ads.map((a) => ({ a, t: sumRows(rowsForAd(a, data.meta_days).filter((r) => r.day >= sale.start && r.day <= sale.end)) })).sort((x, y) => y.t.spend - x.t.spend);
+  const rows = ads.map((a) => ({ a, t: sumRows(rowsForAd(a, data.meta_days).filter((r) => r.day >= sale.start && r.day <= sale.end)) })).sort((x, y) => (!!(x.a.tags || {}).off - !!(y.a.tags || {}).off) || y.t.spend - x.t.spend);
   const tot = rows.reduce((m, x) => ({ spend: m.spend + x.t.spend, revenue: m.revenue + x.t.revenue, purchases: m.purchases + x.t.purchases }), { spend: 0, revenue: 0, purchases: 0 });
   const left = R.daysBetween(td, sale.start), on = td >= sale.start && td <= saleLastDay(sale);
   const nm = (a) => a.base_name.replace(/^(IMG|VID|CAR|Image|Video|Carousel)\s*[|–-]\s*/i, '');
   return html`<section class="panel saleads"><div class="row" style="gap:8px;flex-wrap:wrap"><span class="sig sig-hold">SALE</span><h2 style="margin:0">${sale.name || 'Sale'} ads</h2><span class="spacer"></span><span class="small muted">${on ? 'on now' : left > 0 ? `starts in ${left} day${left === 1 ? '' : 's'}` : 'ended'} · ${mdLabel(sale.start)}–${mdLabel(saleLastDay(sale))}</span></div>
     ${rows.length ? html`${tot.spend > 0 && html`<div class="saletot"><div><span class="tiny muted">Spent</span><b>${R.money0(tot.spend)}</b></div><div><span class="tiny muted">Purchases</span><b>${Math.round(tot.purchases)}</b></div><div><span class="tiny muted">ROAS</span><b class=${tot.revenue / tot.spend >= 2.85 ? 'pos' : 'neg'}>${R.xroas(tot.revenue / tot.spend)}</b></div><div><span class="tiny muted">CPA</span><b>${tot.purchases ? R.money(tot.spend / tot.purchases) : '—'}</b></div></div>`}
-      ${!noList && rows.map(({ a, t }) => html`<button class="phad" onClick=${() => setModal({ type: AdDetail, props: { adId: a.id } })}><${Media} path=${a.media_path} type=${a.media_type} poster=${a.tags && a.tags.poster} cls="sm" />
-        <span class="phadn"><b>${nm(a)}</b><span class="tiny muted">${a.format === 'carousel' ? 'Carousel' : a.format === 'video' ? 'Video' : 'Image'}${t.spend ? ` · ${R.money0(t.spend)} · ${Math.round(t.purchases)} buys` : ' · no spend yet'}</span></span>${t.spend ? roasPill(t.revenue / t.spend) : html`<span class="muted">›</span>`}</button>`)}`
+      ${!noList && rows.map(({ a, t }) => html`<button class=${'phad' + ((a.tags || {}).off ? ' saleoff' : '')} onClick=${() => setModal({ type: AdDetail, props: { adId: a.id } })}><${Media} path=${a.media_path} type=${a.media_type} poster=${a.tags && a.tags.poster} cls="sm" />
+        <span class="phadn"><b>${nm(a)}</b><span class="tiny muted">${(a.tags || {}).off ? html`<b class="neg">Off ${mdLabel(a.tags.off)}</b> · ` : ''}${a.format === 'carousel' ? 'Carousel' : a.format === 'video' ? 'Video' : 'Image'}${t.spend ? ` · ${R.money0(t.spend)} · ${Math.round(t.purchases)} buys` : ' · no spend yet'}</span></span>${t.spend ? roasPill(t.revenue / t.spend) : html`<span class="muted">›</span>`}</button>`)}`
     : html`<div class="small muted">Add the ads you made for this sale. They're kept out of your tests and Main, so they don't mess up those numbers.</div>`}
     <div class="row" style="gap:8px;margin-top:8px"><button class="btn sm primary" onClick=${() => setModal({ type: AdForm, props: { mode: 'new', saleId: sale.id } })}>+ Add ${sale.name || 'sale'} ad</button>${!compact && rows.length > 0 && html`<span class="tiny muted">Numbers come from your Meta files, ${mdLabel(sale.start)} on. Copies in Ads Manager ("… | Nov 26", "- Copy") count for the same ad.</span>`}</div></section>`;
 }
